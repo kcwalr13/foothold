@@ -6,7 +6,9 @@ import './style.css';
 render(<App />, document.getElementById('app')!);
 
 // Cache the whole game for offline play. A new version downloads quietly and waits for the menu.
-if ('serviceWorker' in navigator && !new URLSearchParams(location.search).has('nosw')) {
+// (Not inside a preview frame, where service workers are refused.)
+const framed = window.self !== window.top;
+if ('serviceWorker' in navigator && !framed && !new URLSearchParams(location.search).has('nosw')) {
   const update = registerSW({
     immediate: true,
     onNeedRefresh() { updateReady.value = () => void update(true); },
