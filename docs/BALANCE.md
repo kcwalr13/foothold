@@ -17,7 +17,7 @@ expected to meet; where M2 misses, this report says by how much and why.
 
 | Check | Target | M2 result | Status |
 | --- | --- | --- | --- |
-| Same match twice | Same seed and orders give the identical result in Node, Chromium and WebKit | A re-run and a replay from the order log are identical in Node. Chromium, at three phone sizes, replays a ten-minute Node match from its seed and 586 orders to the same checksum, and plays its own from scratch to the same checksum. The same check runs in WebKit on GitHub before each deploy | Met in Node and Chromium; WebKit runs with the deploy |
+| Same match twice | Same seed and orders give the identical result in Node, Chromium and WebKit | A re-run and a replay from the order log are identical in Node. Chromium, at three phone sizes, replays a ten-minute Node match from its seed and 586 orders to the same checksum, and plays its own from scratch to the same checksum. WebKit passes the same check on GitHub, where it runs before each deploy | Met |
 | Fair to both sides | Neither end of the map is favoured | Exactly so. A match between two copies of the opponent is a mirror image of itself on every tick for 15 minutes, in all nine opening and tech pairings. Eighteen matches between different opponents, replayed with the seats swapped, are the same match unit for unit to the end | Met. M1's lean toward one side was real; thirteen causes found and fixed (below) |
 | Counter table holds | Equal-cost fights come out as the unit table says | Every pairing the unit table promises, 21 in all, is pinned by a test | Met |
 | Fair fog | The opponent can't read what its units don't see | A test checks every enemy in the opponent's view is one it can see, over a whole match, with high ground and flyers in play | Met |
@@ -222,5 +222,4 @@ Lancers 170% to Armoured (and still 200% to Structures), and Turrets 60% to Armo
   and concedes.
 - The opponent runs short of Blocks with Batteries to spare, and its armour path suffers most for it.
 - A four-Barracks Trooper push still beats the opponent's rush and its fast expansion.
-- WebKit's same-match result arrives with the deploy of this build.
 - True frame rate, which needs a real phone.
