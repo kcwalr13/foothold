@@ -130,7 +130,7 @@ test('place a building by dragging its outline, then cancel one under constructi
   expect(await state<number>(p, '(m) => m.g.players[0].blocks')).toBeGreaterThanOrEqual(560);
 });
 
-test('select a group, send it with a tap on the map and on the minimap, split it, hold it', async ({ page: p }, info) => {
+test('select a group, send it with a tap on the map and on the minimap; Move stays on until switched back', async ({ page: p }) => {
   await start(p);
   await p.evaluate(() => {
     const m = (window as Any).__fh;
@@ -155,25 +155,105 @@ test('select a group, send it with a tap on the map and on the minimap, split it
   await run(p, 200);
   const near = await state<boolean>(p, '(m) => m.g.ents.filter((e) => e.owner === 0 && e.group === 0).every((e) => Math.abs(e.x - 19 * 256) < 3 * 256 && Math.abs(e.y - 44 * 256) < 3 * 256)');
   expect(near).toBe(true);
-  // Move is one-shot, by a tap on the minimap.
-  await p.getByRole('button', { name: 'Move', exact: true }).tap();
+  // Move, by a tap on the minimap, and it stays Move for the next order too.
   const mini = (await p.locator('.mini').boundingBox())!;
+  const move = p.getByRole('button', { name: 'Move', exact: true }), attack = p.getByRole('button', { name: 'Attack', exact: true });
+  await move.tap();
+  await expect(move).toHaveAttribute('aria-pressed', 'true');
   await p.touchscreen.tap(mini.x + mini.width * (30 / 96), mini.y + mini.height * (38 / 48));
   await run(p, 2);
   expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 2 });
-  expect(await state<number>(p, '(m) => m.mode.value')).toBe(1);
-  // Press and hold the group to split it: Runners to Group 2.
-  await hold(p, '[aria-label="Group 1"]');
-  await expect(p.getByRole('heading', { name: 'Group 1: 5 units' })).toBeVisible();
-  await noSmallButtons(p);
-  await p.screenshot({ path: info.outputPath('split.png') });
-  await p.locator('.srow', { hasText: 'Runner' }).getByRole('button', { name: '2' }).tap();
-  await run(p, 3);
-  expect(await state<number[]>(p, '(m) => m.hud.value.groups.map((g) => g.count)')).toEqual([4, 1, 0, 0]);
-  expect(await state<number>(p, '(m) => m.sel.value')).toBe(1);
+  await expect(move).toHaveAttribute('aria-pressed', 'true');
+  await expect(p.locator('.hint')).toContainText('without stopping to fight');
+  await expect(p.locator('[data-group="0"] .gmode')).toHaveText('move');
+  await p.touchscreen.tap(mini.x + mini.width * (24 / 96), mini.y + mini.height * (40 / 48));
+  await run(p, 2);
+  expect(await state<{ mode: number; x: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 2 });
+  expect(await state<number>(p, '(m) => m.g.players[0].groups[0].x')).toBeLessThan(27 * 256);
+  // The setting is the group's own: deselect, select again, still Move. Attack switches it back.
+  await p.getByRole('button', { name: 'Group 1' }).tap();
+  await expect(move).toBeDisabled();
+  await p.getByRole('button', { name: 'Group 1' }).tap();
+  await expect(move).toHaveAttribute('aria-pressed', 'true');
+  await attack.tap();
+  await expect(attack).toHaveAttribute('aria-pressed', 'true');
+  await p.touchscreen.tap(mini.x + mini.width * (30 / 96), mini.y + mini.height * (38 / 48));
+  await run(p, 2);
+  expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 1 });
   await p.getByRole('button', { name: 'Hold', exact: true }).tap();
   await run(p, 2);
-  expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[1]')).toMatchObject({ mode: 3 });
+  expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 3 });
+});
+
+test('make groups in the organiser: tap the units, then the group they should join', async ({ page: p }, info) => {
+  await start(p);
+  await p.evaluate(() => {
+    const m = (window as Any).__fh;
+    for (let i = 0; i < 8; i++) m.debugSpawn(2, 0, 15 + (i % 4), 40 + Math.floor(i / 4));
+    for (let i = 0; i < 3; i++) m.debugSpawn(4, 0, 15 + i, 42);
+    for (let i = 0; i < 2; i++) m.debugSpawn(5, 0, 15 + i, 43);
+    for (const e of m.g.ents) if (e.owner === 0 && e.group === 3) e.group = 0;
+  });
+  await run(p, 2);
+  const counts = () => state<number[]>(p, '(m) => m.hud.value.groups.map((g) => g.count)');
+  const kinds = (g: number) => state<Record<string, number>>(p, `(m) => Object.fromEntries(m.hud.value.groups[${g}].kinds.map((k) => [k.kind, k.n]))`);
+  expect(await counts()).toEqual([13, 0, 0, 0]);
+  // The Groups button is always there, and says what to do.
+  await p.getByRole('button', { name: 'Groups', exact: true }).tap();
+  await expect(p.locator('.org [data-row="hint"]')).toContainText('Tap the units you want');
+  await noSmallButtons(p);
+  // All three Runners to Group 2: tap them, tap Group 2.
+  await p.getByRole('button', { name: '3 Runners in Group 1' }).tap();
+  await expect(p.locator('.org [data-row="picked"]')).toContainText('Runners from Group 1');
+  await expect(p.locator('.org .count')).toHaveText('3');
+  await noSmallButtons(p);
+  await p.screenshot({ path: info.outputPath('organiser.png') });
+  await p.getByRole('button', { name: 'Move them to Group 2' }).tap();
+  await run(p, 3);
+  expect(await counts()).toEqual([10, 3, 0, 0]);
+  expect(await kinds(1)).toEqual({ 4: 3 });
+  // Some of a kind: five of the eight Troopers to Group 3, by tapping anywhere on its card.
+  await p.getByRole('button', { name: '8 Troopers in Group 1' }).tap();
+  await p.getByRole('button', { name: 'Half' }).tap();
+  await expect(p.locator('.org .count')).toHaveText('4');
+  await p.getByRole('button', { name: 'One more' }).tap();
+  await expect(p.locator('.org .count')).toHaveText('5');
+  await p.locator('.org [data-card="2"]').tap();
+  await run(p, 3);
+  expect(await counts()).toEqual([5, 3, 5, 0]);
+  expect(await kinds(2)).toEqual({ 2: 5 });
+  // Half of everyone left in Group 1 (three Troopers, two Tanks) is a fair share of each kind.
+  await p.getByRole('button', { name: 'Everyone in Group 1' }).tap();
+  await p.getByRole('button', { name: 'Half' }).tap();
+  await expect(p.locator('.org .count')).toHaveText('3');
+  await p.getByRole('button', { name: 'Move them to Group 4' }).tap();
+  await run(p, 3);
+  expect(await counts()).toEqual([2, 3, 5, 3]);
+  expect(await kinds(3)).toEqual({ 2: 2, 5: 1 });
+  // A picked kind can be put back down by tapping it again, and new units can be sent to another group.
+  await p.getByRole('button', { name: '3 Runners in Group 2' }).tap();
+  await p.getByRole('button', { name: '3 Runners in Group 2' }).tap();
+  await expect(p.locator('.org [data-row="hint"]')).toBeVisible();
+  await p.getByRole('button', { name: 'New units join Group 2' }).tap();
+  await run(p, 2);
+  expect(await state<number>(p, '(m) => m.g.players[0].rally')).toBe(1);
+  await p.getByRole('button', { name: 'Done' }).tap();
+  await expect(p.locator('.org')).toHaveCount(0);
+  // The last group filled is the one selected, ready for an order.
+  expect(await state<number>(p, '(m) => m.sel.value')).toBe(3);
+  await expect(p.locator('[data-group="1"] .rally')).toBeVisible();
+  // Empty a group and tap it: the organiser opens, since an empty group has nothing to order about.
+  await p.evaluate(() => { const m = (window as Any).__fh; m.assign(3, 0, 0, 0); });
+  await run(p, 3);
+  await expect(p.locator('[data-group="3"]')).toHaveClass(/empty/);
+  await p.getByRole('button', { name: 'Group 4' }).tap();
+  await expect(p.locator('.org')).toBeVisible();
+  await p.getByRole('button', { name: 'Done' }).tap();
+  // A tap outside the sheet closes it. Press and hold on a group opens it too.
+  await p.touchscreen.tap(8, 8);
+  await expect(p.locator('.org')).toHaveCount(0);
+  await hold(p, '[aria-label="Group 1"]');
+  await expect(p.locator('.org')).toBeVisible();
 });
 
 test('a Refinery snaps onto a battery pack, takes three Workers and fills the Batteries count', async ({ page: p }, info) => {

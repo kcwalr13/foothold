@@ -185,60 +185,126 @@ function Mini({ m, canvasRef }: { m: Match; canvasRef: { current: HTMLCanvasElem
 function GroupButton({ m, i }: { m: Match; i: number }) {
   const gi = m.hud.value.groups[i];
   const last = useRef(0);
+  const empty = !gi || gi.count === 0;
   const press = usePress(() => {
     const now = performance.now();
-    if (now - last.current < 380 && gi && gi.count > 0) m.focusGroup(i);
+    // An empty group has nothing to order about: a tap on it opens the organiser, to put something in it.
+    if (empty) m.sheet.value = i;
+    else if (now - last.current < 380) m.focusGroup(i);
     else m.selectGroup(i);
     last.current = now;
   }, () => { m.sheet.value = i; });
-  const empty = !gi || gi.count === 0;
   return (
     <button class={`group ${m.sel.value === i ? 'on' : ''} ${empty ? 'empty' : ''} ${gi?.hurt ? 'hurt' : ''}`} aria-label={`Group ${i + 1}`} data-group={i} {...press}>
       <span class="num">{i + 1}</span>
-      {empty ? <span class="none">empty</span> : (
+      {empty ? <span class="none">empty: tap to fill</span> : (
         <span class="mix">
           {gi!.kinds.map((k) => <span class="k" key={k.kind}><UnitIcon kind={k.kind} size={15} />{k.n}</span>)}
         </span>
       )}
-      {m.hud.value.rally === i && <span class="rally" title="New units join this group">+</span>}
+      {m.hud.value.rally === i && <span class="rally" title="New units join this group">+new</span>}
+      {!empty && m.modes.value[i] === O.Move && <span class="gmode">move</span>}
       {!empty && <span class="bar"><i style={{ width: `${Math.round(gi!.hp * 100)}%` }} class={gi!.hp < 0.35 ? 'low' : ''} /></span>}
     </button>
   );
 }
 
-function Sheet({ m }: { m: Match }) {
-  const i = m.sheet.value;
-  if (i < 0) return null;
-  const gi = m.hud.value.groups[i];
-  const others = [0, 1, 2, 3].filter((o) => o !== i);
+/** What is picked up in the organiser: one kind of unit from a group, or (kind 0) everyone in it. */
+interface Picked { from: number; kind: number; n: number; all: boolean }
+
+/**
+ * The army organiser. All four groups side by side; tap the units you want, then the group they should
+ * join. Opened by the Groups button, by a tap on an empty group, or by a press and hold on any group.
+ */
+function Organiser({ m }: { m: Match }) {
+  const [picked, setPicked] = useState<Picked | null>(null);
+  const outside = useRef(false);
+  const open = m.sheet.value >= 0;
+  useEffect(() => {
+    if (!open) setPicked(null);
+  }, [open]);
+  if (!open) return null;
+  const groups = m.hud.value.groups;
+  const have = (from: number, kind: number) => {
+    const gi = groups[from];
+    if (!gi) return 0;
+    return kind === 0 ? gi.count : gi.kinds.find((k) => k.kind === kind)?.n ?? 0;
+  };
+  const max = picked ? have(picked.from, picked.kind) : 0;
+  const n = picked ? (picked.all ? max : Math.min(picked.n, max)) : 0;
+  const live = picked !== null && max > 0;
   const close = () => { m.sheet.value = -1; };
+  // A tap outside the sheet closes it, but only a tap that began there: the tap that opened the organiser
+  // ends with a click too, and on a wide phone that click lands on the veil that has just appeared.
+  const veil = {
+    onPointerDown: (e: TargetedPointerEvent<HTMLElement>) => { outside.current = e.target === e.currentTarget; },
+    onClick: (e: MouseEvent) => {
+      if (outside.current && e.target === e.currentTarget) close();
+      outside.current = false;
+    },
+  };
+  const pick = (from: number, kind: number) => {
+    if (picked && picked.from === from && picked.kind === kind) setPicked(null);
+    else if (have(from, kind) > 0) setPicked({ from, kind, n: have(from, kind), all: true });
+  };
+  const drop = (to: number) => {
+    if (!picked || !live || picked.from === to) return;
+    m.assignPart(picked.from, to, picked.kind, picked.all ? max : n);
+    m.sel.value = to;
+    setPicked(null);
+  };
+  const set = (count: number) => picked && setPicked({ ...picked, n: Math.max(1, Math.min(max, count)), all: count >= max });
+  const what = picked ? (picked.kind === 0 ? (n === 1 ? 'unit' : 'units') : n === 1 ? def(picked.kind).name : def(picked.kind).plural) : '';
   return (
-    <div class="veil" onClick={close}>
-      <div class="sheet" onClick={(e) => e.stopPropagation()}>
-        <h2>Group {i + 1}{gi && gi.count > 0 ? `: ${gi.count} units` : ' is empty'}</h2>
-        {gi && gi.count > 0 && (
-          <div class="rows">
-            {gi.kinds.map((k) => (
-              <div class="srow" key={k.kind}>
-                <span class="what"><UnitIcon kind={k.kind} size={20} /> {k.n} {k.n === 1 ? def(k.kind).name : def(k.kind).plural}</span>
-                <span class="to">to {others.map((o) => <button key={o} class="chip" onClick={() => { m.assign(i, o, k.kind, 0); close(); m.sel.value = o; }}>{o + 1}</button>)}</span>
+    <div class="veil" {...veil}>
+      <div class="sheet org">
+        <div class="cards">
+          {[0, 1, 2, 3].map((i) => {
+            const gi = groups[i];
+            const target = live && picked!.from !== i;
+            const whole = live && picked!.from === i && picked!.kind === 0;
+            return (
+              <div key={i} class={`gcard ${target ? 'target' : ''} ${live && picked!.from === i ? 'from' : ''}`} data-card={i} onClick={() => drop(i)}>
+                <button class={`ghead ${whole ? 'on' : ''}`} aria-label={target ? `Move them to Group ${i + 1}` : `Everyone in Group ${i + 1}`}
+                  onClick={(e) => { if (!target) { e.stopPropagation(); pick(i, 0); } }}>
+                  <b>{i + 1}</b>
+                  <span>{target ? 'Move here' : gi && gi.count > 0 ? `all ${gi.count}` : 'empty'}</span>
+                </button>
+                <div class="gkinds">
+                  {(gi?.kinds ?? []).map((k) => (
+                    <button key={k.kind} class={`gk ${live && picked!.from === i && (picked!.kind === k.kind || picked!.kind === 0) ? 'on' : ''}`}
+                      aria-label={`${k.n} ${k.n === 1 ? def(k.kind).name : def(k.kind).plural} in Group ${i + 1}`}
+                      onClick={(e) => { if (!target) { e.stopPropagation(); pick(i, k.kind); } }}>
+                      <UnitIcon kind={k.kind} size={19} />
+                      <span>{k.n}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            ))}
-            <div class="srow">
-              <span class="what">Half of the group</span>
-              <span class="to">to {others.map((o) => <button key={o} class="chip" onClick={() => { m.assign(i, o, 0, Math.ceil(gi.count / 2)); close(); m.sel.value = o; }}>{o + 1}</button>)}</span>
-            </div>
-            <div class="srow">
-              <span class="what">Everyone</span>
-              <span class="to">to {others.map((o) => <button key={o} class="chip" onClick={() => { m.assign(i, o, 0, 0); close(); m.sel.value = o; }}>{o + 1}</button>)}</span>
-            </div>
+            );
+          })}
+        </div>
+        {live ? (
+          <div class="orow" data-row="picked">
+            <button class="chip" aria-label="One fewer" disabled={n <= 1} onClick={() => set(n - 1)}>−</button>
+            <b class="count" data-count={n}>{n}</b>
+            <button class="chip" aria-label="One more" disabled={n >= max} onClick={() => set(n + 1)}>+</button>
+            <button class={`chip ${!picked!.all && n === Math.ceil(max / 2) ? 'on' : ''}`} disabled={max < 2} onClick={() => set(Math.ceil(max / 2))}>Half</button>
+            <button class={`chip ${picked!.all ? 'on' : ''}`} onClick={() => set(max)}>All</button>
+            <span class="say">{what} from Group {picked!.from + 1}. Now tap the group {n === 1 ? 'it' : 'they'} should join.</span>
+          </div>
+        ) : (
+          <div class="orow" data-row="hint">
+            <span class="say">Tap the units you want, or a group's number for everyone in it. Then tap the group they should join.</span>
           </div>
         )}
-        <div class="srow">
-          <span class="what">{m.hud.value.rally === i ? 'New units join this group' : 'New units join another group'}</span>
-          {m.hud.value.rally !== i && <button class="chip wide" onClick={() => { m.setRally(i); close(); }}>Send them here</button>}
+        <div class="orow">
+          <span class="say tight">New units join</span>
+          {[0, 1, 2, 3].map((i) => (
+            <button key={i} class={`chip ${m.hud.value.rally === i ? 'on' : ''}`} aria-label={`New units join Group ${i + 1}`} onClick={() => m.setRally(i)}>{i + 1}</button>
+          ))}
+          <button class="chip done" onClick={close}>Done</button>
         </div>
-        <button class="chip wide close" onClick={close}>Close</button>
       </div>
     </div>
   );
@@ -292,9 +358,10 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
       <div class="right">
         {[0, 1, 2, 3].map((i) => <GroupButton key={i} m={m} i={i} />)}
         <div class="orders">
-          <button class={m.mode.value === O.Attack ? 'on' : ''} disabled={sel < 0} onClick={() => { m.mode.value = O.Attack; }}>Attack</button>
-          <button class={m.mode.value === O.Move ? 'on' : ''} disabled={sel < 0} onClick={() => { m.mode.value = O.Move; }}>Move</button>
+          <button class={sel >= 0 && m.mode.value === O.Attack ? 'on' : ''} aria-pressed={sel >= 0 && m.mode.value === O.Attack} disabled={sel < 0} onClick={() => m.setMode(O.Attack)}>Attack</button>
+          <button class={sel >= 0 && m.mode.value === O.Move ? 'on' : ''} aria-pressed={sel >= 0 && m.mode.value === O.Move} disabled={sel < 0} onClick={() => m.setMode(O.Move)}>Move</button>
           <button disabled={sel < 0} onClick={() => m.hold()}>Hold</button>
+          <button aria-label="Groups" onClick={() => { m.sheet.value = Math.max(0, sel); }}>Groups</button>
         </div>
       </div>
 
@@ -318,10 +385,10 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
         </div>
       )}
       {!placing && !site && sel >= 0 && h.groups[sel] && h.groups[sel]!.count > 0 && (
-        <div class="hint">Group {sel + 1}: tap the map to {m.mode.value === O.Move ? 'move' : 'attack-move'}</div>
+        <div class="hint">Group {sel + 1}: tap the map to {m.mode.value === O.Move ? 'move there without stopping to fight' : 'go there, fighting on the way'}</div>
       )}
 
-      <Sheet m={m} />
+      <Organiser m={m} />
 
       {m.menu.value && over < 0 && (
         <div class="veil">

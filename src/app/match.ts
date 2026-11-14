@@ -1,6 +1,6 @@
 // One running match: the game loop, the player's selection and camera, and the numbers the panels show.
 // Nothing here decides a rule; it asks src/sim and sends commands through the same door the opponent uses.
-import { signal } from '@preact/signals';
+import { computed, signal } from '@preact/signals';
 import { Bot } from '../ai/bot';
 import { DEFS, FACTIONS, RULES, def, isResearch, researchCost } from '../sim/data';
 import { dist } from '../sim/nav';
@@ -77,7 +77,13 @@ export class Match {
   fogStamp = 0;
 
   readonly sel = signal(-1);
-  readonly mode = signal<OrderMode>(O.Attack);
+  /**
+   * How each group answers a tap on the map: fighting on the way (Attack) or not stopping (Move). It is the
+   * group's own and it stays as set until the player changes it, or the group empties.
+   */
+  readonly modes = signal<OrderMode[]>([O.Attack, O.Attack, O.Attack, O.Attack]);
+  /** The selected group's mode. */
+  readonly mode = computed<OrderMode>(() => (this.sel.value >= 0 ? this.modes.value[this.sel.value] ?? O.Attack : O.Attack));
   readonly placing = signal<Placing | null>(null);
   readonly site = signal(0);
   readonly sheet = signal(-1);
@@ -226,6 +232,8 @@ export class Match {
         max += def(u.kind).hp;
         if (!u.arrived) moving = true;
       }
+      // An emptied group forgets Move: whoever fills it next starts out fighting on the way.
+      if (us.length === 0 && this.modes.value[i] !== O.Attack) this.setMode(O.Attack, i);
       if (hp < this.groupHp[i]! - 0) this.hurtUntil[i] = g.tick + 15;
       this.groupHp[i] = hp;
       groups.push({
@@ -343,6 +351,12 @@ export class Match {
     this.sel.value = i;
   }
 
+  /** Sets how a group (the selected one unless named) answers taps on the map from now on. */
+  setMode(mode: OrderMode, group = this.sel.value): void {
+    if (group < 0 || (mode !== O.Attack && mode !== O.Move)) return;
+    this.modes.value = this.modes.value.map((old, i) => (i === group ? mode : old));
+  }
+
   hold(): void {
     const i = this.sel.value;
     if (i < 0) return;
@@ -355,13 +369,41 @@ export class Match {
     const mode = this.mode.value === O.Move ? O.Move : O.Attack;
     this.issue({ t: 'order', p: this.me, group: i, mode, x: Math.round(x), y: Math.round(y) });
     this.fx.push({ t: 'ripple', x1: x, y1: y, x2: 0, y2: 0, kind: 0, owner: this.me, born: performance.now(), life: 520, mode });
-    // Move is a one-shot: the next order goes back to fighting on the way.
-    if (mode === O.Move) this.mode.value = O.Attack;
     return true;
   }
 
   assign(from: number, to: number, kind: number, count: number): void {
     this.issue({ t: 'assign', p: this.me, from, to, kind, count });
+  }
+
+  /**
+   * Moves `count` units from one group to another: of one kind, or (kind 0) a fair share of every kind in
+   * the group, so that half an army is half its Troopers and half its Tanks, not its oldest half.
+   */
+  assignPart(from: number, to: number, kind: number, count: number): void {
+    const kinds = this.hud.value.groups[from]?.kinds ?? [];
+    const total = kinds.reduce((n, k) => n + k.n, 0);
+    if (from === to || total === 0 || count <= 0) return;
+    if (kind !== 0) {
+      const have = kinds.find((k) => k.kind === kind)?.n ?? 0;
+      if (have > 0) this.assign(from, to, kind, count >= have ? 0 : count);
+      return;
+    }
+    if (count >= total) {
+      this.assign(from, to, 0, 0);
+      return;
+    }
+    // Largest remainders: every kind gets its whole share, and the units left over go to the biggest fractions.
+    const shares = kinds.map((k) => ({ kind: k.kind, n: Math.floor((k.n * count) / total), rest: (k.n * count) % total, max: k.n }));
+    let left = count - shares.reduce((n, sh) => n + sh.n, 0);
+    for (const sh of [...shares].sort((x, y) => y.rest - x.rest || x.kind - y.kind)) {
+      if (left <= 0) break;
+      if (sh.n < sh.max) {
+        sh.n++;
+        left--;
+      }
+    }
+    for (const sh of shares) if (sh.n > 0) this.assign(from, to, sh.kind, sh.n >= sh.max ? 0 : sh.n);
   }
 
   setRally(i: number): void {
