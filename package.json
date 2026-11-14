@@ -1,0 +1,32 @@
+{
+  "name": "foothold",
+  "version": "0.1.0",
+  "description": "Foothold: a phone real-time strategy game of toy soldiers on a paper map",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "lab": "tsx lab/league.ts",
+    "icons": "node scripts/app-icons.mjs"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.11.3",
+    "preact": "^11.0.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@preact/preset-vite": "^2.10.6",
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.0.5",
+    "workbox-window": "^7.4.1"
+  }
+}
