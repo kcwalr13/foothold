@@ -1,13 +1,17 @@
 // What one player is allowed to know. The computer opponent reads the match only through this,
 // so it plays under the same fog of war as a person.
 import { def } from './data';
-import { canPlace, tileIndex, type Game } from './state';
+import { canPlace, visibleTo, type Game } from './state';
 import { K, type Entity, type GameMap, type Ghost, type GroupState, type Kind } from './types';
 
 export interface View {
   tick: number;
   p: number;
   blocks: number;
+  /** Batteries. */
+  gas: number;
+  weapons: number;
+  armour: number;
   supply: number;
   cap: number;
   rally: number;
@@ -21,6 +25,8 @@ export interface View {
   ghosts: readonly Ghost[];
   /** Blocks piles. The map itself is common knowledge. */
   piles: readonly Entity[];
+  /** Battery packs; `site` is the Refinery standing on one, or 0. */
+  cells: readonly Entity[];
   map: GameMap;
   /** Own buildings and Workers hit this tick. */
   hurt: readonly { x: number; y: number; kind: Kind }[];
@@ -33,18 +39,19 @@ export interface View {
 
 export function makeView(g: Game, p: number): View {
   const pl = g.players[p]!;
-  const own: Entity[] = [], enemies: Entity[] = [], piles: Entity[] = [];
+  const own: Entity[] = [], enemies: Entity[] = [], piles: Entity[] = [], cells: Entity[] = [];
   for (const e of g.ents) {
     if (e.hp <= 0) continue;
     if (e.kind === K.Pile) piles.push(e);
+    else if (e.kind === K.Cell) cells.push(e);
     else if (e.owner === p) own.push(e);
-    else if (pl.vis[tileIndex(g, e.x, e.y)] === 1) enemies.push(e);
+    else if (e.owner >= 0 && visibleTo(g, p, e)) enemies.push(e);
   }
   const hurt: { x: number; y: number; kind: Kind }[] = [];
   for (const ev of g.events) if (ev.t === 'hurt' && ev.owner === p) hurt.push({ x: ev.x, y: ev.y, kind: ev.kind });
   return {
-    tick: g.tick, p, blocks: pl.blocks, supply: pl.supply, cap: pl.cap, rally: pl.rally, repeat: pl.repeat, groups: pl.groups,
-    own, enemies, ghosts: [...pl.seen.values()], piles, map: g.map, hurt, vis: pl.vis, explored: pl.explored,
+    tick: g.tick, p, blocks: pl.blocks, gas: pl.gas, weapons: pl.weapons, armour: pl.armour, supply: pl.supply, cap: pl.cap, rally: pl.rally, repeat: pl.repeat, groups: pl.groups,
+    own, enemies, ghosts: [...pl.seen.values()], piles, cells, map: g.map, hurt, vis: pl.vis, explored: pl.explored,
     canPlace: (kind, tx, ty) => canPlace(g, p, kind, tx, ty),
     blocked: (tx, ty) => g.nav.isBlocked(tx, ty),
   };
@@ -55,6 +62,6 @@ export function power(e: Entity): number {
   const d = def(e.kind);
   if (d.building) return d.range > 0 && e.built ? Math.round((d.cost * 2.6 * e.hp) / d.hp) : 0;
   if (e.kind === K.Worker) return 0;
-  const weight = e.kind === K.Lancer ? 0.7 : e.kind === K.Runner ? 0.85 : 1;
-  return Math.round((d.cost * weight * e.hp) / d.hp);
+  const weight = e.kind === K.Lancer ? 0.7 : e.kind === K.Runner ? 0.85 : e.kind === K.Flak ? 0.5 : 1;
+  return Math.round(((d.cost + d.gas) * weight * e.hp) / d.hp);
 }

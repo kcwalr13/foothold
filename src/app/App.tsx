@@ -81,13 +81,15 @@ function Menu({ onPlay }: { onPlay: (level: number) => void }) {
               <li><b>Left thumb, the base.</b> Train: tap a unit to queue one, press and hold to keep them coming. Build: pick a building, drag its outline onto the map, then Build.</li>
               <li><b>Right thumb, the armies.</b> Tap a group, then tap the map or the minimap to send it. Move goes without fighting. Hold digs in. Press and hold a group to split it.</li>
               <li><b>Map.</b> Drag to pan, pinch to zoom. Double-tap a group to jump to it.</li>
-              <li><b>Units.</b> Troopers beat Runners and Lancers. Runners raid Workers and catch Lancers. Lancers outrange and break Turrets and buildings.</li>
-              <li><b>Economy.</b> A base has work for about 12 Workers. More bases mean more Blocks and a higher supply cap.</li>
+              <li><b>Economy.</b> A base has work for about 12 Workers on Blocks. A Refinery on a battery pack puts three more on Batteries, which buy vehicles, Gunships and research. More bases mean more of both and a higher supply cap.</li>
+              <li><b>Infantry.</b> Troopers beat Runners and Lancers, and shoot down Gunships. Runners raid Workers and run down Lancers and Mortars. Lancers break Tanks, Juggernauts, Turrets and buildings.</li>
+              <li><b>Vehicles.</b> Tanks and Juggernauts blast crowds of infantry. Mortars outrange Turrets but must stand still to fire. Flak Tracks hit only flyers. Gunships fly over anything and wreck vehicles.</li>
+              <li><b>Ground.</b> High ground sees down, shoots further, and can't be seen from below. Stand a unit by a watchtower to see the road.</li>
             </ul>
             <button class="chip wide" onClick={() => setHelp(false)}>Back</button>
           </>
         )}
-        <p class="build">M1 · First skirmish · {__BUILD__.commit} · {__BUILD__.date}</p>
+        <p class="build">M2 · Full arsenal · {__BUILD__.commit} · {__BUILD__.date}</p>
       </div>
     </div>
   );

@@ -18,25 +18,53 @@ most three taste questions.
   state. Positions are whole sub-units (`TILE` = 256 per tile); distances use `isqrt`. Nothing in the sim may
   call `Math.sin`, `cos`, `atan2` or anything else that can differ between devices. The same seed and commands
   must give the same `hash` everywhere; `src/sim/sim.test.ts` checks it, and a replay from `Game.log`.
+- The sim and the opponent are fair to both sides, exactly: a match in which both sides run the same opponent
+  with the same dice is a mirror image of itself on every tick, and any match replayed with the two opponents'
+  seats swapped is the same match turned half a circle (`fair to both sides` in the tests; `npx tsx lab/fair.ts`
+  runs nine mirrors and eighteen seat swaps and names the first tick and unit that differ). To keep it so:
+  - while units are being moved, a unit reads another entity's `px`/`py` (where it stood when the tick's moves
+    began), never its `x`/`y`; pushes are summed into `qx`/`qy` and applied afterwards;
+  - anything laid out by offsets (formation slots, the way stacked units part) is turned half a circle for player 1;
+  - a point exactly on the line between tiles belongs to no fixed side: `blockedAt` and `onLayer` ask every tile
+    it touches, `tileToward` picks by where the walker is heading; never `Math.floor(x / TILE)` for a decision;
+  - averages and scaled points are rounded away from the middle of the map (`centroid`, `rx`/`ry` in the bot),
+    never with `Math.round`;
+  - ties are settled by position (nearer the walker, then nearer the middle of the map), never by the order a
+    loop happens to scan in, and never by comparing the ids of units on different sides (the one id tie-break,
+    between two equally good targets in `acquire`, compares two units of the same side);
+  - within a tick, commands run by kind (`PHASE` in `step.ts`), not by who sent first, and two sides claiming
+    the same ground on the same tick are both refused.
 - Every change to a match is a `Command` (`src/sim/types.ts`), scheduled for the next tick. The player and the
   opponent use the same commands; the sim validates every field, because a command may one day come from
   another phone.
 - The opponent (`src/ai/bot.ts`) never touches `Game`. It gets a `View` from `makeView` and returns commands.
   The fog-of-war test proves a View holds only what that side can see.
 - Balance numbers live in `src/sim/data.ts`, not in code paths or the design doc. The doc sets targets.
+  `npx tsx lab/matrix.ts` prints every unit against every other at equal cost; the tests pin the pairings
+  the design doc's unit table promises.
+- Batteries are `gas` in code. A Refinery stands on a battery pack (`K.Cell`) and nowhere else; the pack
+  outlives it. High ground is `map.high`: it sees down, outranges low ground and is not seen from below;
+  flyers see and are seen regardless (`vis` and `visAir`).
 - The app never decides a rule; it asks `src/sim` (`canPlace`, `hasBuilt`, ...).
 - Nothing is fetched at runtime and there are no art files: `src/app/render.ts` draws everything.
-- Every control is at least 44 px; the e2e suite checks it on three screen sizes. Panels are sized by
-  `INSET` in `src/app/match.ts` and the matching CSS variables in `style.css`: change them together.
+- Every control is at least 44 px; the e2e suite checks it on three screen sizes (the shortest is 340 px
+  tall, where the three-by-three panel grids have 47 px a row). Panels are sized by `INSET` in
+  `src/app/match.ts` and the matching CSS variables in `style.css`: change them together.
 - Units are commanded as groups (0 to 3). There is no single-unit selection and no activated abilities in
   version 1; do not add them without Kyle.
-- Version 1 has two factions. M1 ships the Green Army only; `FACTIONS` in `data.ts` and the `C` armour classes
+- Version 1 has two factions. M2 ships the whole Green Army; `FACTIONS` in `data.ts` and the `C` armour classes
   are shaped for the Dino Pack (M3) and a possible third.
-- Player-facing words follow the toy look: Blocks and Batteries, Workers, Headquarters, Troopers, Lancers,
-  Runners, Turrets. In a Green Army mirror the player is green and the opponent is tan.
+- Player-facing words follow the toy look: Blocks and Batteries (and battery packs), Workers, Headquarters,
+  Refinery, Barracks, Factory, Airfield, Armory, Heavy Works, Turrets, Watchtowers; Troopers, Lancers, Runners,
+  Tanks, Mortars, Flak Tracks, Gunships, Juggernauts. Panel buttons use each `Def`'s `short` name. In a Green
+  Army mirror the player is green and the opponent is tan.
+- The opponent's openings are `rush`, `standard` (safe expansion) and `greedy` (fast expansion); its tech paths
+  are `infantry`, `armour` and `air`. The six named plans in the design doc are M4.
 
 ## Checks before a build goes to Kyle
 
-`npm run typecheck && npm test && npm run build && CHROME=... npm run e2e`, then `npx tsx lab/league.ts 12`
-and `npx tsx lab/levels.ts 8`, with the results written into `docs/BALANCE.md` and the doc's Verification
-section. Then confirm the deploy landed (the built bundle carries the commit in the menu's build line).
+`npm run typecheck && npm test && npm run build && CHROME=... npm run e2e`, then `npx tsx lab/fair.ts`,
+`npx tsx lab/league.ts 12`, `npx tsx lab/levels.ts 8`, `npx tsx lab/matrix.ts` and `npx tsx lab/speed.ts`, with
+the results written into `docs/BALANCE.md` and the doc's Verification section. Match outcomes swing on small
+things, so judge a change by a league run, never by a handful of matches. On GitHub the same-match check also
+runs in WebKit. Then confirm the deploy landed (the built bundle carries the commit in the menu's build line).

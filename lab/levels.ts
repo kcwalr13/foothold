@@ -30,13 +30,13 @@ console.log('\nA player who does nothing at all: when the opponent first hits th
 for (let level = 0; level < NAMES.length; level++) {
   const hits: number[] = [], ends: number[] = [];
   for (let s = 1; s <= seeds; s++) {
-    const r = playMatch(s * 17 + 2, { trick: 'turtle', level: -1 }, { level });
+    const r = playMatch(s * 17 + 2, { trick: 'turtle', level: -1 }, { level }, 18000);
     if (r.firstHit[0] >= 0) hits.push(r.firstHit[0]);
     ends.push(r.ticks);
   }
   console.log(`${NAMES[level]!.padEnd(7)} first hit: median ${mmss(median(hits))}, earliest ${mmss(Math.min(...hits))}; match over: median ${mmss(median(ends))}`);
 }
-const tricks: Trick[] = ['troopers', 'runners', 'lancers', 'turtle'];
+const tricks: Trick[] = ['troopers', 'runners', 'lancers', 'turtle', 'tanks', 'gunships'];
 console.log('\nOne-trick bots (win rate of the trick) against each level:');
 for (const trick of tricks) {
   const row: string[] = [];

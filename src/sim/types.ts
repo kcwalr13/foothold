@@ -6,9 +6,12 @@ export const TILE = 256;
 export const TICKS_PER_SEC = 10;
 
 export const K = {
-  Worker: 1, Trooper: 2, Lancer: 3, Runner: 4,
-  HQ: 20, Barracks: 21, Turret: 22,
-  Pile: 40,
+  Worker: 1, Trooper: 2, Lancer: 3, Runner: 4, Tank: 5, Mortar: 6, Flak: 7, Gunship: 8, Jugger: 9,
+  HQ: 20, Barracks: 21, Turret: 22, Refinery: 23, Factory: 24, Airfield: 25, Armory: 26, Heavy: 27,
+  /** Neutral things on the map: Blocks, a battery pack, a watchtower. */
+  Pile: 40, Cell: 41, Tower: 42,
+  /** Research, queued at the Armory like a unit. */
+  Weapons: 100, Armour: 101,
 } as const;
 export type Kind = (typeof K)[keyof typeof K];
 
@@ -27,9 +30,14 @@ export interface Def {
   kind: Kind;
   name: string;
   plural: string;
+  /** A name short enough for a panel button. */
+  short: string;
   cls: Cls;
   hp: number;
+  /** Cost in Blocks. */
   cost: number;
+  /** Cost in Batteries. */
+  gas: number;
   /** Ticks to train or build. */
   time: number;
   supply: number;
@@ -46,12 +54,20 @@ export interface Def {
   cooldown: number;
   /** Damage percent against Light, Armoured, Air, Structure. */
   vs: readonly [number, number, number, number];
+  /** Splash radius in sub-units; 0 for a single target. Others in the blast take a share of the damage. */
+  splash: number;
+  /** Can't fire at anything closer than this, in sub-units. */
+  minRange: number;
+  /** Ticks it must stand still before firing. */
+  setup: number;
+  /** Flies: ignores terrain and walls, and only weapons that hit Air can touch it. */
+  air: boolean;
   /** Footprint in tiles (buildings and piles). */
   size: number;
   /** Building that trains this unit. */
   madeAt?: Kind;
-  /** Building that must exist before this can be built or trained. */
-  needs?: Kind;
+  /** Buildings that must all exist before this can be built or trained. */
+  needs: readonly Kind[];
   /** Supply cap this building provides. */
   provides: number;
   building: boolean;
@@ -64,6 +80,12 @@ export interface Entity {
   owner: number;
   x: number;
   y: number;
+  /** Where it stood when this tick's moves began. Every unit judges the others by this, so the order units are moved in favours no one. */
+  px: number;
+  py: number;
+  /** How far its neighbours have pushed it this tick, added up before anyone is moved. */
+  qx: number;
+  qy: number;
   hp: number;
   /** Facing as a rough direction vector (render only, still whole numbers). */
   fx: number;
@@ -88,10 +110,16 @@ export interface Entity {
   losTick: number;
   /** True once a unit has reached its order destination. */
   arrived: boolean;
+  /** Ticks since it last moved under its own power. */
+  still: number;
+  /** Hundredths of a point of damage carried over to this unit's next shot. */
+  frac: number;
 
   // Workers
   ws: number;
   carry: number;
+  /** What the load is: 0 Blocks, 1 Batteries. */
+  cargo: number;
   pile: number;
   site: number;
   timer: number;
@@ -125,6 +153,7 @@ export interface Ghost {
 
 export interface Stats {
   gathered: number;
+  gathered2: number;
   spent: number;
   trained: number;
   lostUnits: number;
@@ -138,6 +167,11 @@ export interface Player {
   id: number;
   faction: 'green';
   blocks: number;
+  /** Batteries. */
+  gas: number;
+  /** Research levels: weapons and armour, 0 to 2. */
+  weapons: number;
+  armour: number;
   supply: number;
   cap: number;
   /** New units join this group. */
@@ -145,8 +179,10 @@ export interface Player {
   /** Unit kinds set to keep training. */
   repeat: Kind[];
   groups: GroupState[];
-  /** 1 where this player can see right now, per tile. */
+  /** 1 where this player can see the ground right now, per tile. High ground hides from low ground. */
   vis: Uint8Array;
+  /** 1 where this player can see flyers right now: sight with height ignored. */
+  visAir: Uint8Array;
   /** 1 where this player has ever seen, per tile. */
   explored: Uint8Array;
   /** Enemy buildings this player remembers. */
@@ -158,6 +194,7 @@ export type Command =
   | { t: 'build'; p: number; kind: Kind; tx: number; ty: number }
   | { t: 'cancel'; p: number; id: number }
   | { t: 'train'; p: number; kind: Kind }
+  | { t: 'research'; p: number; kind: Kind }
   | { t: 'repeat'; p: number; kind: Kind; on: boolean }
   | { t: 'order'; p: number; group: number; mode: OrderMode; x: number; y: number }
   | { t: 'assign'; p: number; from: number; to: number; kind: number; count: number }
@@ -177,6 +214,8 @@ export interface BaseSite {
   hx: number;
   hy: number;
   piles: { tx: number; ty: number; amount: number }[];
+  /** Battery packs: top-left tile of each two-by-two pack. */
+  cells: { tx: number; ty: number; amount: number }[];
   /** 0 or 1: the side of the map this base sits on. */
   side: number;
   /** 0 main, 1 natural, 2 third, 3 rich. */
@@ -189,8 +228,12 @@ export interface GameMap {
   h: number;
   /** 1 where terrain is impassable. */
   rock: Uint8Array;
+  /** 1 where the ground is high: it outranges low ground and can't be seen from below. */
+  high: Uint8Array;
   bases: BaseSite[];
+  /** Watchtowers: whoever alone stands beside one sees the country around it. */
+  towers: { tx: number; ty: number }[];
   /** Decoration for the renderer, in tile coordinates. */
   roads: { x: number; y: number }[][];
-  labels: { text: string; x: number; y: number; rot: number }[];
+  labels: { text: string; x: number; y: number; rot: number; small?: boolean }[];
 }

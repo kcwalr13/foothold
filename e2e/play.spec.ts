@@ -1,4 +1,6 @@
 import { type Page, expect, test } from '@playwright/test';
+import { def } from '../src/sim/data';
+import { K } from '../src/sim/types';
 
 type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -43,6 +45,11 @@ test('menu to match, and every control is thumb-sized', async ({ page: p }, info
   await noSmallButtons(p);
   await p.getByRole('button', { name: 'Build', exact: true }).tap();
   await noSmallButtons(p);
+  await p.getByRole('button', { name: 'Tech', exact: true }).tap();
+  await expect(p.getByRole('button', { name: 'Research Weapons' })).toBeVisible();
+  await noSmallButtons(p);
+  await p.getByRole('button', { name: 'Train', exact: true }).tap();
+  await expect(p.locator('.grid .tile')).toHaveCount(9);
   await p.screenshot({ path: info.outputPath('match-start.png') });
   await p.getByRole('button', { name: 'Pause' }).tap();
   await expect(p.getByRole('heading', { name: 'Paused' })).toBeVisible();
@@ -169,6 +176,97 @@ test('select a group, send it with a tap on the map and on the minimap, split it
   expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[1]')).toMatchObject({ mode: 3 });
 });
 
+test('a Refinery snaps onto a battery pack, takes three Workers and fills the Batteries count', async ({ page: p }, info) => {
+  await start(p);
+  await p.evaluate(() => { (window as Any).__fh.g.players[0].blocks = 600; });
+  await run(p, 2);
+  await expect(p.locator('[data-stat="batteries"]')).toHaveText('0');
+  await p.getByRole('button', { name: 'Build', exact: true }).tap();
+  await p.getByRole('button', { name: 'Build Refinery' }).tap();
+  await expect(p.locator('.bar.place')).toContainText('battery pack');
+  // It starts on the pack beside the Headquarters.
+  expect(await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value')).toMatchObject({ tx: 6, ty: 43, ok: true });
+  // Dragged onto open ground it turns red; dragged back near the pack it snaps on.
+  await p.evaluate(() => { (window as Any).__fh.movePlace(14, 36); });
+  expect(await state<boolean>(p, '(m) => m.placing.value.ok')).toBe(false);
+  await p.evaluate(() => { (window as Any).__fh.movePlace(8, 42); });
+  expect(await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value')).toMatchObject({ tx: 6, ty: 43, ok: true });
+  await p.screenshot({ path: info.outputPath('refinery.png') });
+  await p.getByRole('button', { name: 'Confirm build' }).tap();
+  await run(p, 700);
+  expect(await state<number>(p, '(m) => m.g.ents.filter((e) => e.kind === 23 && e.owner === 0 && e.built).length')).toBe(1);
+  expect(await state<number>(p, '(m) => m.g.players[0].gas')).toBeGreaterThan(40);
+  await expect(p.locator('[data-stat="batteries"]')).not.toHaveText('0');
+  await expect(p.locator('[data-stat="workers"]')).toContainText('/15');
+  // With the only pack in reach taken, a second Refinery starts on the next nearest.
+  await p.getByRole('button', { name: 'Build Refinery' }).tap();
+  expect(await state<{ tx: number; ty: number }>(p, '(m) => m.placing.value')).not.toMatchObject({ tx: 6, ty: 43 });
+});
+
+test('the panels say what a unit needs, and research runs at the Armory', async ({ page: p }, info) => {
+  await start(p);
+  await p.evaluate(() => {
+    const m = (window as Any).__fh;
+    m.g.players[0].blocks = 3000;
+    m.g.players[0].gas = 3000;
+  });
+  await run(p, 2);
+  await p.getByRole('button', { name: 'Train Tank' }).tap();
+  await expect(p.locator('.toast.warn')).toContainText('Needs a Factory');
+  await p.evaluate(() => {
+    const m = (window as Any).__fh;
+    m.debugSpawn(21, 0, 13.5, 34.5);
+    m.debugSpawn(24, 0, 17.5, 34.5);
+  });
+  await run(p, 2);
+  await p.getByRole('button', { name: 'Train Juggernaut' }).tap();
+  await expect(p.locator('.toast.warn', { hasText: 'Heavy Works' })).toContainText('Needs a Heavy Works');
+  await p.getByRole('button', { name: 'Train Tank' }).tap();
+  await run(p, 3);
+  expect(await state<number>(p, '(m) => m.g.players[0].gas')).toBe(3000 - def(K.Tank).gas);
+  expect(await state<number[]>(p, '(m) => m.g.ents.find((e) => e.kind === 24).queue')).toEqual([5]);
+  await p.getByRole('button', { name: 'Tech', exact: true }).tap();
+  await p.getByRole('button', { name: 'Research Weapons' }).tap();
+  await expect(p.locator('.toast.warn', { hasText: 'Armory' })).toContainText('Needs an Armory');
+  await p.evaluate(() => { (window as Any).__fh.debugSpawn(26, 0, 13.5, 43.5); });
+  await run(p, 2);
+  await p.getByRole('button', { name: 'Research Weapons' }).tap();
+  await run(p, 100);
+  expect(await state<number>(p, '(m) => m.hud.value.research[0].progress')).toBeGreaterThan(0.1);
+  await p.screenshot({ path: info.outputPath('research.png') });
+  await run(p, 520);
+  expect(await state<number>(p, '(m) => m.g.players[0].weapons')).toBe(1);
+  await expect(p.getByRole('button', { name: 'Research Weapons' })).toContainText('●○');
+  await noSmallButtons(p);
+});
+
+test('every unit and building of the full arsenal is drawn, near and far, with nothing going wrong', async ({ page: p }, info) => {
+  const errors: string[] = [];
+  p.on('pageerror', (e) => errors.push(e.message));
+  await start(p);
+  await p.evaluate(() => {
+    const m = (window as Any).__fh;
+    m.g.players[0].explored.fill(1);
+    [21, 24, 25, 26, 27, 22].forEach((k, i) => m.debugSpawn(k, 0, 12.5 + (i % 3) * 4, 33.5 + Math.floor(i / 3) * 10));
+    [2, 3, 4, 5, 6, 7, 8, 9].forEach((k, i) => {
+      m.debugSpawn(k, 0, 12 + (i % 4) * 1.4, 37.5 + Math.floor(i / 4) * 1.4);
+      m.debugSpawn(k, 1, 18 + (i % 4) * 1.4, 37.5 + Math.floor(i / 4) * 1.4);
+    });
+    m.cam.x = 15 * 256; m.cam.y = 39 * 256; m.cam.zoom = 24; m.clampCam();
+    m.paused.value = false;
+  });
+  await p.waitForTimeout(1200);
+  await p.screenshot({ path: info.outputPath('arsenal.png') });
+  // Every kind is in the fight on the group button, and shells have flown.
+  expect(await state<number>(p, '(m) => m.g.log.length + m.g.events.length + m.fx.length')).toBeGreaterThan(0);
+  await p.evaluate(() => { const m = (window as Any).__fh; m.cam.zoom = 6; m.clampCam(); });
+  await p.waitForTimeout(600);
+  await p.screenshot({ path: info.outputPath('arsenal-far.png') });
+  await p.evaluate(() => { const m = (window as Any).__fh; m.cam.x = 40 * 256; m.cam.y = 14 * 256; m.cam.zoom = 44; m.clampCam(); });
+  await p.waitForTimeout(400);
+  expect(errors).toEqual([]);
+});
+
 test('drag pans, the wheel zooms, and the whole map fits between the panels', async ({ page: p }, info) => {
   await start(p);
   const c0 = await state<{ x: number; y: number; zoom: number }>(p, '(m) => ({ ...m.cam })');
@@ -186,7 +284,7 @@ test('drag pans, the wheel zooms, and the whole map fits between the panels', as
     return { zoom: m.cam.zoom, min: m.minZoom(), left: m.toScreen(0, 0).x, right: m.toScreen(96 * 256, 0).x, w: m.viewW };
   }`);
   expect(fit.zoom).toBeCloseTo(fit.min, 5);
-  expect(fit.left).toBeGreaterThanOrEqual(152);
+  expect(fit.left).toBeGreaterThanOrEqual(172);
   expect(fit.right).toBeLessThanOrEqual(fit.w - 152);
   await run(p, 4);
   await p.screenshot({ path: info.outputPath('whole-map.png') });

@@ -23,6 +23,7 @@ export interface Game {
   events: GameEvent[];
   /** -1 while the match runs, else the winner's id. */
   winner: number;
+  /** Players whose Workers should be shared out again because a Headquarters of theirs just opened: bit 0, bit 1. */
   rebalance: number;
 }
 
@@ -39,9 +40,10 @@ export function tileIndex(g: Game, x: number, y: number): number {
 export function spawn(g: Game, kind: Kind, owner: number, x: number, y: number): Entity {
   const d = def(kind);
   const e: Entity = {
-    id: g.nextId++, kind, owner, x, y, hp: d.hp, fx: owner === 1 ? -1 : 1, fy: 0,
+    id: g.nextId++, kind, owner, x, y, px: x, py: y, qx: 0, qy: 0, hp: d.hp, fx: owner === 1 ? -1 : 1, fy: 0,
     group: -1, mode: O.Idle, dx: x, dy: y, ax: x, ay: y, tgt: 0, cd: 0, los: false, losTick: -99, arrived: true,
-    ws: W.Idle, carry: 0, pile: 0, site: 0, timer: 0,
+    still: 0, frac: 0,
+    ws: W.Idle, carry: 0, cargo: 0, pile: 0, site: 0, timer: 0,
     built: true, progress: 0, queue: [], qprog: 0, builder: 0,
     amount: 0, busy: 0,
   };
@@ -65,10 +67,10 @@ export function footprintTiles(g: Game, e: Entity): number[] {
 
 function newPlayer(id: number, tiles: number): Player {
   return {
-    id, faction: 'green', blocks: RULES.startBlocks, supply: 0, cap: 0, rally: 0, repeat: [],
+    id, faction: 'green', blocks: RULES.startBlocks, gas: 0, weapons: 0, armour: 0, supply: 0, cap: 0, rally: 0, repeat: [],
     groups: Array.from({ length: RULES.groups }, () => ({ mode: O.Idle, x: 0, y: 0 })),
-    vis: new Uint8Array(tiles), explored: new Uint8Array(tiles), seen: new Map(),
-    stats: { gathered: 0, spent: 0, trained: 0, lostUnits: 0, lostBuildings: 0, killedUnits: 0, killedBuildings: 0, firstAttackTick: -1 },
+    vis: new Uint8Array(tiles), visAir: new Uint8Array(tiles), explored: new Uint8Array(tiles), seen: new Map(),
+    stats: { gathered: 0, gathered2: 0, spent: 0, trained: 0, lostUnits: 0, lostBuildings: 0, killedUnits: 0, killedBuildings: 0, firstAttackTick: -1 },
   };
 }
 
@@ -77,7 +79,7 @@ export function createGame(seed: number, map: GameMap = twinRidges()): Game {
     tick: 0, seed, map, nav: new Nav(map.w, map.h, map.rock),
     ents: [], byId: new Map(), nextId: 1,
     players: [newPlayer(0, map.w * map.h), newPlayer(1, map.w * map.h)],
-    pending: [], log: [], events: [], winner: -1, rebalance: -1,
+    pending: [], log: [], events: [], winner: -1, rebalance: 0,
   };
   for (const b of map.bases) {
     for (const p of b.piles) {
@@ -85,6 +87,15 @@ export function createGame(seed: number, map: GameMap = twinRidges()): Game {
       e.amount = p.amount;
       g.nav.setRect(p.tx, p.ty, 1, 1);
     }
+    for (const c of b.cells) {
+      const e = spawn(g, K.Cell, -1, (c.tx + 1) * TILE, (c.ty + 1) * TILE);
+      e.amount = c.amount;
+      g.nav.setRect(c.tx, c.ty, 2, 1);
+    }
+  }
+  for (const t of map.towers) {
+    spawn(g, K.Tower, -1, t.tx * TILE + TILE / 2, t.ty * TILE + TILE / 2);
+    g.nav.setRect(t.tx, t.ty, 1, 1);
   }
   for (const pl of g.players) {
     const b = map.bases.find((s) => s.side === pl.id && s.tier === 0)!;
@@ -95,8 +106,10 @@ export function createGame(seed: number, map: GameMap = twinRidges()): Game {
     const px = b.piles.reduce((s, p) => s + p.tx, 0) / b.piles.length;
     const side = px * TILE < hq.x ? -1 : 1;
     for (let i = 0; i < RULES.startWorkers; i++) {
+      // The far side's row is made in the opposite order, so the two rows are mirror images Worker for Worker.
+      const k = pl.id === 1 ? RULES.startWorkers - 1 - i : i;
       const wx = hq.x + side * (size / 2 + 0.6) * TILE;
-      const wy = hq.y + Math.round((i - (RULES.startWorkers - 1) / 2) * 0.5 * TILE);
+      const wy = hq.y + Math.round((k - (RULES.startWorkers - 1) / 2) * 0.5 * TILE);
       spawn(g, K.Worker, pl.id, Math.round(wx), wy);
     }
   }
@@ -115,6 +128,26 @@ export function schedule(g: Game, cmd: Command): void {
 export function hasBuilt(g: Game, owner: number, kind: number): boolean {
   for (const e of g.ents) if (e.owner === owner && e.kind === kind && e.built) return true;
   return false;
+}
+
+/** True when this player has finished every building in the list. */
+export function hasAll(g: Game, owner: number, kinds: readonly number[]): boolean {
+  for (const k of kinds) if (!hasBuilt(g, owner, k)) return false;
+  return true;
+}
+
+/** The first building in the list this player has not finished, or 0. */
+export function missing(g: Game, owner: number, kinds: readonly number[]): number {
+  for (const k of kinds) if (!hasBuilt(g, owner, k)) return k;
+  return 0;
+}
+
+/** The free battery pack whose corner is this tile, if there is one. */
+export function cellAt(g: Game, tx: number, ty: number): Entity | undefined {
+  for (const e of g.ents) {
+    if (e.kind === K.Cell && e.site === 0 && tileOf(e.x - TILE) === tx && tileOf(e.y - TILE) === ty) return e;
+  }
+  return undefined;
 }
 
 export function countSupply(g: Game, owner: number): number {
@@ -138,6 +171,8 @@ export function supplyCap(g: Game, owner: number): number {
 export function canPlace(g: Game, owner: number, kind: number, tx: number, ty: number): boolean {
   const d = DEFS[kind];
   if (!d || !d.building) return false;
+  // A Refinery stands on a battery pack and nowhere else.
+  if (kind === K.Refinery) return cellAt(g, tx, ty) !== undefined;
   for (let y = ty; y < ty + d.size; y++) for (let x = tx; x < tx + d.size; x++) {
     if (g.nav.isBlocked(x, y)) return false;
   }
@@ -151,18 +186,46 @@ export function groupUnits(g: Game, owner: number, group: number): Entity[] {
   return out;
 }
 
-export function centroid(units: readonly Entity[]): { x: number; y: number } {
+/**
+ * The middle of a set of units, in whole sub-units. Rounded away from the middle of the map, so that the
+ * middle of a mirrored set is the mirror image of this one (plain rounding always leans the same way).
+ */
+export function centroid(units: readonly Entity[], map?: GameMap): { x: number; y: number } {
   let x = 0, y = 0;
   for (const u of units) {
     x += u.x;
     y += u.y;
   }
   const n = Math.max(1, units.length);
-  return { x: Math.trunc(x / n), y: Math.trunc(y / n) };
+  const cx = map ? (map.w * TILE) / 2 : 0, cy = map ? (map.h * TILE) / 2 : 0;
+  const away = (v: number, c: number) => (v >= c ? c + Math.floor(v - c + 0.5) : c - Math.floor(c - v + 0.5));
+  return { x: away(x / n, cx), y: away(y / n, cy) };
 }
 
+/**
+ * Is a point on a tile where `layer` is set? A point exactly on the line between tiles counts if any tile
+ * touching it does: the line belongs to neither side, so the answer is the same seen from either end of the map.
+ */
+export function onLayer(g: Game, layer: Uint8Array, x: number, y: number): boolean {
+  const w = g.map.w, h = g.map.h;
+  const tx = Math.max(0, Math.min(w - 1, tileOf(x))), ty = Math.max(0, Math.min(h - 1, tileOf(y)));
+  if (layer[ty * w + tx] === 1) return true;
+  const onX = x % TILE === 0 && tx > 0, onY = y % TILE === 0 && ty > 0;
+  if (onX && layer[ty * w + tx - 1] === 1) return true;
+  if (onY && layer[(ty - 1) * w + tx] === 1) return true;
+  return onX && onY && layer[(ty - 1) * w + tx - 1] === 1;
+}
+
+/** Can this player see this thing right now? Flyers are seen from any height; the ground is not. */
 export function visibleTo(g: Game, owner: number, e: Entity): boolean {
-  return g.players[owner]!.vis[tileIndex(g, e.x, e.y)] === 1;
+  const pl = g.players[owner]!;
+  return onLayer(g, def(e.kind).air ? pl.visAir : pl.vis, e.x, e.y);
+}
+
+/** The same, judged by where the thing stood when this tick's moves began. */
+export function wasVisibleTo(g: Game, owner: number, e: Entity): boolean {
+  const pl = g.players[owner]!;
+  return onLayer(g, def(e.kind).air ? pl.visAir : pl.vis, e.px, e.py);
 }
 
 export function distEnt(a: Entity, b: Entity): number {
@@ -182,7 +245,8 @@ export function hash(g: Game): number {
   mix(g.winner + 1);
   for (const p of g.players) {
     mix(p.blocks);
-    mix(p.rally);
+    mix(p.gas);
+    mix(p.rally + p.weapons * 8 + p.armour * 64);
   }
   for (const e of g.ents) {
     mix(e.id);
@@ -191,7 +255,8 @@ export function hash(g: Game): number {
     mix(e.x);
     mix(e.y);
     mix(e.hp);
-    mix(e.carry + e.ws * 8 + e.mode * 64);
+    mix(e.carry + e.ws * 8 + e.mode * 64 + e.cargo * 512);
+    mix(e.still + e.frac * 1024);
     mix(e.amount);
     mix(e.progress + e.qprog * 1024);
   }

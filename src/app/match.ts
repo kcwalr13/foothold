@@ -2,9 +2,9 @@
 // Nothing here decides a rule; it asks src/sim and sends commands through the same door the opponent uses.
 import { signal } from '@preact/signals';
 import { Bot } from '../ai/bot';
-import { DEFS, FACTIONS, RULES, def } from '../sim/data';
+import { DEFS, FACTIONS, RULES, def, isResearch, researchCost } from '../sim/data';
 import { dist } from '../sim/nav';
-import { canPlace, centroid, createGame, groupUnits, hasBuilt, schedule, spawn, type Game } from '../sim/state';
+import { canPlace, centroid, createGame, groupUnits, hasBuilt, missing, schedule, spawn, type Game } from '../sim/state';
 import { step } from '../sim/step';
 import { makeView } from '../sim/view';
 import { K, O, TICKS_PER_SEC, TILE, type Command, type Entity, type Kind, type OrderMode } from '../sim/types';
@@ -21,16 +21,27 @@ export interface GroupInfo {
 
 export interface TrainInfo { kind: Kind; queued: number; progress: number; ok: boolean; why: string; repeat: boolean }
 export interface BuildInfo { kind: Kind; ok: boolean; why: string }
+export interface ResearchInfo {
+  kind: Kind; level: number; max: number; cost: number; gas: number; ok: boolean; why: string;
+  /** 0 to 1 while a level is being researched, else -1. */
+  progress: number;
+}
+
+/** "a Barracks", "an Armory". */
+const a = (name: string) => `${'AEIOU'.includes(name[0]!) ? 'an' : 'a'} ${name}`;
 
 export interface Hud {
   tick: number;
   blocks: number;
+  /** Batteries. */
+  gas: number;
   supply: number;
   cap: number;
   groups: GroupInfo[];
   rally: number;
   train: TrainInfo[];
   build: BuildInfo[];
+  research: ResearchInfo[];
   workers: number;
   /** Workers your bases have work for. */
   work: number;
@@ -40,7 +51,7 @@ export interface Hud {
 export interface Toast { id: number; text: string; kind: 'warn' | 'info'; x?: number; y?: number; until: number }
 
 export interface Fx {
-  t: 'shot' | 'fall' | 'ripple' | 'puff';
+  t: 'shot' | 'fall' | 'ripple' | 'puff' | 'wreck';
   x1: number; y1: number; x2: number; y2: number;
   kind: number; owner: number; born: number; life: number; mode?: number;
 }
@@ -48,7 +59,7 @@ export interface Fx {
 export interface Placing { kind: Kind; tx: number; ty: number; ok: boolean }
 
 /** Screen space the panels cover, in CSS pixels. The battlefield is what is left between them. */
-export const INSET = { left: 152, right: 152, top: 46 };
+export const INSET = { left: 172, right: 152, top: 46 };
 
 const STEP_MS = 1000 / TICKS_PER_SEC;
 
@@ -75,7 +86,7 @@ export class Match {
   readonly fast = signal(false);
   readonly over = signal(-1);
   readonly toasts = signal<Toast[]>([]);
-  readonly hud = signal<Hud>({ tick: 0, blocks: 0, supply: 0, cap: 0, groups: [], rally: 0, train: [], build: [], workers: 0, work: 0, idleBarracks: 0 });
+  readonly hud = signal<Hud>({ tick: 0, blocks: 0, gas: 0, supply: 0, cap: 0, groups: [], rally: 0, train: [], build: [], research: [], workers: 0, work: 0, idleBarracks: 0 });
 
   private acc = 0;
   private last = 0;
@@ -138,7 +149,7 @@ export class Match {
   tick(): void {
     const g = this.g;
     this.prev.clear();
-    for (const e of g.ents) if (e.kind !== K.Pile && e.kind < 20) this.prev.set(e.id, { x: e.x, y: e.y });
+    for (const e of g.ents) if (e.kind < 20) this.prev.set(e.id, { x: e.x, y: e.y });
     for (const cmd of this.bot.think(makeView(g, this.bot.p))) schedule(g, cmd);
     step(g);
     this.absorb();
@@ -151,18 +162,24 @@ export class Match {
 
   private absorb(): void {
     const g = this.g, now = performance.now();
-    const vis = g.players[this.me]!.vis;
-    const seen = (x: number, y: number) => vis[Math.floor(y / TILE) * g.map.w + Math.floor(x / TILE)] === 1;
+    const pl = g.players[this.me]!;
+    // Flyers are seen from any height, so anything to do with one uses the wider of the two views.
+    const seen = (x: number, y: number, air = false) => (air ? pl.visAir : pl.vis)[Math.floor(y / TILE) * g.map.w + Math.floor(x / TILE)] === 1;
     for (const ev of g.events) {
       switch (ev.t) {
-        case 'shot':
-          if (seen(ev.x1, ev.y1) || seen(ev.x2, ev.y2)) {
-            this.fx.push({ t: 'shot', x1: ev.x1, y1: ev.y1, x2: ev.x2, y2: ev.y2, kind: ev.kind, owner: ev.owner, born: now, life: ev.kind === K.Lancer ? 260 : 130 });
+        case 'shot': {
+          const air = ev.kind === K.Gunship || ev.kind === K.Flak;
+          if (seen(ev.x1, ev.y1, air) || seen(ev.x2, ev.y2, air)) {
+            const life = ev.kind === K.Mortar ? 620 : ev.kind === K.Lancer ? 260 : ev.kind === K.Tank || ev.kind === K.Jugger || ev.kind === K.Flak ? 300 : 130;
+            this.fx.push({ t: 'shot', x1: ev.x1, y1: ev.y1, x2: ev.x2, y2: ev.y2, kind: ev.kind, owner: ev.owner, born: now, life });
           }
           break;
+        }
         case 'death':
-          if (seen(ev.x, ev.y)) {
-            this.fx.push({ t: def(ev.kind).building ? 'puff' : 'fall', x1: ev.x, y1: ev.y, x2: ev.fx, y2: ev.fy, kind: ev.kind, owner: ev.owner, born: now, life: def(ev.kind).building ? 700 : 1400 });
+          if (seen(ev.x, ev.y, def(ev.kind).air)) {
+            const d = def(ev.kind);
+            const t = d.building ? 'puff' : d.cls === 0 ? 'fall' : 'wreck';
+            this.fx.push({ t, x1: ev.x, y1: ev.y, x2: ev.fx, y2: ev.fy, kind: ev.kind, owner: ev.owner, born: now, life: d.building ? 700 : t === 'wreck' ? 2600 : 1400 });
           }
           if (ev.owner === this.me && def(ev.kind).building) this.alert('lost', `${def(ev.kind).name} destroyed`, 'warn', ev.x, ev.y, 30);
           break;
@@ -172,7 +189,12 @@ export class Match {
           }
           break;
         case 'done':
-          if (ev.owner === this.me) this.alert(`done${ev.kind}`, `${def(ev.kind).name} ready`, 'info', ev.x, ev.y, 10);
+          if (ev.owner === this.me) {
+            const text = isResearch(ev.kind)
+              ? `${def(ev.kind).name} level ${ev.kind === K.Weapons ? pl.weapons : pl.armour} researched`
+              : `${def(ev.kind).name} ready`;
+            this.alert(`done${ev.kind}`, text, 'info', ev.x, ev.y, 10);
+          }
           break;
         case 'refused':
           if (ev.p === this.me) this.alert(`no:${ev.why}`, ev.why, 'warn', undefined, undefined, 15);
@@ -221,30 +243,53 @@ export class Match {
         if (e.queue[0] === kind) progress = Math.max(progress, e.qprog / d.time);
       }
       let why = '';
-      if (!hasBuilt(g, me, d.madeAt!)) why = `Needs a ${def(d.madeAt!).name}`;
+      const lacks = missing(g, me, [d.madeAt!, ...d.needs]);
+      if (lacks) why = `Needs ${a(def(lacks).name)}`;
       else if (pl.blocks < d.cost) why = 'Not enough Blocks';
+      else if (pl.gas < d.gas) why = 'Not enough Batteries';
       else if (pl.supply + d.supply > pl.cap) why = 'Supply cap reached';
       return { kind, queued, progress, ok: why === '', why, repeat: pl.repeat.includes(kind) };
     });
     const build: BuildInfo[] = f.buildings.map((kind) => {
       const d = def(kind);
       let why = '';
-      if (d.needs && !hasBuilt(g, me, d.needs)) why = `Needs a ${def(d.needs).name}`;
+      const lacks = missing(g, me, d.needs);
+      if (lacks) why = `Needs ${a(def(lacks).name)}`;
       else if (pl.blocks < d.cost) why = 'Not enough Blocks';
+      else if (pl.gas < d.gas) why = 'Not enough Batteries';
       return { kind, ok: why === '', why };
+    });
+    const research: ResearchInfo[] = f.research.map((kind) => {
+      const level = kind === K.Weapons ? pl.weapons : pl.armour;
+      const price = researchCost(kind, Math.min(level, RULES.researchMax - 1));
+      let progress = -1;
+      for (const e of g.ents) {
+        if (e.owner !== me || e.kind !== K.Armory) continue;
+        const i = e.queue.indexOf(kind);
+        if (i >= 0) progress = i === 0 ? e.qprog / price.time : 0;
+      }
+      let why = '';
+      if (level >= RULES.researchMax) why = `${def(kind).name} is at its top level`;
+      else if (progress >= 0) why = 'Already being researched';
+      else if (!hasBuilt(g, me, K.Armory)) why = 'Needs an Armory';
+      else if (pl.blocks < price.cost) why = 'Not enough Blocks';
+      else if (pl.gas < price.gas) why = 'Not enough Batteries';
+      return { kind, level, max: RULES.researchMax, cost: price.cost, gas: price.gas, ok: why === '', why, progress };
     });
     let workers = 0, idleBarracks = 0, work = 0;
     const hqs = g.ents.filter((e) => e.owner === me && e.kind === K.HQ && e.built);
+    const byHQ = (e: Entity) => hqs.some((h) => dist(h.x, h.y, e.x, e.y) <= RULES.baseReach * TILE);
     for (const e of g.ents) {
       if (e.kind === K.Pile) {
-        if (e.amount > 0 && hqs.some((h) => dist(h.x, h.y, e.x, e.y) <= RULES.baseReach * TILE)) work += RULES.perPile;
+        if (e.amount > 0 && byHQ(e)) work += RULES.perPile;
         continue;
       }
       if (e.owner !== me) continue;
       if (e.kind === K.Worker) workers++;
       else if (e.kind === K.Barracks && e.built && e.queue.length === 0) idleBarracks++;
+      else if (e.kind === K.Refinery && e.built && (g.byId.get(e.pile)?.amount ?? 0) > 0 && byHQ(e)) work += RULES.perRefinery;
     }
-    this.hud.value = { tick: g.tick, blocks: pl.blocks, supply: pl.supply, cap: pl.cap, groups, rally: pl.rally, train, build, workers, work, idleBarracks };
+    this.hud.value = { tick: g.tick, blocks: pl.blocks, gas: pl.gas, supply: pl.supply, cap: pl.cap, groups, rally: pl.rally, train, build, research, workers, work, idleBarracks };
     const p = this.placing.value;
     if (p) {
       const ok = canPlace(g, me, p.kind, p.tx, p.ty);
@@ -271,6 +316,10 @@ export class Match {
 
   train(kind: Kind): void {
     this.issue({ t: 'train', p: this.me, kind });
+  }
+
+  research(kind: Kind): void {
+    this.issue({ t: 'research', p: this.me, kind });
   }
 
   toggleRepeat(kind: Kind): void {
@@ -321,9 +370,31 @@ export class Match {
 
   // ---------------------------------------------------------------- building placement
 
+  /** Battery packs with no Refinery on them, nearest first. */
+  private freePacks(x: number, y: number): Entity[] {
+    return this.g.ents.filter((e) => e.kind === K.Cell && e.site === 0)
+      .sort((p, q) => dist(x, y, p.x, p.y) - dist(x, y, q.x, q.y));
+  }
+
   beginPlace(kind: Kind): void {
     const g = this.g, d = def(kind);
     this.site.value = 0;
+    if (kind === K.Refinery) {
+      // A Refinery has only a few places it can go: start on the free pack nearest one of your Headquarters.
+      const hqs = g.ents.filter((e) => e.owner === this.me && e.kind === K.HQ);
+      const near = (e: Entity) => Math.min(...hqs.map((h) => dist(h.x, h.y, e.x, e.y)), 1e9) * 4 + dist(this.cam.x, this.cam.y, e.x, e.y);
+      const pack = this.freePacks(this.cam.x, this.cam.y).sort((p, q) => near(p) - near(q))[0];
+      if (!pack) {
+        this.alert('nopack', 'No battery pack is free', 'warn', undefined, undefined, 5);
+        return;
+      }
+      this.cam.x = pack.x;
+      this.cam.y = pack.y;
+      this.clampCam();
+      const tx = Math.round(pack.x / TILE) - 1, ty = Math.round(pack.y / TILE) - 1;
+      this.placing.value = { kind, tx, ty, ok: canPlace(g, this.me, kind, tx, ty) };
+      return;
+    }
     // Start at the middle of the view; if the view is over rock or far from open ground, start at home.
     let tx = Math.round(this.cam.x / TILE - d.size / 2), ty = Math.round(this.cam.y / TILE - d.size / 2);
     const spot = this.nearestFree(kind, tx, ty, 8);
@@ -392,6 +463,14 @@ export class Match {
     if (!p) return;
     const d = def(p.kind);
     let nx = Math.max(0, Math.min(this.g.map.w - d.size, tx)), ny = Math.max(0, Math.min(this.g.map.h - d.size, ty));
+    if (p.kind === K.Refinery) {
+      // Snap onto a free battery pack when the outline comes close to one.
+      const pack = this.freePacks((nx + 1) * TILE, (ny + 1) * TILE)[0];
+      if (pack && dist((nx + 1) * TILE, (ny + 1) * TILE, pack.x, pack.y) <= 3 * TILE) {
+        nx = Math.round(pack.x / TILE) - 1;
+        ny = Math.round(pack.y / TILE) - 1;
+      }
+    }
     if (p.kind === K.HQ) {
       // Snap onto a base site when the outline is dropped close to one.
       for (const b of this.g.map.bases) {
@@ -410,7 +489,7 @@ export class Match {
     const p = this.placing.value;
     if (!p) return;
     if (!p.ok) {
-      this.alert('place', "Can't build there", 'warn', undefined, undefined, 5);
+      this.alert('place', p.kind === K.Refinery ? 'A Refinery goes on a battery pack' : "Can't build there", 'warn', undefined, undefined, 5);
       return;
     }
     this.issue({ t: 'build', p: this.me, kind: p.kind, tx: p.tx, ty: p.ty });

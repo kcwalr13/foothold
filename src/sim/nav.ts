@@ -18,8 +18,11 @@ export function dist(x0: number, y0: number, x1: number, y1: number): number {
   return isqrt(dx * dx + dy * dy);
 }
 
-const NX = [1, -1, 0, 0, 1, 1, -1, -1];
-const NY = [0, 0, 1, -1, 1, -1, 1, -1];
+// Neighbours in the order ties are settled: straight steps before diagonal ones, and within each kind an
+// order that reads the same when the map is turned half a circle (east or west before south or north;
+// south-east or north-west before north-east or south-west), so both sides walk mirror-image paths.
+const NX = [1, -1, 0, 0, 1, -1, 1, -1];
+const NY = [0, 0, 1, -1, 1, -1, -1, 1];
 
 export class Nav {
   /** 1 where a tile can't be walked: terrain, buildings or piles. */
@@ -40,9 +43,18 @@ export class Nav {
     return !this.inside(tx, ty) || this.blocked[ty * this.w + tx] === 1;
   }
 
-  /** Blocked test for a point in sub-units. */
+  /**
+   * Blocked test for a point in sub-units. A point exactly on the line between two tiles counts as blocked
+   * if either is: decided any other way, the line would belong to the tile on one fixed side of it, and the
+   * two sides of the map would walk slightly different paths.
+   */
   blockedAt(x: number, y: number): boolean {
-    return this.isBlocked(Math.floor(x / TILE), Math.floor(y / TILE));
+    const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+    if (this.isBlocked(tx, ty)) return true;
+    const onX = x % TILE === 0, onY = y % TILE === 0;
+    if (onX && this.isBlocked(tx - 1, ty)) return true;
+    if (onY && this.isBlocked(tx, ty - 1)) return true;
+    return onX && onY && this.isBlocked(tx - 1, ty - 1);
   }
 
   setRect(tx: number, ty: number, size: number, value: 0 | 1): void {
@@ -124,10 +136,15 @@ export class Nav {
     return d;
   }
 
-  /** The neighbouring tile one step closer to the goal, or -1 when there is none. */
-  next(d: Uint16Array, tx: number, ty: number): number {
+  /**
+   * The neighbouring tile one step closer to the goal, or -1 when there is none. When two are equally good
+   * (the two ways round a building), the one whose middle is nearer to where the walker actually stands wins;
+   * a walker dead in line with the building goes round on the side nearer the middle of the map. Either way a
+   * unit and its mirror image on the far side of the map go round the same way.
+   */
+  next(d: Uint16Array, tx: number, ty: number, x = tx * TILE + TILE / 2, y = ty * TILE + TILE / 2): number {
     const { w, h, blocked } = this;
-    let best = -1;
+    let best = -1, bestNear = Infinity, bestMid = Infinity;
     let bestCost = this.inside(tx, ty) ? d[ty * w + tx]! : INF;
     for (let k = 0; k < 8; k++) {
       const nx = tx + NX[k]!, ny = ty + NY[k]!;
@@ -137,12 +154,24 @@ export class Nav {
       // A blocked tile is only a valid step when it is the goal itself (cost 0).
       if (blocked[ni] === 1 && d[ni] !== 0) continue;
       const c = d[ni]! + (k < 4 ? 0 : 1);
-      if (c < bestCost) {
+      if (c > bestCost) continue;
+      const cx = nx * TILE + TILE / 2, cy = ny * TILE + TILE / 2;
+      const near = (cx - x) * (cx - x) + (cy - y) * (cy - y);
+      const mid = this.fromMiddle(cx, cy);
+      if (c < bestCost || (best >= 0 && (near < bestNear || (near === bestNear && mid < bestMid)))) {
         bestCost = c;
+        bestNear = near;
+        bestMid = mid;
         best = ni;
       }
     }
     return best;
+  }
+
+  /** How far a point is from the middle of the map (squared): the last word when everything else is level. */
+  private fromMiddle(x: number, y: number): number {
+    const mx = x - (this.w * TILE) / 2, my = y - (this.h * TILE) / 2;
+    return mx * mx + my * my;
   }
 
   /** True when the straight line between two points crosses no blocked tile. The last `slack` sub-units are not checked. */
@@ -160,23 +189,33 @@ export class Nav {
     return true;
   }
 
-  /** The open tile nearest to a tile, searched in growing squares. Returns its index, or -1. */
-  nearestOpen(tx: number, ty: number): number {
-    const cx = Math.max(0, Math.min(this.w - 1, tx)), cy = Math.max(0, Math.min(this.h - 1, ty));
-    if (!this.isBlocked(cx, cy)) return cy * this.w + cx;
-    for (let r = 1; r < 24; r++) {
-      let best = -1, bestD = 1 << 30;
-      for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
-        if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== r) continue;
-        if (this.isBlocked(x, y)) continue;
-        const dd = (x - cx) * (x - cx) + (y - cy) * (y - cy);
-        if (dd < bestD) {
-          bestD = dd;
-          best = y * this.w + x;
+  /**
+   * The open tile whose middle is nearest to a point (in sub-units). When several are equally near,
+   * as on every side of a square building asked for by its middle, the one nearest `from` wins:
+   * an army sent at a building stops on the side it came from, whichever way it was walking. With
+   * that level too, the one nearer the middle of the map wins. Returns the tile's index, or -1.
+   */
+  nearestOpenTo(x: number, y: number, fromX: number, fromY: number): number {
+    const cx = Math.max(0, Math.min(this.w - 1, Math.floor(x / TILE))), cy = Math.max(0, Math.min(this.h - 1, Math.floor(y / TILE)));
+    let best = -1, bestD = Infinity, bestF = Infinity, bestM = Infinity;
+    for (let r = 0; r < 24; r++) {
+      // A tile in ring r is at least r - 1 tiles away, so once a find is nearer than that, no later ring can beat it.
+      if (best >= 0 && bestD < (r - 1) * TILE * ((r - 1) * TILE)) break;
+      for (let ty = cy - r; ty <= cy + r; ty++) for (let tx = cx - r; tx <= cx + r; tx++) {
+        if (Math.max(Math.abs(tx - cx), Math.abs(ty - cy)) !== r) continue;
+        if (this.isBlocked(tx, ty)) continue;
+        const mx = tx * TILE + TILE / 2, my = ty * TILE + TILE / 2;
+        const d = (mx - x) * (mx - x) + (my - y) * (my - y);
+        const f = (mx - fromX) * (mx - fromX) + (my - fromY) * (my - fromY);
+        const m = this.fromMiddle(mx, my);
+        if (d < bestD || (d === bestD && (f < bestF || (f === bestF && m < bestM)))) {
+          bestD = d;
+          bestF = f;
+          bestM = m;
+          best = ty * this.w + tx;
         }
       }
-      if (best >= 0) return best;
     }
-    return -1;
+    return best;
   }
 }
