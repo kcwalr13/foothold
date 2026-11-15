@@ -63,6 +63,7 @@ button:disabled { opacity: 0.45; }
 .stat.bad b { color: var(--warn); }
 .stat.over b { color: #a86a00; }
 .clock { margin-left: auto; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.clock .pace { margin-right: 6px; padding: 1px 5px; border-radius: 6px; background: var(--gold); font-size: 12px; }
 .pause { width: 50px; height: 44px; margin-bottom: 2px; font-weight: 900; letter-spacing: 1px; }
 
 /* ---------- left panel: the base ---------- */
@@ -174,6 +175,9 @@ button:disabled { opacity: 0.45; }
 .chip { min-width: 46px; height: 46px; padding: 0 12px; font-weight: 800; flex-shrink: 0; }
 .sheet > * { flex-shrink: 0; }
 .chip.wide { width: 100%; }
+.speeds { display: flex; align-items: center; gap: 6px; width: 100%; }
+.speeds .lbl { font-size: 13px; font-weight: 700; margin-right: 2px; }
+.speeds .chip { flex: 1; padding: 0 6px; }
 
 /* The army organiser: four groups side by side, units picked up from one and set down in another. */
 .sheet.org { width: min(664px, 97vw); padding: 9px 10px; gap: 6px; }

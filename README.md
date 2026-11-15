@@ -27,6 +27,8 @@ with no connection. On the menu, pick your side and the opponent's, then Easy or
   meets, Move goes without fighting, and a group keeps whichever you set; Hold digs in. Tap Groups, or any
   empty group, to organise the army: tap the units you want, then the group they should join. Double-tap a
   group to jump to it.
+- **Speed.** Pause, top right, also sets the speed: half or three-quarter to take your time, normal, or
+  double. The game remembers it and shows it beside the clock.
 - **Map.** Drag to pan, pinch to zoom out to the whole map. High ground sees down, shoots further and can't be
   seen from below; a unit standing by a watchtower shows you the road.
 - **Batteries.** Build a Refinery (or a Dig) on a battery pack beside a Headquarters (or a Nest) and three

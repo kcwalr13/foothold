@@ -68,6 +68,26 @@ export const INSET = { left: 172, right: 152, top: 46 };
 
 const STEP_MS = 1000 / TICKS_PER_SEC;
 
+/**
+ * How fast the clock runs against the computer. This is the app's business alone: the rules take the same
+ * ticks in the same order at any speed, so a slow match and a fast one with the same orders are the same match.
+ */
+export const SPEEDS = [
+  { value: 0.5, label: '½×', name: 'Half speed' },
+  { value: 0.75, label: '¾×', name: 'Three-quarter speed' },
+  { value: 1, label: '1×', name: 'Normal speed' },
+  { value: 2, label: '2×', name: 'Double speed' },
+] as const;
+
+function rememberedSpeed(): number {
+  try {
+    const v = Number(localStorage.getItem('foothold.speed'));
+    return SPEEDS.some((x) => x.value === v) ? v : 1;
+  } catch {
+    return 1;
+  }
+}
+
 export class Match {
   readonly g: Game;
   readonly bot: Bot;
@@ -94,7 +114,8 @@ export class Match {
   readonly sheet = signal(-1);
   readonly paused = signal(false);
   readonly menu = signal(false);
-  readonly fast = signal(false);
+  /** One of `SPEEDS`; kept from match to match. */
+  readonly speed = signal(rememberedSpeed());
   readonly over = signal(-1);
   readonly toasts = signal<Toast[]>([]);
   readonly hud = signal<Hud>({ tick: 0, blocks: 0, gas: 0, supply: 0, cap: 0, groups: [], rally: 0, train: [], build: [], research: [], workers: 0, work: 0, idleBarracks: 0, eggs: 0, eggMax: 0 });
@@ -137,11 +158,21 @@ export class Match {
     cancelAnimationFrame(this.raf);
   }
 
+  setSpeed(value: number): void {
+    if (!SPEEDS.some((x) => x.value === value)) return;
+    this.speed.value = value;
+    try {
+      localStorage.setItem('foothold.speed', String(value));
+    } catch {
+      // Private browsing: the speed still holds for this match.
+    }
+  }
+
   private frame(now: number): void {
     const dt = Math.min(250, now - this.last);
     this.last = now;
     if (!this.paused.value && this.over.value < 0) {
-      this.acc += dt * (this.fast.value ? 2 : 1);
+      this.acc += dt * this.speed.value;
       let n = 0;
       while (this.acc >= STEP_MS && n < 6) {
         this.tick();

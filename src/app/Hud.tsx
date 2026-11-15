@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { TargetedPointerEvent } from 'preact';
 import { FACTIONS, def, isRefinery } from '../sim/data';
 import { K, O, TILE, type Kind } from '../sim/types';
-import type { Match } from './match';
+import { SPEEDS, type Match } from './match';
 import { TEAM } from './render';
 
 const clock = (ticks: number) => `${Math.floor(ticks / 600)}:${String(Math.floor((ticks % 600) / 10)).padStart(2, '0')}`;
@@ -363,6 +363,8 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
     if (placing) setTab('build');
   }, [placing !== null]);
   const capped = h.supply >= h.cap;
+  // Shown beside the clock whenever the match is not running at its normal speed.
+  const pace = m.speed.value === 1 ? undefined : SPEEDS.find((sp) => sp.value === m.speed.value);
   return (
     <div class="hud">
       <div class="top">
@@ -371,7 +373,7 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
         <span class={`stat ${capped ? 'bad' : ''}`}><span class="lbl">Supply</span> <b>{h.supply}/{h.cap}</b></span>
         <span class={`stat ${h.workers > h.work ? 'over' : ''}`}><span class="lbl">{def(F.worker).plural}</span> <b data-stat="workers">{h.workers}/{h.work}</b></span>
         {dino && <span class={`stat ${h.eggs >= h.eggMax && h.eggMax > 0 ? 'over' : ''}`} title="Eggs ready in your Nests"><EggIcon /> <b data-stat="eggs">{h.eggs}/{h.eggMax}</b></span>}
-        <span class="clock">{clock(h.tick)}</span>
+        <span class="clock">{pace && <span class="pace" title={pace.name}>{pace.label}</span>}{clock(h.tick)}</span>
         <button class="pause" aria-label="Pause" onClick={() => { m.paused.value = true; m.menu.value = true; }}>II</button>
       </div>
 
@@ -441,7 +443,12 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
           <div class="sheet">
             <h2>Paused</h2>
             <button class="chip wide" onClick={() => { m.menu.value = false; m.paused.value = false; }}>Resume</button>
-            <button class="chip wide" onClick={() => { m.fast.value = !m.fast.value; }}>Speed: {m.fast.value ? 'Fast' : 'Normal'}</button>
+            <div class="speeds" role="group" aria-label="Speed">
+              <span class="lbl">Speed</span>
+              {SPEEDS.map((sp) => (
+                <button key={sp.value} class={`chip ${m.speed.value === sp.value ? 'on' : ''}`} aria-pressed={m.speed.value === sp.value} aria-label={sp.name} onClick={() => m.setSpeed(sp.value)}>{sp.label}</button>
+              ))}
+            </div>
             <button class="chip wide" onClick={onAgain}>Restart</button>
             <button class="chip wide" onClick={onQuit}>Quit to menu</button>
           </div>

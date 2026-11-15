@@ -47,6 +47,9 @@ most three taste questions.
   outlives it. High ground is `map.high`: it sees down, outranges low ground and is not seen from below;
   flyers see and are seen regardless (`vis` and `visAir`).
 - The app never decides a rule; it asks `src/sim` (`canPlace`, `hasBuilt`, ...).
+- Match speed is the app's alone: `Match.speed` (one of `SPEEDS`, set from the pause sheet and remembered)
+  scales how long a tick waits in `frame()`. The sim never sees it, so it cannot change a match; like pausing,
+  it exists only against the computer.
 - Nothing is fetched at runtime and there are no art files: `src/app/render.ts` draws everything.
 - Every control is at least 44 px; the e2e suite checks it on three screen sizes (the shortest is 340 px
   tall, where the three-by-three panel grids have 47 px a row). Panels are sized by `INSET` in

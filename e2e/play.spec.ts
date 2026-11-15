@@ -553,6 +553,44 @@ test('the opponent comes for you, and a match ends with a result screen', async 
   await p.waitForFunction(() => (window as Any).__fh.g.tick < 50);
 });
 
+test('the pause sheet sets the speed, from half to double, and the choice is kept', async ({ page: p }, info) => {
+  await start(p);
+  const ticksIn = async (ms: number) => {
+    const from = await state<number>(p, '(m) => m.g.tick');
+    await p.waitForTimeout(ms);
+    return (await state<number>(p, '(m) => m.g.tick')) - from;
+  };
+  await p.evaluate(() => { (window as Any).__fh.paused.value = false; });
+  await expect(p.locator('.pace')).toHaveCount(0);
+  const normal = await ticksIn(2000);
+  await p.getByRole('button', { name: 'Pause' }).tap();
+  await expect(p.getByRole('button', { name: 'Normal speed' })).toHaveAttribute('aria-pressed', 'true');
+  await noSmallButtons(p);
+  await p.getByRole('button', { name: 'Half speed' }).tap();
+  await expect(p.getByRole('button', { name: 'Half speed' })).toHaveAttribute('aria-pressed', 'true');
+  await p.screenshot({ path: info.outputPath('speed.png') });
+  await p.getByRole('button', { name: 'Resume' }).tap();
+  // The clock says so, and the match takes about twice as long over the same ground.
+  await expect(p.locator('.pace')).toHaveText('½×');
+  const half = await ticksIn(2000);
+  expect(half).toBeGreaterThan(0);
+  expect(half).toBeLessThanOrEqual(12);
+  expect(half).toBeLessThan(normal * 0.75);
+  expect(half).toBeGreaterThan(normal * 0.3);
+  // A new match starts at the speed you left the last one at.
+  await start(p);
+  expect(await state<number>(p, '(m) => m.speed.value')).toBe(0.5);
+  await expect(p.locator('.pace')).toHaveText('½×');
+  await p.getByRole('button', { name: 'Pause' }).tap();
+  await p.getByRole('button', { name: 'Three-quarter speed' }).tap();
+  expect(await state<number>(p, '(m) => m.speed.value')).toBe(0.75);
+  await p.getByRole('button', { name: 'Double speed' }).tap();
+  expect(await state<number>(p, '(m) => m.speed.value')).toBe(2);
+  await p.getByRole('button', { name: 'Normal speed' }).tap();
+  await p.getByRole('button', { name: 'Resume' }).tap();
+  await expect(p.locator('.pace')).toHaveCount(0);
+});
+
 test('turning the phone upright asks you to turn it back', async ({ page: p }) => {
   await p.setViewportSize({ width: 390, height: 844 });
   await p.goto('./?nosw');
