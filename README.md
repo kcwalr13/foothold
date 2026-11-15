@@ -40,6 +40,8 @@ Classic:
   group to jump to it.
 - **Speed.** Pause, top right, also sets the speed: half or three-quarter to take your time, normal, or
   double. The game remembers it and shows it beside the clock.
+- **Units.** The pause sheet (and How to play) opens a guide to every unit of both factions: its toy in
+  your colour and the opponent's, what it does, what it beats and what beats it, and its numbers.
 - **Map.** Drag to pan, pinch to zoom out to the whole map. High ground sees down, shoots further and can't be
   seen from below; a unit standing by a watchtower shows you the road.
 - **Batteries.** Build a Refinery (or a Dig) on a battery pack beside a Headquarters (or a Nest) and three

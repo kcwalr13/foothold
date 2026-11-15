@@ -251,11 +251,19 @@ export class ToyBox {
   private cache = new Map<string, Sprite>();
   /** The size pieces are painted at just now: sprite pixels to a tile, before the phone's own scale. */
   private current = 0;
+  /** This frame's own zoom. A piece asked for at a bigger zoom than this is painted that much bigger. */
+  private frameZ = 0;
   private spent = 0;
+
+  /** The size pieces are painted at just now, which moves only in steps (see `begin`). */
+  get size(): number {
+    return this.current;
+  }
 
   /** Call once at the top of every frame: it settles the size to paint at and opens the frame's allowance. */
   begin(z: number): void {
     this.spent = 0;
+    this.frameZ = z;
     // Fingers wander while they pinch. A new size is taken only once the zoom is well clear of the old one,
     // so resting on the line between two sizes does not repaint everything back and forth.
     if (this.current === 0 || Math.abs(Math.log2(Math.max(4, z) / this.current)) > 0.17) this.current = bucketOf(z);
@@ -271,7 +279,10 @@ export class ToyBox {
    */
   get(key: string, z: number, half: number, paint: (p: Pen) => void, ink: string = PENCIL, light: Light = 'dome'): Sprite {
     if (this.current === 0) this.begin(z);
-    const b = this.current, at = b * this.dpr;
+    // Asked for at more than the frame's zoom (a unit drawn larger than life: see `presence`), it is painted
+    // larger too, so it stays sharp. The ratio is rounded so a piece is not repainted for a hair's difference.
+    const ratio = this.frameZ > 0 ? Math.round((z / this.frameZ) * 64) / 64 : 1;
+    const b = this.current, at = b * this.dpr * ratio;
     const had = this.cache.get(key);
     if (had && (had.at === at || this.spent >= REPAINT_MS)) return had;
 
@@ -310,6 +321,18 @@ export class ToyBox {
     const k = (z / s.u) * scale;
     x.drawImage(s.shade, -s.cx * k, -s.cy * k, s.shade.width * k, s.shade.height * k);
   }
+}
+
+/**
+ * How much larger than life a unit is drawn at a given painting size (`ToyBox.size`). At the zoom most of a
+ * match is played at, a foot soldier is barely a dozen pixels across on a phone, and its shape is lost; so
+ * units grow as the view pulls back, an eighth larger at the usual zoom and a fifth at the furthest before
+ * they turn into markers, and are drawn true to size once you are zoomed right in. Not more: in a crowd a
+ * piece much larger than the room it takes up only hides its neighbours. It goes by the
+ * painting size, which moves only in steps, so a pinch does not set pieces swelling and shrinking.
+ */
+export function presence(size: number): number {
+  return 1 + 0.2 * Math.max(0, Math.min(1, (32 - size) / 16));
 }
 
 /** What the renderer remembers about one piece from frame to frame, so that it can move like a thing with weight. */

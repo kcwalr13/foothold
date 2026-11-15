@@ -68,6 +68,9 @@ most three taste questions.
   outlives it. High ground is `map.high`: it sees down, outranges low ground and is not seen from below;
   flyers see and are seen regardless (`vis` and `visAir`).
 - The app never decides a rule; it asks `src/sim` (`canPlace`, `hasBuilt`, ...).
+- The unit guide (`src/app/Guide.tsx`, from the pause sheet and How to play) reads every number from `def()`,
+  `UNLOCK`, `WORK` and `ABILITIES`; only the words (job, beats, beaten by) are written there, and they follow
+  the design doc's unit tables. A new unit needs its words in `WORDS`.
 - Attack or Move is one setting for the whole army, in both modes: `Match.mode` belongs to no group, stays
   as pressed until the other is pressed (whatever is selected, falls or comes back), and its two buttons are
   never disabled. Kyle asked for exactly this, twice: do not make it per group or reset it anywhere.
@@ -95,6 +98,13 @@ most three taste questions.
     `Match.fired` (who shot, from the sim's `shot` events). The sim never knows a frame was drawn;
   - `ToyBox.begin(z)` opens each frame. Pieces are repainted for a new zoom a few a frame (`REPAINT_MS`),
     never all at once: a pinch must not stutter;
+  - units are drawn larger than life when zoomed out (`presence` in `toys.ts`, by the painting size, up to a
+    fifth): the renderer draws them on a stage whose zoom is raised (`Renderer.larger`), and `ToyBox.get`
+    paints a piece asked for at a bigger zoom that much bigger. So a sprite key belongs to units or to
+    buildings, never both: one key asked for at two sizes is repainted every frame (the Nest's eggs are
+    `d19n`, not the hatching egg's `d19`). Small pieces are drawn after big ones, so infantry stays on top;
+  - each unit keeps a silhouette of its own at every zoom, markers included: in a crowd shape is all there
+    is to go on. A new unit needs an outline, and a marker, unlike any other's;
   - the panel buttons show the same toys (`icons.ts`, `paintArmyPiece` and `paintDinoPiece`); only research
     has drawings of its own in `Hud.tsx`. A new unit or building needs its `reach` and its piece there too;
   - the minimap keeps enemies red, not tan: tan there is a battery pack. In Frenzy, where there are no

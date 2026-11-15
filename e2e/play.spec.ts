@@ -32,6 +32,53 @@ test('menu to match, and every control is thumb-sized', async ({ page: p }, info
   expect(await state(p, '(m) => m.paused.value')).toBe(false);
 });
 
+test('the unit guide, from the pause sheet and from How to play: every unit of both factions, its toys, job and numbers', async ({ page: p }) => {
+  await start(p, 'play=1&seed=7&me=dino&foe=green');
+  await p.getByRole('button', { name: 'Pause' }).tap();
+  await p.getByRole('button', { name: 'Units', exact: true }).tap();
+  const guide = p.getByRole('dialog', { name: 'Units' });
+  await expect(guide).toBeVisible();
+  // It opens on your own faction: a card a unit, Gatherer to Rex, each with its toy in your colour and in tan.
+  await expect(guide.getByRole('button', { name: 'Dino Pack' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(guide.locator('.ucard')).toHaveCount(7);
+  await expect(guide.locator('.ucard').first()).toContainText('Gatherer');
+  const raptor = guide.locator(`.ucard[data-kind="${K.Raptor}"]`);
+  await expect(raptor).toContainText('2 to an egg');
+  await expect(raptor).toContainText('an egg ·');
+  await expect(raptor).toContainText('Beats');
+  await expect(raptor).toContainText('Beaten by');
+  await expect(raptor).toContainText('Health ');
+  const drawn = await guide.locator('.ucard img').evaluateAll((els) => els.map((el) => (el as HTMLImageElement).naturalWidth));
+  expect(drawn.length).toBe(14);
+  expect(drawn.every((w) => w > 0)).toBe(true);
+  await noSmallButtons(p);
+  // The other faction is a tap away.
+  await guide.getByRole('button', { name: 'Green Army' }).tap();
+  await expect(guide.locator('.ucard')).toHaveCount(9);
+  await expect(guide.locator(`.ucard[data-kind="${K.Jugger}"]`)).toContainText('Batteries');
+  await expect(guide.locator(`.ucard[data-kind="${K.Jugger}"]`)).toContainText('Heavy Works');
+  await expect(guide.locator(`.ucard[data-kind="${K.Flak}"]`)).toContainText('flyers only');
+  // The list scrolls inside the sheet: the last card can be reached, and the sheet stays on the screen.
+  await guide.locator('.ucard').last().scrollIntoViewIfNeeded();
+  await expect(guide.locator('.ucard').last()).toBeInViewport();
+  const box = (await guide.boundingBox())!, h = await p.evaluate(() => innerHeight);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(h + 1);
+  // Back to the pause sheet, still paused.
+  await guide.getByRole('button', { name: 'Back' }).tap();
+  await expect(p.getByRole('heading', { name: 'Paused' })).toBeVisible();
+  expect(await state(p, '(m) => m.paused.value')).toBe(true);
+  // And from the menu, under How to play.
+  await p.getByRole('button', { name: 'Quit to menu' }).tap();
+  await p.getByRole('button', { name: 'How to play' }).tap();
+  await p.getByRole('button', { name: 'Units', exact: true }).tap();
+  await expect(p.getByRole('dialog', { name: 'Units' })).toBeVisible();
+  await noSmallButtons(p);
+  await p.getByRole('dialog', { name: 'Units' }).getByRole('button', { name: 'Back' }).tap();
+  await expect(p.getByRole('button', { name: 'How to play' })).toHaveCount(0);
+  await expect(p.getByRole('button', { name: 'Units', exact: true })).toBeVisible();
+});
+
 test('the panels leave the battlefield in the middle and nothing overflows the screen', async ({ page: p }) => {
   await start(p);
   const { w, h } = await p.evaluate(() => ({ w: innerWidth, h: innerHeight }));

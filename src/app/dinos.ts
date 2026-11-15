@@ -350,25 +350,75 @@ export function drawDinoMarker(st: Stage, e: Entity, px: number, py: number, t: 
       x.stroke();
       return;
     }
-    case K.Spitter:
-      oval(px, py, r * 0.9, r * 0.9);
+    case K.Spitter: {
+      // Its frill: a fan, round side forward, with the green of its spit in the middle. Never a plain disc.
+      x.beginPath();
+      x.arc(px, py, r * 1.05, face - 1.75, face + 1.75);
+      x.closePath();
       x.fill();
       x.stroke();
       x.fillStyle = SPIT;
-      oval(px, py, r * 0.38, r * 0.38);
+      oval(px + Math.cos(face) * r * 0.35, py + Math.sin(face) * r * 0.35, r * 0.34, r * 0.34);
       x.fill();
       return;
+    }
     case K.Horn:
     case K.Bronto:
     case K.Rex: {
+      // The big three by what sticks out in front: a Horn's three ivory horns, a Bronto's long neck and small
+      // head, a Rex's great head. The body is an oval along the way it faces.
       const k = e.kind === K.Horn ? 1.05 : e.kind === K.Bronto ? 1.5 : 1.4;
-      x.lineWidth = e.kind === K.Horn ? 1.8 : 2.6;
-      oval(px, py, r * 1.3 * k, r * 0.85 * k);
+      const c = Math.cos(face), s = Math.sin(face), at = (f: number, l = 0) => [px + c * f * r * k - s * l * r * k, py + s * f * r * k + c * l * r * k] as const;
+      x.lineWidth = e.kind === K.Horn ? 1.8 : 2.4;
+      if (e.kind === K.Bronto) {
+        const [hx, hy] = at(1.75), [nx, ny] = at(0.8);
+        x.lineCap = 'round';
+        for (const [w, col] of [[Math.max(4, r * 0.8), t.ink], [Math.max(2, r * 0.42), t.fill]] as const) {
+          x.strokeStyle = col;
+          x.lineWidth = w;
+          x.beginPath();
+          x.moveTo(nx, ny);
+          x.lineTo(hx, hy);
+          x.stroke();
+        }
+        x.strokeStyle = t.ink;
+        x.lineWidth = 2.4;
+        oval(hx, hy, r * 0.42, r * 0.42);
+        x.fill();
+        x.stroke();
+      }
+      x.beginPath();
+      x.ellipse(px, py, r * 1.2 * k, r * 0.82 * k, face, 0, TAU);
       x.fill();
       x.stroke();
-      x.fillStyle = e.kind === K.Rex ? t.ink : e.kind === K.Horn ? IVORY : t.light;
-      oval(px, py, r * 0.5 * k, r * 0.32 * k);
-      x.fill();
+      if (e.kind === K.Rex) {
+        const [hx, hy] = at(1.15);
+        x.beginPath();
+        x.ellipse(hx, hy, r * 0.62 * k, r * 0.5 * k, face, 0, TAU);
+        x.fill();
+        x.stroke();
+        x.fillStyle = t.ink;
+        x.beginPath();
+        x.ellipse(...at(1.45), r * 0.22 * k, r * 0.1 * k, face, 0, TAU);
+        x.fill();
+      } else if (e.kind === K.Horn) {
+        x.lineCap = 'round';
+        for (const l of [-0.42, 0, 0.42]) {
+          const [ax, ay] = at(0.9, l * 0.8), [bx, by] = at(l === 0 ? 1.55 : 1.75, l);
+          for (const [w, col] of [[Math.max(3.2, r * 0.5), t.ink], [Math.max(1.6, r * 0.26), IVORY]] as const) {
+            x.strokeStyle = col;
+            x.lineWidth = w;
+            x.beginPath();
+            x.moveTo(ax, ay);
+            x.lineTo(bx, by);
+            x.stroke();
+          }
+        }
+      } else {
+        x.fillStyle = t.light;
+        oval(px, py, r * 0.5 * k, r * 0.32 * k);
+        x.fill();
+      }
       return;
     }
     case K.Ptero:
@@ -537,7 +587,9 @@ export function drawDinoBuilding(st: Stage, b: BuildingLook, px: number, py: num
   stamp(st, s, px, py);
   if (b.kind === K.Nest) {
     // The eggs it has waiting, each rocking a little in the straw.
-    const egg = toys.get(`d19${b.owner}`, z, 0.34, (p) => {
+    // Its own key, not the hatching egg's: a unit is drawn larger than life (`presence`) and a building is not,
+    // and one sprite asked for at two sizes would be repainted every frame.
+    const egg = toys.get(`d19n${b.owner}`, z, 0.34, (p) => {
       p.o(IVORY, 0, 0, 0.2, 0.26);
       p.o(t.fill, -0.07, -0.1, 0.05).o(t.fill, 0.07, 0.01, 0.06).o(t.fill, -0.04, 0.13, 0.045).o(t.light, 0.06, -0.14, 0.03);
     }, t.ink);

@@ -200,6 +200,24 @@ test('Collectors bring the Blocks in and sell the upgrades: the army\'s, Haul, a
   expect(await state<number[]>(p, '(m) => m.g.players[0].unlocked')).toContain(K.Trooper);
 });
 
+test('the unit guide in Frenzy lists what a base can make, Bayonets first, and the hero with its abilities', async ({ page: p }) => {
+  await start(p, FRENZY_GREEN);
+  await p.getByRole('button', { name: 'Pause' }).tap();
+  await p.getByRole('button', { name: 'Units', exact: true }).tap();
+  const guide = p.getByRole('dialog', { name: 'Units' });
+  await expect(guide.locator('.ucard')).toHaveCount(10);
+  await expect(guide.locator('.ucard').first()).toContainText('Bayonet');
+  await expect(guide.locator('.ucard').first()).toContainText('Free · one every');
+  await expect(guide.locator(`.ucard[data-kind="${K.Trooper}"]`)).toContainText('Unlock');
+  const captain = guide.locator(`.ucard[data-kind="${K.Captain}"]`);
+  for (const a of ['Grenade', 'Rally', 'Air strike']) await expect(captain).toContainText(a);
+  await expect(guide.locator(`.ucard[data-kind="${K.Worker}"]`)).toHaveCount(0);
+  await guide.getByRole('button', { name: 'Dino Pack' }).tap();
+  await expect(guide.locator('.ucard')).toHaveCount(7);
+  await expect(guide.locator(`.ucard[data-kind="${K.Alpha}"]`)).toContainText('Call the Pack');
+  await noSmallButtons(p);
+});
+
 test('a Collector under attack says so by name', async ({ page: p }) => {
   await start(p, FRENZY_GREEN);
   await run(p, 20);

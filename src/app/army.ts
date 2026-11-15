@@ -24,8 +24,16 @@ function paintBase(p: Pen, t: Team, kind: number): void {
   } else if (kind === K.Runner) {
     p.p(t.fill, [0.42, 0, -0.26, 0.32, -0.13, 0, -0.26, -0.32]);
     p.p(t.dark, [0.3, 0, -0.18, 0.23, -0.09, 0, -0.18, -0.23]).p(t.fill, [0.25, 0, -0.14, 0.18, -0.06, 0, -0.14, -0.18]);
+  } else if (kind === K.Mortar) {
+    // A ring of sandbags round a little gun pit: its lumpy rim is like no other base on the table.
+    p.o(t.dark, 0, 0, 0.31);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU + TAU / 16;
+      p.o(t.fill, Math.cos(a) * 0.3, Math.sin(a) * 0.3, 0.12, 0.085, a + Math.PI / 2).k(t.dark, 0.028);
+    }
+    p.o(t.dark, 0, 0, 0.21).o(t.fill, 0, 0, 0.185);
   } else {
-    const r = kind === K.Mortar ? 0.39 : kind === K.Worker ? 0.25 : 0.3;
+    const r = kind === K.Worker ? 0.25 : 0.3;
     p.o(t.fill, 0, 0, r).o(t.dark, 0, 0, r - 0.045).o(t.fill, 0, 0, r - 0.075);
   }
 }
@@ -57,17 +65,19 @@ function paintFigure(p: Pen, t: Team, kind: number, ready: boolean): void {
       p.b(t.dark, -0.13, 0, 0.11, 0.2, 0.04);
       p.o(t.dark, 0, 0, 0.115, 0.215);
       p.l(t.dark, 0.08, [0.02, 0.17, 0.19, 0.1]).l(t.dark, 0.08, [0.03, -0.17, 0.28, 0.03]);
-      p.l(t.ink, 0.06, [0.05, 0.11, 0.47, 0.045]);
+      // The rifle reaches well past the rim of the base: a disc with a stick is a Trooper at any size.
+      p.l(t.ink, 0.075, [0.03, 0.11, 0.56, 0.04]);
       p.o(t.light, 0.03, 0, 0.125).o(t.fill, -0.01, 0.0, 0.05, 0.085);
       break;
     case K.Lancer:
       p.b(t.dark, -0.12, 0.04, 0.12, 0.2, 0.04);
       p.o(t.dark, 0, 0.03, 0.12, 0.21);
       p.l(t.dark, 0.08, [0.02, -0.12, 0.14, -0.15]).l(t.dark, 0.08, [0.02, 0.2, 0.16, -0.08]);
-      // The launcher over one shoulder, its warhead red so it is never mistaken for a rifle.
-      p.l(t.ink, 0.13, [-0.3, -0.15, 0.3, -0.15]);
-      p.l(t.light, 0.13, [-0.06, -0.15, -0.01, -0.15]);
-      p.o(RED, 0.37, -0.15, 0.085, 0.07);
+      // The launcher over one shoulder, longer than the base is wide so it sticks out at both ends, and its
+      // warhead a big red bead: never mistaken for a rifle.
+      p.l(t.ink, 0.15, [-0.4, -0.15, 0.36, -0.15]);
+      p.l(t.light, 0.15, [-0.08, -0.15, -0.02, -0.15]);
+      p.o(RED, 0.45, -0.15, 0.115, 0.095).k(t.ink, 0.03);
       p.o(t.light, 0.03, 0.04, 0.125).o(t.fill, -0.01, 0.04, 0.05, 0.085);
       break;
     case K.Runner:
@@ -83,11 +93,13 @@ function paintFigure(p: Pen, t: Team, kind: number, ready: boolean): void {
       if (ready) {
         // Legs out, baseplate down, a shell at the lip: ready to fire.
         p.l(PENCIL, 0.04, [0.3, -0.1, 0.18, -0.3]).l(PENCIL, 0.04, [0.3, -0.1, 0.2, 0.1]);
-        p.o(t.ink, 0.0, -0.1, 0.11);
-        p.l(t.ink, 0.13, [0.0, -0.1, 0.44, -0.1]);
-        p.o(HAT, 0.45, -0.1, 0.055);
+        p.o(t.ink, 0.0, -0.1, 0.13);
+        p.l(t.ink, 0.17, [0.0, -0.1, 0.44, -0.1]);
+        p.o(t.ink, 0.44, -0.1, 0.115).o(HAT, 0.45, -0.1, 0.06);
       } else {
-        p.l(t.ink, 0.13, [-0.02, -0.1, 0.3, -0.1]);
+        // Packed up: a fat tube, still the widest thing any soldier carries.
+        p.l(t.ink, 0.17, [-0.04, -0.1, 0.32, -0.1]);
+        p.o(t.ink, 0.32, -0.1, 0.11);
       }
       p.o(t.light, -0.13, 0.12, 0.115).o(t.fill, -0.16, 0.12, 0.05, 0.08);
       break;
@@ -95,14 +107,14 @@ function paintFigure(p: Pen, t: Team, kind: number, ready: boolean): void {
       // A Worker: bare arms out in front and a yellow hard hat.
       p.o(t.dark, -0.01, 0, 0.1, 0.18);
       p.l(t.dark, 0.07, [0, 0.15, 0.16, 0.1]).l(t.dark, 0.07, [0, -0.15, 0.16, -0.1]);
-      p.o(HAT, 0.02, 0, 0.115).o('#fbe08a', 0.04, -0.02, 0.05);
+      p.o(HAT, 0.02, 0, 0.145).o('#fbe08a', 0.05, -0.03, 0.06);
       break;
   }
 }
 
 const MUZZLE: Record<number, [number, number, number]> = {
-  [K.Trooper]: [0.52, 0.045, 0.16],
-  [K.Lancer]: [0.48, -0.15, 0.22],
+  [K.Trooper]: [0.6, 0.04, 0.16],
+  [K.Lancer]: [0.56, -0.15, 0.22],
   [K.Runner]: [0.42, -0.07, 0.13],
   [K.Mortar]: [0.52, -0.1, 0.24],
   [K.Tank]: [0.74, 0, 0.3],
@@ -114,7 +126,7 @@ const MUZZLE: Record<number, [number, number, number]> = {
 
 /** How big a square a figure's base and body are painted in: the Captain is a size up from everyone else. */
 const baseHalf = (kind: number): number => (kind === K.Captain ? 0.52 : 0.46);
-const bodyHalf = (kind: number): number => (kind === K.Captain || kind === K.Bayonet ? 0.74 : 0.56);
+const bodyHalf = (kind: number): number => (kind === K.Captain || kind === K.Bayonet ? 0.74 : kind === K.Trooper || kind === K.Lancer ? 0.64 : 0.56);
 
 function drawInfantry(st: Stage, e: Entity, px: number, py: number, an: Anim, t: Team, size: number): void {
   const { z, toys, now } = st;
@@ -164,6 +176,18 @@ function paintHull(p: Pen, t: Team, kind: number, f: number): void {
   const len = big ? 1.22 : kind === K.Tank ? 0.94 : 0.9, wid = big ? 0.98 : kind === K.Tank ? 0.74 : 0.7;
   const tw = big ? 0.25 : 0.19, ty = wid / 2 - tw / 2;
   for (const side of [-1, 1]) {
+    if (kind === K.Flak) {
+      // A half-track: tracks under the gun bed at the back, and a pair of road wheels under the cab in front,
+      // so it never reads as a Tank.
+      const tl = len * 0.56, tc = -len / 2 + tl / 2;
+      p.b(t.ink, tc, side * ty, tl, tw, 0.07);
+      for (let i = -3; i <= 3; i++) {
+        const lx = tc + (i + f / 3) * (tl / 6.5);
+        if (Math.abs(lx - tc) < tl / 2 - 0.04) p.l('#6f6f6a', 0.03, [lx, side * ty - tw * 0.36, lx, side * ty + tw * 0.36]);
+      }
+      p.o(t.ink, len * 0.3, side * (ty + 0.01), tw * 0.68).o(STEEL, len * 0.3, side * (ty + 0.01), tw * 0.3);
+      continue;
+    }
     p.b(t.ink, 0, side * ty, len, tw, 0.07);
     for (let i = -4; i <= 4; i++) {
       const lx = (i + f / 3) * (len / 8.5);
@@ -644,6 +668,18 @@ export function drawArmyMarker(st: Stage, e: Entity, px: number, py: number, t: 
       x.stroke();
     }
     return;
+  } else if (e.kind === K.Trooper) {
+    // A disc with its rifle out in front, as the toy is.
+    const c = Math.cos(face), s = Math.sin(face);
+    x.lineCap = 'round';
+    x.lineWidth = Math.max(2.4, r * 0.55);
+    x.beginPath();
+    x.moveTo(px + c * r * 0.4, py + s * r * 0.4);
+    x.lineTo(px + c * r * 1.75, py + s * r * 1.75);
+    x.stroke();
+    x.lineWidth = 1.25;
+    x.beginPath();
+    x.arc(px, py, r * 0.9, 0, TAU);
   } else x.arc(px, py, r, 0, TAU);
   x.fill();
   x.stroke();

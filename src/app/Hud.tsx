@@ -6,6 +6,7 @@ import { K, O, TILE, type Kind } from '../sim/types';
 import { SIDES, SPEEDS, type AbilityInfo, type Match, type SpawnInfo, type UpgradeInfo } from './match';
 import { toyIcon } from './icons';
 import { TEAM } from './toys';
+import { UnitGuide } from './Guide';
 
 const HERO = FRENZY.heroGroup;
 
@@ -390,6 +391,7 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
   const [tab, setTab] = useState<'build' | 'train' | 'tech'>('train');
   // What the Tech tab last said about an upgrade: the line under the grid.
   const [told, setTold] = useState(-1);
+  const [guide, setGuide] = useState(false);
   const h = m.hud.value;
   const fz = h.frenzy;
   const mine = m.factions[0]!, theirs = m.factions[1]!, dino = mine === 'dino';
@@ -535,7 +537,13 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
 
       <Organiser m={m} />
 
-      {m.menu.value && over < 0 && (
+      {m.menu.value && over < 0 && guide && (
+        <div class="veil">
+          <UnitGuide frenzy={m.frenzy} me={m.g.players[m.me]!.faction} onBack={() => setGuide(false)} />
+        </div>
+      )}
+
+      {m.menu.value && over < 0 && !guide && (
         <div class="veil">
           <div class="sheet">
             <h2>Paused</h2>
@@ -546,6 +554,7 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
                 <button key={sp.value} class={`chip ${m.speed.value === sp.value ? 'on' : ''}`} aria-pressed={m.speed.value === sp.value} aria-label={sp.name} onClick={() => m.setSpeed(sp.value)}>{sp.label}</button>
               ))}
             </div>
+            <button class="chip wide" onClick={() => setGuide(true)}>Units</button>
             <button class="chip wide" onClick={onAgain}>Restart</button>
             <button class="chip wide" onClick={onQuit}>Quit to menu</button>
           </div>

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { signal } from '@preact/signals';
 import { Hud } from './Hud';
+import { UnitGuide } from './Guide';
 import { attachInput } from './input';
 import { Match } from './match';
 import { Renderer, drawMini } from './render';
@@ -75,6 +76,7 @@ function Battle({ level, seed, sides, onQuit, onAgain }: { level: number; seed: 
 
 function Menu({ onPlay }: { onPlay: (level: number, choice: Choice) => void }) {
   const [help, setHelp] = useState(false);
+  const [units, setUnits] = useState(false);
   const [sides, setSides] = useState(remembered);
   const update = updateReady.value;
   const frenzy = sides.mode === 'frenzy';
@@ -146,11 +148,19 @@ function Menu({ onPlay }: { onPlay: (level: number, choice: Choice) => void }) {
                 <li><b>Dinosaurs.</b> Raptors come two to an egg and run down Lancers and Mortars. Spitters shoot ground and air. Horns charge infantry and walls. Pteros fly, fight other flyers, and tear into whatever can't shoot up. Brontos stomp crowds and buildings flat. A Rex eats Tanks. Most must reach what they bite: give them open ground.</li>
               </ul>
             )}
-            <button class="chip wide" onClick={() => setHelp(false)}>Back</button>
+            <div class="pair">
+              <button class="chip wide" onClick={() => setUnits(true)}>Units</button>
+              <button class="chip wide" onClick={() => setHelp(false)}>Back</button>
+            </div>
           </>
         )}
         <p class="build">MF · Frenzy · {__BUILD__.commit} · {__BUILD__.date}</p>
       </div>
+      {units && (
+        <div class="veil">
+          <UnitGuide frenzy={frenzy} me={sides.me} onBack={() => setUnits(false)} />
+        </div>
+      )}
     </div>
   );
 }

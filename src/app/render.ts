@@ -5,7 +5,7 @@ import { drawArmyBuilding, drawArmyFallen, drawArmyMarker, drawArmyUnit, drawGun
 import { drawDinoBuilding, drawDinoFallen, drawDinoHit, drawDinoMarker, drawDinoUnit, drawPtero, isDinoBuilding, isDinoUnit } from './dinos';
 import { K, O, TILE, type Entity, type GameMap } from '../sim/types';
 import { INSET, type Fx, type Match } from './match';
-import { BLOCK_COLOURS, GOLD, IVORY, PENCIL, Pen, STEEL, TEAM, ToyBox, brush, fire, home, pop, shadow, smoke, stamp, turn, type Anim, type BuildingLook, type Stage } from './toys';
+import { BLOCK_COLOURS, GOLD, IVORY, PENCIL, Pen, STEEL, TEAM, ToyBox, brush, fire, home, pop, presence, shadow, smoke, stamp, turn, type Anim, type BuildingLook, type Stage } from './toys';
 
 export { TEAM } from './toys';
 
@@ -406,10 +406,12 @@ export class Renderer {
       }
     }
 
-    // Units: Workers first, fighters on top, flyers above everything.
+    // Units: Workers first, fighters on top, flyers above everything. Within each, the big pieces go down
+    // first and the small ones stand on top of them, so a Trooper in a crowd is never hidden under a Tank.
     const air: { e: Entity; p: ReturnType<typeof pos> }[] = [];
+    const bySize = [...g.ents].sort((a, b) => def(b.kind).radius - def(a.kind).radius || a.id - b.id);
     for (let pass = 0; pass < 2; pass++) {
-      for (const e of g.ents) {
+      for (const e of bySize) {
         if (e.owner < 0 || def(e.kind).building) continue;
         if ((isWorker(e.kind) || e.kind === K.Egg) !== (pass === 0)) continue;
         if (e.owner !== me && !visibleTo(g, me, e)) continue;
@@ -420,9 +422,9 @@ export class Renderer {
         }
         if (!onScreen(p.x, p.y, z * 1.5)) continue;
         this.unit(st, e, p, dt, detail);
-        const r = def(e.kind).radius / TILE;
+        const r = def(e.kind).radius / TILE, zu = z * presence(this.toys.size);
         // A hero's health is always on show; anything else's only once it is hurt.
-        if ((e.hp < maxHp(e) || def(e.kind).hero) && detail) this.hpBar(p.x, p.y - z * (r + (def(e.kind).hero ? 0.5 : 0.3)), z * Math.max(0.7, r * 2), e.hp / maxHp(e));
+        if ((e.hp < maxHp(e) || def(e.kind).hero) && detail) this.hpBar(p.x, p.y - zu * (r + (def(e.kind).hero ? 0.5 : 0.3)), zu * Math.max(0.7, r * 2), e.hp / maxHp(e));
       }
     }
 
@@ -432,7 +434,8 @@ export class Renderer {
     for (const { e, p } of air) {
       if (!onScreen(p.x, p.y, z * 2)) continue;
       this.unit(st, e, p, dt, detail);
-      if (e.hp < maxHp(e) && detail) this.hpBar(p.x, p.y - z * 1.0, z * 0.9, e.hp / maxHp(e));
+      const zu = z * presence(this.toys.size);
+      if (e.hp < maxHp(e) && detail) this.hpBar(p.x, p.y - zu * 1.0, zu * 0.9, e.hp / maxHp(e));
     }
 
     // An ability being aimed: how far it reaches from the hero, and how wide it lands.
@@ -540,17 +543,24 @@ export class Renderer {
     return a;
   }
 
+  /** The stage to draw a unit on: its zoom raised by `presence`, so the piece comes out larger than life. */
+  private larger(st: Stage): Stage {
+    const k = presence(st.toys.size);
+    return k === 1 ? st : { ...st, z: st.z * k };
+  }
+
   /** One unit: a toy up close, a marker from far off. */
-  private unit(st: Stage, e: Entity, p: { x: number; y: number; wx: number; wy: number }, dt: number, detail: boolean): void {
-    const { x, z, now } = st, t = TEAM[e.owner]!;
-    const a = this.animOf(e, p.wx, p.wy, now, dt);
+  private unit(base: Stage, e: Entity, p: { x: number; y: number; wx: number; wy: number }, dt: number, detail: boolean): void {
+    const t = TEAM[e.owner]!;
+    const a = this.animOf(e, p.wx, p.wy, base.now, dt);
     const d = def(e.kind);
     if (!detail) {
       if (d.hero) this.heroMarker(p.x, p.y, t);
-      else if (isDinoUnit(e.kind)) drawDinoMarker(st, e, p.x, p.y, t, a.aim);
-      else drawArmyMarker(st, e, p.x, p.y, t, a.aim);
+      else if (isDinoUnit(e.kind)) drawDinoMarker(base, e, p.x, p.y, t, a.aim);
+      else drawArmyMarker(base, e, p.x, p.y, t, a.aim);
       return;
     }
+    const st = this.larger(base), { x, z, now } = st;
     const size = pop((now - a.born) / 300);
     const tick = this.m.g.tick;
     if (d.hero) {
@@ -1215,8 +1225,8 @@ export class Renderer {
         x.ellipse(px, py, r * 1.1, r * 0.5, 0.6, 0, Math.PI * 2);
         x.fill();
         x.globalAlpha = 1;
-      } else if (isDinoUnit(f.kind)) drawDinoFallen(st, f.kind, f.owner, px, py, Math.atan2(f.y2, f.x2 || 0.0001), t, k);
-      else drawArmyFallen(st, f.kind, f.owner, px, py, Math.atan2(f.y2, f.x2 || 0.0001), t, k);
+      } else if (isDinoUnit(f.kind)) drawDinoFallen(this.larger(st), f.kind, f.owner, px, py, Math.atan2(f.y2, f.x2 || 0.0001), t, k);
+      else drawArmyFallen(this.larger(st), f.kind, f.owner, px, py, Math.atan2(f.y2, f.x2 || 0.0001), t, k);
     } else if (f.t === 'wreck') {
       // A vehicle blown apart: a scorch on the paper, plates of its plastic thrown clear, smoke for a while after.
       const px = sx(f.x1), py = sy(f.y1), t = TEAM[f.owner] ?? TEAM[0]!;
