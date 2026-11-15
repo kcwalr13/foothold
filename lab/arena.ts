@@ -1,5 +1,5 @@
 // Equal-cost fights on open ground, to check the unit table.
-import { def } from '../src/sim/data';
+import { def, worth } from '../src/sim/data';
 import { createGame, schedule, spawn } from '../src/sim/state';
 import { step } from '../src/sim/step';
 import { O, TILE, type Kind } from '../src/sim/types';
@@ -32,13 +32,13 @@ export function fight(a: Side[], b: Side[], hold: 0 | 1 | -1 = -1): { left: [num
   const tx = Math.round(AX * TILE), ty = Math.round((AY + 1.5) * TILE);
   if (hold !== 0) schedule(g, { t: 'order', p: 0, group: 3, mode: O.Attack, x: W - tx, y: H - ty });
   if (hold !== 1) schedule(g, { t: 'order', p: 1, group: 3, mode: O.Attack, x: tx, y: ty });
-  const worth = (owner: number) => g.ents
+  const value = (owner: number) => g.ents
     .filter((e) => e.owner === owner && (e.group === 3 || (def(e.kind).range > 0 && def(e.kind).building)))
-    .reduce((s, e) => s + Math.round(((def(e.kind).cost + def(e.kind).gas) * e.hp) / def(e.kind).hp), 0);
-  let left: [number, number] = [worth(0), worth(1)];
+    .reduce((s, e) => s + Math.round((worth(e.kind) * e.hp) / def(e.kind).hp), 0);
+  let left: [number, number] = [value(0), value(1)];
   while (g.tick < 1500 && left[0] > 0 && left[1] > 0) {
     step(g);
-    left = [worth(0), worth(1)];
+    left = [value(0), value(1)];
   }
   return { left, ticks: g.tick };
 }

@@ -1,12 +1,15 @@
 // What one player is allowed to know. The computer opponent reads the match only through this,
 // so it plays under the same fog of war as a person.
-import { def } from './data';
+import { def, isWorker, worth } from './data';
 import { canPlace, visibleTo, type Game } from './state';
-import { K, type Entity, type GameMap, type Ghost, type GroupState, type Kind } from './types';
+import { K, type Entity, type Faction, type GameMap, type Ghost, type GroupState, type Kind } from './types';
 
 export interface View {
   tick: number;
   p: number;
+  /** What this player plays, and what the other side plays: both are known before the match starts. */
+  faction: Faction;
+  foe: Faction;
   blocks: number;
   /** Batteries. */
   gas: number;
@@ -50,7 +53,7 @@ export function makeView(g: Game, p: number): View {
   const hurt: { x: number; y: number; kind: Kind }[] = [];
   for (const ev of g.events) if (ev.t === 'hurt' && ev.owner === p) hurt.push({ x: ev.x, y: ev.y, kind: ev.kind });
   return {
-    tick: g.tick, p, blocks: pl.blocks, gas: pl.gas, weapons: pl.weapons, armour: pl.armour, supply: pl.supply, cap: pl.cap, rally: pl.rally, repeat: pl.repeat, groups: pl.groups,
+    tick: g.tick, p, faction: pl.faction, foe: g.players[1 - p]!.faction, blocks: pl.blocks, gas: pl.gas, weapons: pl.weapons, armour: pl.armour, supply: pl.supply, cap: pl.cap, rally: pl.rally, repeat: pl.repeat, groups: pl.groups,
     own, enemies, ghosts: [...pl.seen.values()], piles, cells, map: g.map, hurt, vis: pl.vis, explored: pl.explored,
     canPlace: (kind, tx, ty) => canPlace(g, p, kind, tx, ty),
     blocked: (tx, ty) => g.nav.isBlocked(tx, ty),
@@ -61,7 +64,7 @@ export function makeView(g: Game, p: number): View {
 export function power(e: Entity): number {
   const d = def(e.kind);
   if (d.building) return d.range > 0 && e.built ? Math.round((d.cost * 2.6 * e.hp) / d.hp) : 0;
-  if (e.kind === K.Worker) return 0;
+  if (isWorker(e.kind) || e.kind === K.Egg) return 0;
   const weight = e.kind === K.Lancer ? 0.7 : e.kind === K.Runner ? 0.85 : e.kind === K.Flak ? 0.5 : 1;
-  return Math.round(((d.cost + d.gas) * weight * e.hp) / d.hp);
+  return Math.round((worth(e.kind) * weight * e.hp) / d.hp);
 }

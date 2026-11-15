@@ -1,9 +1,9 @@
 // Game state: creation, entity bookkeeping and small shared helpers.
-import { DEFS, RULES, def } from './data';
+import { DEFS, FACTIONS, RULES, def, isHall, isRefinery } from './data';
 import { updateFog } from './fog';
 import { twinRidges } from './map';
 import { Nav, dist } from './nav';
-import { K, O, TILE, W, type Command, type Entity, type GameEvent, type GameMap, type Kind, type Player } from './types';
+import { K, O, TILE, W, type Command, type Entity, type Faction, type GameEvent, type GameMap, type Kind, type Player } from './types';
 
 export interface Game {
   tick: number;
@@ -45,7 +45,7 @@ export function spawn(g: Game, kind: Kind, owner: number, x: number, y: number):
     still: 0, frac: 0,
     ws: W.Idle, carry: 0, cargo: 0, pile: 0, site: 0, timer: 0,
     built: true, progress: 0, queue: [], qprog: 0, builder: 0,
-    amount: 0, busy: 0,
+    amount: 0, busy: 0, eggs: 0,
   };
   g.ents.push(e);
   g.byId.set(e.id, e);
@@ -65,20 +65,21 @@ export function footprintTiles(g: Game, e: Entity): number[] {
   return out;
 }
 
-function newPlayer(id: number, tiles: number): Player {
+function newPlayer(id: number, tiles: number, faction: Faction): Player {
   return {
-    id, faction: 'green', blocks: RULES.startBlocks, gas: 0, weapons: 0, armour: 0, supply: 0, cap: 0, rally: 0, repeat: [],
+    id, faction, blocks: RULES.startBlocks, gas: 0, weapons: 0, armour: 0, supply: 0, cap: 0, rally: 0, repeat: [],
     groups: Array.from({ length: RULES.groups }, () => ({ mode: O.Idle, x: 0, y: 0 })),
     vis: new Uint8Array(tiles), visAir: new Uint8Array(tiles), explored: new Uint8Array(tiles), seen: new Map(),
     stats: { gathered: 0, gathered2: 0, spent: 0, trained: 0, lostUnits: 0, lostBuildings: 0, killedUnits: 0, killedBuildings: 0, firstAttackTick: -1 },
   };
 }
 
-export function createGame(seed: number, map: GameMap = twinRidges()): Game {
+/** A new match. `factions` says what each side plays: the Green Army unless told otherwise. */
+export function createGame(seed: number, map: GameMap = twinRidges(), factions: readonly [Faction, Faction] = ['green', 'green']): Game {
   const g: Game = {
     tick: 0, seed, map, nav: new Nav(map.w, map.h, map.rock),
     ents: [], byId: new Map(), nextId: 1,
-    players: [newPlayer(0, map.w * map.h), newPlayer(1, map.w * map.h)],
+    players: [newPlayer(0, map.w * map.h, factions[0]), newPlayer(1, map.w * map.h, factions[1])],
     pending: [], log: [], events: [], winner: -1, rebalance: 0,
   };
   for (const b of map.bases) {
@@ -99,8 +100,10 @@ export function createGame(seed: number, map: GameMap = twinRidges()): Game {
   }
   for (const pl of g.players) {
     const b = map.bases.find((s) => s.side === pl.id && s.tier === 0)!;
-    const size = DEFS[K.HQ]!.size;
-    const hq = spawn(g, K.HQ, pl.id, (b.hx + size / 2) * TILE, (b.hy + size / 2) * TILE);
+    const f = FACTIONS[pl.faction];
+    const size = DEFS[f.hall]!.size;
+    const hq = spawn(g, f.hall, pl.id, (b.hx + size / 2) * TILE, (b.hy + size / 2) * TILE);
+    if (f.hall === K.Nest) hq.eggs = RULES.eggStart;
     g.nav.setRect(b.hx, b.hy, size, 1);
     // Workers start in a row on the side of the Headquarters that faces the Blocks.
     const px = b.piles.reduce((s, p) => s + p.tx, 0) / b.piles.length;
@@ -110,7 +113,7 @@ export function createGame(seed: number, map: GameMap = twinRidges()): Game {
       const k = pl.id === 1 ? RULES.startWorkers - 1 - i : i;
       const wx = hq.x + side * (size / 2 + 0.6) * TILE;
       const wy = hq.y + Math.round((k - (RULES.startWorkers - 1) / 2) * 0.5 * TILE);
-      spawn(g, K.Worker, pl.id, Math.round(wx), wy);
+      spawn(g, f.worker, pl.id, Math.round(wx), wy);
     }
   }
   updateFog(g);
@@ -156,7 +159,8 @@ export function countSupply(g: Game, owner: number): number {
     if (e.owner !== owner) continue;
     const d = def(e.kind);
     if (!d.building) s += d.supply;
-    for (const q of e.queue) s += def(q).supply;
+    // Whatever is on its way counts already: a queued unit, or everything inside an egg.
+    for (const q of e.queue) s += def(q).supply * (e.kind === K.Egg ? def(q).brood : 1);
   }
   return s;
 }
@@ -171,13 +175,24 @@ export function supplyCap(g: Game, owner: number): number {
 export function canPlace(g: Game, owner: number, kind: number, tx: number, ty: number): boolean {
   const d = DEFS[kind];
   if (!d || !d.building) return false;
-  // A Refinery stands on a battery pack and nowhere else.
-  if (kind === K.Refinery) return cellAt(g, tx, ty) !== undefined;
+  // A Refinery or a Dig stands on a battery pack and nowhere else.
+  if (isRefinery(kind)) return cellAt(g, tx, ty) !== undefined;
   for (let y = ty; y < ty + d.size; y++) for (let x = tx; x < tx + d.size; x++) {
     if (g.nav.isBlocked(x, y)) return false;
   }
-  void owner;
+  // The Dino Pack builds on nesting ground: near a finished Nest. Only a new Nest can go anywhere.
+  if (FACTIONS.dino.buildings.includes(kind as Kind) && !isHall(kind)) {
+    return onNestingGround(g, owner, tx * TILE + (d.size * TILE) / 2, ty * TILE + (d.size * TILE) / 2);
+  }
   return true;
+}
+
+/** Is this point within reach of one of this player's finished Nests? */
+export function onNestingGround(g: Game, owner: number, x: number, y: number): boolean {
+  for (const e of g.ents) {
+    if (e.owner === owner && e.kind === K.Nest && e.built && e.hp > 0 && dist(e.x, e.y, x, y) <= RULES.nestGround * TILE) return true;
+  }
+  return false;
 }
 
 export function groupUnits(g: Game, owner: number, group: number): Entity[] {
@@ -246,7 +261,7 @@ export function hash(g: Game): number {
   for (const p of g.players) {
     mix(p.blocks);
     mix(p.gas);
-    mix(p.rally + p.weapons * 8 + p.armour * 64);
+    mix(p.rally + p.weapons * 8 + p.armour * 64 + (p.faction === 'dino' ? 512 : 0));
   }
   for (const e of g.ents) {
     mix(e.id);
@@ -257,7 +272,7 @@ export function hash(g: Game): number {
     mix(e.hp);
     mix(e.carry + e.ws * 8 + e.mode * 64 + e.cargo * 512);
     mix(e.still + e.frac * 1024);
-    mix(e.amount);
+    mix(e.amount + e.eggs * 65536);
     mix(e.progress + e.qprog * 1024);
   }
   return h >>> 0;

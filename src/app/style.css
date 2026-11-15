@@ -123,6 +123,7 @@ button:disabled { opacity: 0.45; }
 .group .none { font-size: 11px; opacity: 0.6; }
 .group.empty { opacity: 0.6; }
 .group.hurt { border-color: var(--warn); box-shadow: 0 2px 0 var(--warn); animation: flash 0.5s steps(2) infinite; }
+.tile .brood { font-size: 9.5px; color: var(--green); }
 .group .rally { position: absolute; right: 5px; top: 2px; font-size: 9.5px; font-weight: 900; color: var(--green); }
 .group .gmode { position: absolute; right: 5px; bottom: 6px; font-size: 9.5px; font-weight: 900; color: #2f62a8; }
 @keyframes flash { 50% { background: #f6c3ba; } }
@@ -202,6 +203,11 @@ button:disabled { opacity: 0.45; }
 .card { width: min(520px, 94vw); max-height: 96vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; text-align: center; }
 .card h1 { margin: 0; font: 900 46px/1 Impact, 'Arial Narrow Bold', sans-serif; letter-spacing: 6px; color: var(--green); text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.15); }
 .card .tag { margin: 0; font-weight: 500; font-size: 14px; }
+.card { width: min(640px, 95vw); }
+.sides { display: flex; align-items: center; justify-content: center; gap: 5px; }
+.sides .lbl { font-size: 12.5px; font-weight: 700; }
+.sides .lbl.against { margin-left: 10px; }
+.sides .chip { padding: 0 11px; font-size: 13px; }
 .levels { display: flex; gap: 8px; }
 .how { margin: 0; padding-left: 18px; text-align: left; font-weight: 500; font-size: 12.5px; line-height: 1.35; }
 .build { margin: 0; font-size: 11px; opacity: 0.6; font-weight: 500; }
@@ -220,4 +226,6 @@ button:disabled { opacity: 0.45; }
   .tile { padding-bottom: 3px; }
   .tile svg { width: 17px; height: 17px; }
   .right { gap: 3px; padding-top: 4px; padding-bottom: 4px; }
+  .card h1 { font-size: 36px; }
+  .card { gap: 6px; }
 }

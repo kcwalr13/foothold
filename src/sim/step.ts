@@ -1,11 +1,11 @@
 // One tick of the rules. Players and the computer opponent act only through commands; everything
 // here runs the same on every device given the same commands.
-import { DEFS, FACTIONS, RULES, def, isResearch, researchCost } from './data';
+import { DEFS, FACTIONS, RULES, def, isHall, isRefinery, isResearch, isWorker, researchCost, researchOf } from './data';
 import { updateFog } from './fog';
 import { dist, isqrt } from './nav';
 import {
-  canPlace, cellAt, centroid, countSupply, footprint, footprintTiles, groupUnits, hasBuilt, missing, onLayer, spawn, supplyCap,
-  tileOf, visibleTo, wasVisibleTo, type Game,
+  canPlace, cellAt, centroid, countSupply, footprint, footprintTiles, groupUnits, hasBuilt, missing, onLayer, onNestingGround, spawn,
+  supplyCap, tileOf, visibleTo, wasVisibleTo, type Game,
 } from './state';
 import { K, O, TILE, W, type Command, type Def, type Entity, type Kind } from './types';
 
@@ -64,34 +64,49 @@ function scratch(g: Game): { all: Buckets; mobile: Buckets } {
 
 // ---------------------------------------------------------------- helpers
 
-const isFighter = (e: Entity) => e.owner >= 0 && e.kind !== K.Worker && !DEFS[e.kind]!.building;
+const isFighter = (e: Entity) => e.owner >= 0 && !isWorker(e.kind) && e.kind !== K.Egg && !DEFS[e.kind]!.building;
 
 function nearFootprint(e: Entity, b: Entity, slack: number): boolean {
   const half = (def(b.kind).size * TILE) / 2 + slack;
   return Math.abs(e.x - b.x) <= half && Math.abs(e.y - b.y) <= half;
 }
 
-/** How far a weapon reaches against one target: high ground outranges low ground. */
+/** How far a weapon reaches against one target: high ground outranges low ground, for anything that shoots. */
 function reach(g: Game, e: Entity, t: Entity, d: Def): number {
-  if (d.air || def(t.kind).air) return d.range;
+  if (d.melee || d.air || def(t.kind).air) return d.range;
   const high = g.map.high;
   return onLayer(g, high, e.x, e.y) && !onLayer(g, high, t.x, t.y) ? d.range + RULES.highRange : d.range;
 }
 
+/**
+ * The gap between an attacker and the edge of its target, with the target standing at (tx, ty). A building
+ * is a circle to anything that shoots; to teeth and horns it is its walls, so that a dinosaur at a corner
+ * can bite it as well as one at the middle of a side.
+ */
+function gap(e: Entity, d: Def, t: Entity, tx: number, ty: number): number {
+  const td = def(t.kind);
+  if (d.melee && td.building) {
+    const half = (td.size * TILE) / 2;
+    const ox = Math.max(0, Math.abs(e.x - tx) - half), oy = Math.max(0, Math.abs(e.y - ty) - half);
+    return isqrt(ox * ox + oy * oy);
+  }
+  return dist(e.x, e.y, tx, ty) - td.radius;
+}
+
 function inRange(g: Game, e: Entity, t: Entity, d: Def): boolean {
-  return dist(e.x, e.y, t.x, t.y) - def(t.kind).radius <= reach(g, e, t, d);
+  return gap(e, d, t, t.x, t.y) <= reach(g, e, t, d);
 }
 
 // While units are being moved, each one judges the others by where they stood when the moves began.
 // Otherwise whoever happens to be moved later in the tick sees a little further into the future.
 function reachThen(g: Game, e: Entity, t: Entity, d: Def): number {
-  if (d.air || def(t.kind).air) return d.range;
+  if (d.melee || d.air || def(t.kind).air) return d.range;
   const high = g.map.high;
   return onLayer(g, high, e.x, e.y) && !onLayer(g, high, t.px, t.py) ? d.range + RULES.highRange : d.range;
 }
 
 function inRangeThen(g: Game, e: Entity, t: Entity, d: Def): boolean {
-  return dist(e.x, e.y, t.px, t.py) - def(t.kind).radius <= reachThen(g, e, t, d);
+  return gap(e, d, t, t.px, t.py) <= reachThen(g, e, t, d);
 }
 
 function refuse(g: Game, p: number, why: string): void {
@@ -208,7 +223,7 @@ function nearestWorker(g: Game, owner: number, x: number, y: number): Entity | u
   let best: Entity | undefined;
   let bestD = 1 << 30;
   for (const e of g.ents) {
-    if (e.owner !== owner || e.kind !== K.Worker || e.hp <= 0 || e.ws === W.ToSite || e.ws === W.Build) continue;
+    if (e.owner !== owner || !isWorker(e.kind) || e.hp <= 0 || e.ws === W.ToSite || e.ws === W.Build) continue;
     const d = dist(e.x, e.y, x, y) + (e.carry > 0 ? TILE * 2 : 0);
     if (d < bestD) {
       bestD = d;
@@ -238,15 +253,17 @@ function cmdBuild(g: Game, c: Extract<Command, { t: 'build' }>): void {
   if (!Number.isInteger(c.tx) || !Number.isInteger(c.ty)) return;
   const lacks = missing(g, c.p, d.needs);
   if (lacks) return refuse(g, c.p, `Needs ${article(def(lacks).name)} first`);
+  const cx = c.tx * TILE + (d.size * TILE) / 2, cy = c.ty * TILE + (d.size * TILE) / 2;
   if (!canPlace(g, c.p, c.kind, c.tx, c.ty)) {
-    return refuse(g, c.p, c.kind === K.Refinery ? 'A Refinery goes on a battery pack' : "Can't build there");
+    if (isRefinery(c.kind)) return refuse(g, c.p, `${article(d.name, true)} goes on a battery pack`);
+    if (pl.faction === 'dino' && !isHall(c.kind) && !onNestingGround(g, c.p, cx, cy)) return refuse(g, c.p, 'That goes on nesting ground, near a Nest');
+    return refuse(g, c.p, "Can't build there");
   }
   if (pl.blocks < d.cost) return refuse(g, c.p, 'Not enough Blocks');
   if (pl.gas < d.gas) return refuse(g, c.p, 'Not enough Batteries');
-  const cx = c.tx * TILE + (d.size * TILE) / 2, cy = c.ty * TILE + (d.size * TILE) / 2;
   const w = nearestWorker(g, c.p, cx, cy);
-  if (!w) return refuse(g, c.p, 'No Worker free to build');
-  const cell = c.kind === K.Refinery ? cellAt(g, c.tx, c.ty) : undefined;
+  if (!w) return refuse(g, c.p, `No ${def(FACTIONS[pl.faction].worker).name} free to ${pl.faction === 'dino' ? 'become it' : 'build'}`);
+  const cell = isRefinery(c.kind) ? cellAt(g, c.tx, c.ty) : undefined;
   pl.blocks -= d.cost;
   pl.gas -= d.gas;
   pl.stats.spent += d.cost + d.gas;
@@ -273,6 +290,11 @@ function cmdCancel(g: Game, c: Extract<Command, { t: 'cancel' }>): void {
   pl.blocks += back;
   pl.gas += back2;
   pl.stats.spent -= back + back2;
+  if (s.builder === -1) {
+    // The Gatherer that had become it steps back out.
+    const w = spawn(g, FACTIONS[pl.faction].worker, c.p, s.x, s.y);
+    w.losTick = -99;
+  }
   s.hp = 0;
   s.progress = -1; // marks a cancel, so it isn't counted as a loss
 }
@@ -282,10 +304,44 @@ function producerFor(g: Game, owner: number, kind: Kind, idleOnly: boolean): Ent
   let best: Entity | undefined;
   for (const e of g.ents) {
     if (e.owner !== owner || e.kind !== at || !e.built || e.hp <= 0) continue;
+    if (e.kind === K.Nest) {
+      // A Nest hatches as many at once as it has eggs: the fullest Nest gives one up.
+      if (e.eggs > 0 && (!best || e.eggs > best.eggs)) best = e;
+      continue;
+    }
     if (e.queue.length >= (idleOnly ? 1 : RULES.queueMax)) continue;
     if (!best || e.queue.length < best.queue.length) best = e;
   }
   return best;
+}
+
+/** Where eggs sit around a Nest while they hatch, in the order the places are filled. */
+const EGG_SPOTS: readonly { x: number; y: number }[] = (() => {
+  const r = TILE * 2 + Math.trunc(TILE * 0.55), d = Math.trunc(TILE * 0.72);
+  const out: { x: number; y: number }[] = [];
+  // Along each side of the Nest, from the middle outward, the four sides taking turns.
+  for (const k of [0, 1, -1, 2, -2]) for (const [sx, sy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
+    out.push(sx !== 0 ? { x: sx * r, y: sx * k * d } : { x: -sy * k * d, y: sy * r });
+  }
+  return out;
+})();
+
+/** Rolls an egg out of a Nest to hatch into `kind`. Eggs hatch side by side, however many there are. */
+function layEgg(g: Game, nest: Entity, kind: Kind): void {
+  const turn = nest.owner === 1 ? -1 : 1;
+  const taken = g.ents.filter((e) => e.kind === K.Egg && e.owner === nest.owner && e.hp > 0);
+  let at: { x: number; y: number } | null = null;
+  for (const sp of EGG_SPOTS) {
+    const x = nest.x + sp.x * turn, y = nest.y + sp.y * turn;
+    if (g.nav.blockedAt(x, y) || taken.some((e) => Math.abs(e.x - x) < TILE / 2 && Math.abs(e.y - y) < TILE / 2)) continue;
+    at = { x, y };
+    break;
+  }
+  at ??= snapOpen(g, nest.x + EGG_SPOTS[0]!.x * turn, nest.y + EGG_SPOTS[0]!.y * turn, nest.x, nest.y) ?? { x: nest.x, y: nest.y };
+  const egg = spawn(g, K.Egg, nest.owner, at.x, at.y);
+  egg.queue.push(kind);
+  egg.fx = at.x - nest.x;
+  egg.fy = at.y - nest.y;
 }
 
 function tryTrain(g: Game, p: number, kind: Kind, auto: boolean): boolean {
@@ -299,7 +355,7 @@ function tryTrain(g: Game, p: number, kind: Kind, auto: boolean): boolean {
   }
   const b = producerFor(g, p, kind, auto);
   if (!b) {
-    if (!auto) refuse(g, p, 'Queue is full');
+    if (!auto) refuse(g, p, pl.faction === 'dino' ? 'No egg ready yet' : 'Queue is full');
     return false;
   }
   if (pl.blocks < d.cost) {
@@ -310,30 +366,36 @@ function tryTrain(g: Game, p: number, kind: Kind, auto: boolean): boolean {
     if (!auto) refuse(g, p, 'Not enough Batteries');
     return false;
   }
-  if (countSupply(g, p) + d.supply > supplyCap(g, p)) {
+  if (countSupply(g, p) + d.supply * d.brood > supplyCap(g, p)) {
     if (!auto) refuse(g, p, 'Supply cap reached: take another base');
     return false;
   }
   pl.blocks -= d.cost;
   pl.gas -= d.gas;
   pl.stats.spent += d.cost + d.gas;
-  b.queue.push(kind);
+  if (b.kind === K.Nest) {
+    b.eggs--;
+    layEgg(g, b, kind);
+  } else {
+    b.queue.push(kind);
+  }
   return true;
 }
 
-/** Research is queued at an Armory; each item has two levels and is studied one level at a time. */
+/** Research is queued at an Armory or a Bone Pit; each item has two levels and is studied one level at a time. */
 function cmdResearch(g: Game, c: Extract<Command, { t: 'research' }>): void {
   const pl = g.players[c.p];
   if (!pl || !isResearch(c.kind) || !FACTIONS[pl.faction].research.includes(c.kind)) return;
-  const level = c.kind === K.Weapons ? pl.weapons : pl.armour;
+  const level = pl[researchOf(c.kind)];
   if (level >= RULES.researchMax) return refuse(g, c.p, `${def(c.kind).name} is at its top level`);
+  const labKind = FACTIONS[pl.faction].lab;
   let lab: Entity | undefined;
   for (const e of g.ents) {
-    if (e.owner !== c.p || e.kind !== K.Armory || e.hp <= 0) continue;
+    if (e.owner !== c.p || e.kind !== labKind || e.hp <= 0) continue;
     if (e.queue.includes(c.kind)) return refuse(g, c.p, 'Already being researched');
     if (e.built && e.queue.length < RULES.queueMax && (!lab || e.queue.length < lab.queue.length)) lab = e;
   }
-  if (!lab) return refuse(g, c.p, hasBuilt(g, c.p, K.Armory) ? 'Queue is full' : 'Needs an Armory');
+  if (!lab) return refuse(g, c.p, hasBuilt(g, c.p, labKind) ? 'Queue is full' : `Needs ${article(def(labKind).name)}`);
   const price = researchCost(c.kind, level);
   if (pl.blocks < price.cost) return refuse(g, c.p, 'Not enough Blocks');
   if (pl.gas < price.gas) return refuse(g, c.p, 'Not enough Batteries');
@@ -343,8 +405,9 @@ function cmdResearch(g: Game, c: Extract<Command, { t: 'research' }>): void {
   lab.queue.push(c.kind);
 }
 
-function article(name: string): string {
-  return `${'AEIOU'.includes(name[0]!) ? 'an' : 'a'} ${name}`;
+function article(name: string, capital = false): string {
+  const an = 'AEIOU'.includes(name[0]!);
+  return `${capital ? (an ? 'An' : 'A') : an ? 'an' : 'a'} ${name}`;
 }
 
 function cmdOrder(g: Game, c: Extract<Command, { t: 'order' }>): void {
@@ -477,12 +540,13 @@ function runCommands(g: Game): void {
 
 // ---------------------------------------------------------------- production
 
+/** Puts a new unit beside whatever made it (a building, or the egg it hatched from) and sends it on its way. */
 function spawnUnit(g: Game, b: Entity, kind: Kind): void {
   const pl = g.players[b.owner]!;
   const bd = def(b.kind);
   let tx = (g.map.w * TILE) / 2, ty = (g.map.h * TILE) / 2;
   let members: Entity[] = [];
-  if (kind === K.Worker) {
+  if (isWorker(kind)) {
     let bestD = 1 << 30;
     for (const p of g.ents) {
       if (p.kind !== K.Pile) continue;
@@ -509,14 +573,15 @@ function spawnUnit(g: Game, b: Entity, kind: Kind): void {
   }
   const vx = tx - b.x, vy = ty - b.y;
   const l = Math.max(1, isqrt(vx * vx + vy * vy));
-  const out = bd.radius + Math.trunc(TILE * 0.9);
+  // A unit walks out of a building's door; a hatchling stands where its egg lay.
+  const out = b.kind === K.Egg ? 0 : bd.radius + Math.trunc(TILE * 0.9);
   const door = snapOpen(g, b.x + Math.trunc((vx * out) / l), b.y + Math.trunc((vy * out) / l), tx, ty);
   if (!door) return;
   const u = spawn(g, kind, b.owner, door.x, door.y);
   u.fx = vx;
   u.fy = vy;
   pl.stats.trained++;
-  if (kind === K.Worker) return;
+  if (isWorker(kind)) return;
   u.group = pl.rally;
   let goal: { x: number; y: number } | null;
   if (members.length > 0) {
@@ -525,6 +590,8 @@ function spawnUnit(g: Game, b: Entity, kind: Kind): void {
     // An empty group gathers a few steps out from the building, toward the middle of the map.
     const s = SLOTS[g.tick % 9]!, turn = b.owner === 1 ? -1 : 1;
     goal = snapOpen(g, b.x + Math.trunc((vx * (out + TILE * 3)) / l) + s.x * turn, b.y + Math.trunc((vy * (out + TILE * 3)) / l) + s.y * turn);
+    // That spot is where the group is now headed: whoever comes out next, before this one has arrived, follows it there.
+    if (goal) pl.groups[pl.rally] = { mode: O.Attack, x: goal.x, y: goal.y };
   }
   if (goal) {
     u.mode = O.Attack;
@@ -534,31 +601,66 @@ function spawnUnit(g: Game, b: Entity, kind: Kind): void {
   }
 }
 
+/** One tick of work on an unfinished building. True when that finishes it. */
+function raise(g: Game, s: Entity): boolean {
+  const d = def(s.kind);
+  const grow = Math.trunc((d.hp * 9) / 10);
+  s.hp += Math.trunc((grow * (s.progress + 1)) / d.time) - Math.trunc((grow * s.progress) / d.time);
+  s.progress++;
+  if (s.progress < d.time) return false;
+  s.built = true;
+  s.builder = 0;
+  g.events.push({ t: 'done', owner: s.owner, kind: s.kind, x: s.x, y: s.y });
+  if (isHall(s.kind)) g.rebalance |= 1 << s.owner;
+  return true;
+}
+
 function production(g: Game): void {
   const n = g.ents.length;
   for (let i = 0; i < n; i++) {
     const b = g.ents[i]!;
-    if (!b.built || b.queue.length === 0 || b.hp <= 0) continue;
+    if (b.hp <= 0) continue;
+    if (!b.built) {
+      // A Dino building grows by itself once its Gatherer has become it.
+      if (b.builder === -1) raise(g, b);
+      continue;
+    }
+    if (b.kind === K.Nest && b.eggs < RULES.eggMax && ++b.timer >= RULES.eggTicks) {
+      b.eggs++;
+      b.timer = 0;
+    }
+    if (b.queue.length === 0) continue;
     b.qprog++;
     const kind = b.queue[0]!;
     if (isResearch(kind)) {
       const pl = g.players[b.owner]!;
-      const level = kind === K.Weapons ? pl.weapons : pl.armour;
+      const which = researchOf(kind);
+      const level = pl[which];
       if (b.qprog >= researchCost(kind, level).time) {
         b.queue.shift();
         b.qprog = 0;
-        if (kind === K.Weapons) pl.weapons = Math.min(RULES.researchMax, level + 1);
-        else pl.armour = Math.min(RULES.researchMax, level + 1);
+        pl[which] = Math.min(RULES.researchMax, level + 1);
         g.events.push({ t: 'done', owner: b.owner, kind, x: b.x, y: b.y });
       }
     } else if (b.qprog >= def(kind).time) {
       b.queue.shift();
       b.qprog = 0;
-      spawnUnit(g, b, kind);
+      if (b.kind === K.Egg) {
+        // The egg is gone and what was in it stands in its place. Not a loss: it never shows as one.
+        for (let k = 0; k < def(kind).brood; k++) spawnUnit(g, b, kind);
+        b.hp = 0;
+        b.progress = -1;
+      } else {
+        spawnUnit(g, b, kind);
+      }
     }
   }
   if (g.tick % 5 === 0) {
-    for (const pl of g.players) for (const kind of pl.repeat) tryTrain(g, pl.id, kind, true);
+    for (const pl of g.players) {
+      // Each kind set to keep coming gets its turn; with eggs to share, the turns start one further on each time.
+      const n2 = pl.repeat.length, from = pl.faction === 'dino' && n2 > 0 ? pl.stats.trained % n2 : 0;
+      for (let k = 0; k < n2; k++) tryTrain(g, pl.id, pl.repeat[(from + k) % n2]!, true);
+    }
   }
 }
 
@@ -567,19 +669,19 @@ function production(g: Game): void {
 /** What is left where a Worker works: a pile of Blocks, or the battery pack under a Refinery. */
 function nodeLeft(g: Game, node: Entity): number {
   if (node.kind === K.Pile) return node.amount;
-  if (node.kind !== K.Refinery || !node.built || node.hp <= 0) return 0;
+  if (!isRefinery(node.kind) || !node.built || node.hp <= 0) return 0;
   const cell = g.byId.get(node.pile);
   return cell ? cell.amount : 0;
 }
 
 function pickPile(g: Game, w: Entity, counts: Map<number, number>): Entity | undefined {
-  const hqs = g.ents.filter((e) => e.owner === w.owner && e.kind === K.HQ && e.built && e.hp > 0);
+  const hqs = g.ents.filter((e) => e.owner === w.owner && isHall(e.kind) && e.built && e.hp > 0);
   if (hqs.length === 0) return undefined;
   let best: Entity | undefined;
   let bestScore = Number.MAX_SAFE_INTEGER;
   const reach = RULES.baseReach * TILE;
   for (const p of g.ents) {
-    const refinery = p.kind === K.Refinery && p.owner === w.owner;
+    const refinery = isRefinery(p.kind) && p.owner === w.owner;
     if (!refinery && p.kind !== K.Pile) continue;
     if (nodeLeft(g, p) <= 0) continue;
     let near = false;
@@ -611,7 +713,7 @@ function pickPile(g: Game, w: Entity, counts: Map<number, number>): Entity | und
 function openRefinery(g: Game, hq: Entity, counts: Map<number, number>): Entity | undefined {
   const reach = RULES.baseReach * TILE;
   for (const r of g.ents) {
-    if (r.kind !== K.Refinery || r.owner !== hq.owner || nodeLeft(g, r) <= 0) continue;
+    if (!isRefinery(r.kind) || r.owner !== hq.owner || nodeLeft(g, r) <= 0) continue;
     if ((counts.get(r.id) ?? 0) >= RULES.perRefinery) continue;
     if (dist(hq.x, hq.y, r.x, r.y) <= reach) return r;
   }
@@ -622,7 +724,7 @@ function nearestHQ(g: Game, w: Entity): Entity | undefined {
   let best: Entity | undefined;
   let bestD = 1 << 30;
   for (const e of g.ents) {
-    if (e.owner !== w.owner || e.kind !== K.HQ || !e.built || e.hp <= 0) continue;
+    if (e.owner !== w.owner || !isHall(e.kind) || !e.built || e.hp <= 0) continue;
     const d = dist(e.x, e.y, w.x, w.y);
     if (d < bestD) {
       bestD = d;
@@ -637,7 +739,7 @@ function workers(g: Game): void {
   // (Counted part-way through, the tally would show one side's Workers after their turn and the other's before.)
   const counts = new Map<number, number>();
   for (const e of g.ents) {
-    if (e.kind === K.Worker && e.pile && (e.ws === W.ToPile || e.ws === W.Harvest || e.ws === W.ToHQ)) {
+    if (isWorker(e.kind) && e.pile && (e.ws === W.ToPile || e.ws === W.Harvest || e.ws === W.ToHQ)) {
       counts.set(e.pile, (counts.get(e.pile) ?? 0) + 1);
     }
   }
@@ -663,7 +765,7 @@ function workers(g: Game): void {
     g.rebalance = 0;
     const c = assigned();
     for (const e of g.ents) {
-      if (e.owner < 0 || (who & (1 << e.owner)) === 0 || e.kind !== K.Worker || !e.pile) continue;
+      if (e.owner < 0 || (who & (1 << e.owner)) === 0 || !isWorker(e.kind) || !e.pile) continue;
       if (e.ws !== W.ToPile && e.ws !== W.ToHQ) continue;
       if (g.byId.get(e.pile)?.kind !== K.Pile) continue;
       const n = c.get(e.pile) ?? 0;
@@ -674,10 +776,10 @@ function workers(g: Game): void {
       }
     }
   }
-  const speed = def(K.Worker).speed;
   const pileReach = Math.trunc(TILE * 0.6);
   for (const e of g.ents) {
-    if (e.kind !== K.Worker || e.hp <= 0) continue;
+    if (!isWorker(e.kind) || e.hp <= 0) continue;
+    const speed = def(e.kind).speed;
     switch (e.ws) {
       case W.Idle: {
         const pile = pickPile(g, e, assigned());
@@ -697,7 +799,7 @@ function workers(g: Game): void {
           break;
         }
         if (nearFootprint(e, pile, pileReach)) {
-          if (pile.kind === K.Refinery) {
+          if (isRefinery(pile.kind)) {
             // A Refinery has room for all three of its Workers at once.
             e.ws = W.Harvest;
             e.timer = RULES.harvestTicks;
@@ -713,13 +815,13 @@ function workers(g: Game): void {
       }
       case W.Harvest: {
         const pile = g.byId.get(e.pile);
-        if (!pile || (pile.kind === K.Refinery && nodeLeft(g, pile) <= 0)) {
+        if (!pile || (isRefinery(pile.kind) && nodeLeft(g, pile) <= 0)) {
           leave(e);
           e.ws = W.Idle;
           break;
         }
         if (--e.timer <= 0) {
-          if (pile.kind === K.Refinery) {
+          if (isRefinery(pile.kind)) {
             const cell = g.byId.get(pile.pile)!;
             const take = Math.min(RULES.gasCarry, cell.amount);
             cell.amount -= take;
@@ -782,8 +884,17 @@ function workers(g: Game): void {
           offSite(e);
           break;
         }
-        if (nearFootprint(e, s, Math.trunc(TILE * 0.75))) e.ws = W.Build;
-        else moveTo(g, e, s.x, s.y, speed, s);
+        if (!nearFootprint(e, s, Math.trunc(TILE * 0.75))) {
+          moveTo(g, e, s.x, s.y, speed, s);
+        } else if (e.kind === K.Gatherer) {
+          // A Gatherer doesn't build: it becomes the building, which grows by itself from here on.
+          s.builder = -1;
+          e.site = 0;
+          e.hp = 0;
+          e.progress = -1;
+        } else {
+          e.ws = W.Build;
+        }
         break;
       }
       case W.Build: {
@@ -792,19 +903,9 @@ function workers(g: Game): void {
           offSite(e);
           break;
         }
-        const d = def(s.kind);
-        const grow = Math.trunc((d.hp * 9) / 10);
-        s.hp += Math.trunc((grow * (s.progress + 1)) / d.time) - Math.trunc((grow * s.progress) / d.time);
-        s.progress++;
         e.fx = s.x - e.x;
         e.fy = s.y - e.y;
-        if (s.progress >= d.time) {
-          s.built = true;
-          s.builder = 0;
-          offSite(e);
-          g.events.push({ t: 'done', owner: s.owner, kind: s.kind, x: s.x, y: s.y });
-          if (s.kind === K.HQ) g.rebalance |= 1 << s.owner;
-        }
+        if (raise(g, s)) offSite(e);
         break;
       }
     }
@@ -812,7 +913,7 @@ function workers(g: Game): void {
   if (g.tick % 10 === 0) {
     // A site whose Worker was lost gets another.
     for (const s of g.ents) {
-      if (s.built || s.hp <= 0 || s.owner < 0 || !def(s.kind).building) continue;
+      if (s.built || s.hp <= 0 || s.owner < 0 || s.builder === -1 || !def(s.kind).building) continue;
       const w = s.builder ? g.byId.get(s.builder) : undefined;
       if (w && w.hp > 0 && w.site === s.id) continue;
       const nw = nearestWorker(g, s.owner, s.x, s.y);
@@ -833,11 +934,12 @@ function acquire(g: Game, b: Buckets, e: Entity, d: Def, extra: number): number 
     const pct = d.vs[od.cls]!;
     if (pct === 0) return;
     if (!wasVisibleTo(g, e.owner, o)) return;
-    const dd = dist(e.x, e.y, o.px, o.py) - od.radius;
+    const dd = gap(e, d, o, o.px, o.py);
     if (dd > reachThen(g, e, o, d) + extra || dd < d.minRange) return;
     let score = dd;
     if (od.building) score += od.range > 0 && o.built ? 0 : TILE * 6;
-    else if (o.kind === K.Worker) score += e.kind === K.Runner || e.kind === K.Gunship ? -TILE * 2 : TILE * 2;
+    else if (o.kind === K.Egg) score += TILE * 5;
+    else if (isWorker(o.kind)) score += d.raider ? -TILE * 2 : TILE * 2;
     if (pct >= 150) score -= TILE * 2;
     else if (pct <= 50) score += TILE;
     if (score < bestScore || (score === bestScore && o.id < best)) {
@@ -859,7 +961,7 @@ function unitStep(g: Game, b: Buckets, e: Entity, pace: readonly number[]): void
   if (!marching && d.range > 0) {
     // Everyone looks again for a better target on the same ticks.
     if (!t || g.tick % 4 === 0) {
-      const id = acquire(g, b, e, d, e.mode === O.Hold ? 0 : RULES.notice);
+      const id = acquire(g, b, e, d, e.mode === O.Hold ? 0 : d.melee ? RULES.meleeNotice : RULES.notice);
       if (id) {
         if (id !== e.tgt) e.losTick = -99;
         e.tgt = id;
@@ -878,7 +980,7 @@ function unitStep(g: Game, b: Buckets, e: Entity, pace: readonly number[]): void
       e.fx = t.px - e.x;
       e.fy = t.py - e.y;
     } else if (e.mode !== O.Hold) {
-      moveTo(g, e, t.px, t.py, d.speed, def(t.kind).building ? t : undefined);
+      moveTo(g, e, t.px, t.py, d.speed + d.charge, def(t.kind).building ? t : undefined);
     }
     return;
   }
@@ -1049,7 +1151,7 @@ function shooting(g: Game, b: Buckets): void {
   for (const { t, dmg } of hits) {
     t.hp -= dmg;
     const td = def(t.kind);
-    if (td.building || t.kind === K.Worker) {
+    if (td.building || isWorker(t.kind)) {
       g.events.push({ t: 'hurt', owner: t.owner, x: t.x, y: t.y, kind: t.kind });
       const st = g.players[t.owner]!.stats;
       if (st.firstAttackTick < 0) st.firstAttackTick = g.tick;
@@ -1065,7 +1167,7 @@ function cleanup(g: Game): void {
     if (e.hp > 0) continue;
     any = true;
     const d = def(e.kind);
-    if (e.kind === K.Refinery) {
+    if (isRefinery(e.kind)) {
       // The battery pack outlives the Refinery, and still stands in the way.
       const cell = g.byId.get(e.pile);
       if (cell) cell.site = 0;
@@ -1073,7 +1175,7 @@ function cleanup(g: Game): void {
       const f = footprint(e);
       g.nav.setRect(f.tx, f.ty, f.size, 0);
     }
-    if (e.kind === K.Worker) releasePile(g, e);
+    if (isWorker(e.kind)) releasePile(g, e);
     if (e.owner >= 0 && e.progress !== -1) {
       const mine = g.players[e.owner]!.stats, theirs = g.players[1 - e.owner]!.stats;
       if (d.building) {
@@ -1092,7 +1194,7 @@ function cleanup(g: Game): void {
 
 function accounts(g: Game): void {
   const hq = [0, 0];
-  for (const e of g.ents) if (e.kind === K.HQ && e.owner >= 0) hq[e.owner]!++;
+  for (const e of g.ents) if (isHall(e.kind) && e.owner >= 0) hq[e.owner]!++;
   for (const pl of g.players) {
     pl.supply = countSupply(g, pl.id);
     pl.cap = supplyCap(g, pl.id);

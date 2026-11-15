@@ -6,14 +6,20 @@ export const TILE = 256;
 export const TICKS_PER_SEC = 10;
 
 export const K = {
+  // The Green Army.
   Worker: 1, Trooper: 2, Lancer: 3, Runner: 4, Tank: 5, Mortar: 6, Flak: 7, Gunship: 8, Jugger: 9,
   HQ: 20, Barracks: 21, Turret: 22, Refinery: 23, Factory: 24, Airfield: 25, Armory: 26, Heavy: 27,
+  // The Dino Pack. An Egg is a dinosaur on its way: it sits by its Nest until it hatches.
+  Gatherer: 10, Raptor: 11, Spitter: 12, Horn: 13, Ptero: 14, Bronto: 15, Rex: 16, Egg: 19,
+  Nest: 30, Dig: 31, Den: 32, Wallow: 33, Roost: 34, BonePit: 35, Cave: 36, Volcano: 37,
   /** Neutral things on the map: Blocks, a battery pack, a watchtower. */
   Pile: 40, Cell: 41, Tower: 42,
-  /** Research, queued at the Armory like a unit. */
-  Weapons: 100, Armour: 101,
+  /** Research, queued at the Armory or the Bone Pit like a unit. */
+  Weapons: 100, Armour: 101, Claws: 102, Hide: 103,
 } as const;
 export type Kind = (typeof K)[keyof typeof K];
+
+export type Faction = 'green' | 'dino';
 
 /** Armour class. Counters work by class, so they hold across factions. */
 export const C = { Light: 0, Armoured: 1, Air: 2, Structure: 3 } as const;
@@ -62,6 +68,14 @@ export interface Def {
   setup: number;
   /** Flies: ignores terrain and walls, and only weapons that hit Air can touch it. */
   air: boolean;
+  /** Fights with teeth, horns or feet: it must reach what it attacks, and high ground lends it no range. */
+  melee: boolean;
+  /** Extra speed, in sub-units per tick, while it closes on something it means to hit. */
+  charge: number;
+  /** Goes for Workers first. */
+  raider: boolean;
+  /** How many come out of one egg. */
+  brood: number;
   /** Footprint in tiles (buildings and piles). */
   size: number;
   /** Building that trains this unit. */
@@ -129,12 +143,16 @@ export interface Entity {
   progress: number;
   queue: Kind[];
   qprog: number;
-  /** Worker id building this site. */
+  /** Worker id building this site; -1 for a Dino building, which a Gatherer has become and which grows by itself. */
   builder: number;
 
   // Piles
   amount: number;
   busy: number;
+
+  // Nests
+  /** Eggs laid and waiting to be hatched. */
+  eggs: number;
 }
 
 export interface GroupState {
@@ -165,7 +183,7 @@ export interface Stats {
 
 export interface Player {
   id: number;
-  faction: 'green';
+  faction: Faction;
   blocks: number;
   /** Batteries. */
   gas: number;

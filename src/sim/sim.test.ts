@@ -3,7 +3,7 @@ import { fight } from '../../lab/arena';
 import { firstBreak, seatSwap } from '../../lab/fair';
 import { playMatch } from '../../lab/match';
 import { Bot } from '../ai/bot';
-import { DEFS, FACTIONS, RULES, def, researchCost } from './data';
+import { DEFS, FACTIONS, RULES, def, researchCost, worth } from './data';
 import { twinRidges } from './map';
 import { canPlace, createGame, hash, schedule, spawn, tileIndex, visibleTo } from './state';
 import { step } from './step';
@@ -472,6 +472,318 @@ describe('high ground and watchtowers', () => {
   });
 });
 
+describe('the Dino Pack', () => {
+  const dino = () => createGame(1, undefined, ['dino', 'green']);
+  const mine = (g: ReturnType<typeof createGame>, kind: number, p = 0) => g.ents.filter((e) => e.owner === p && e.kind === kind);
+  const order = (g: ReturnType<typeof createGame>, cmd: Parameters<typeof schedule>[1]) => { schedule(g, cmd); step(g); };
+  /** A finished Den beside the Nest, with Blocks and Batteries to spare. */
+  const withDen = () => {
+    const g = dino();
+    g.players[0]!.blocks = 3000;
+    g.players[0]!.gas = 3000;
+    order(g, { t: 'build', p: 0, kind: K.Den, tx: 13, ty: 34 });
+    run(g, 500);
+    expect(mine(g, K.Den)[0]?.built).toBe(true);
+    return g;
+  };
+
+  it('starts with a Nest and eight Gatherers, who haul Blocks as Workers do', () => {
+    const g = dino();
+    expect(mine(g, K.Nest).length).toBe(1);
+    expect(mine(g, K.Gatherer).length).toBe(8);
+    expect(mine(g, K.HQ).length + mine(g, K.Worker).length).toBe(0);
+    expect(g.players[0]!.supply).toBe(8);
+    expect(g.players[0]!.cap).toBe(def(K.Nest).provides);
+    run(g, 300);
+    expect(g.players[0]!.blocks).toBe(g.players[1]!.blocks);
+    expect(g.players[0]!.blocks).toBeGreaterThan(200);
+  });
+
+  it('a Nest lays an egg every few seconds and holds three', () => {
+    const g = dino();
+    const nest = mine(g, K.Nest)[0]!;
+    expect(nest.eggs).toBe(RULES.eggStart);
+    run(g, RULES.eggTicks);
+    expect(nest.eggs).toBe(RULES.eggStart + 1);
+    run(g, RULES.eggTicks * 5);
+    expect(nest.eggs).toBe(RULES.eggMax);
+  });
+
+  it('every unit hatches from an egg, several at once, and nothing hatches without one', () => {
+    const g = dino();
+    g.players[0]!.blocks = 1000;
+    const nest = mine(g, K.Nest)[0]!;
+    nest.eggs = 2;
+    for (let i = 0; i < 3; i++) schedule(g, { t: 'train', p: 0, kind: K.Gatherer });
+    step(g);
+    // Two eggs, two Gatherers on the way; the third is refused and costs nothing.
+    expect(nest.eggs).toBe(0);
+    expect(mine(g, K.Egg).length).toBe(2);
+    expect(g.players[0]!.blocks).toBe(1000 - 2 * def(K.Gatherer).cost);
+    expect(g.events.some((e) => e.t === 'refused' && e.why === 'No egg ready yet')).toBe(true);
+    expect(g.players[0]!.supply).toBe(10);
+    // The eggs lie outside the Nest, apart from each other, and hatch together.
+    const [a, b] = mine(g, K.Egg);
+    expect(Math.abs(a!.x - b!.x) + Math.abs(a!.y - b!.y)).toBeGreaterThan(TILE / 2);
+    run(g, def(K.Gatherer).time + 1);
+    expect(mine(g, K.Egg).length).toBe(0);
+    expect(mine(g, K.Gatherer).length).toBe(10);
+    expect(g.players[0]!.stats.lostUnits).toBe(0);
+    run(g, 200);
+    expect(mine(g, K.Gatherer).every((w) => w.ws !== 0)).toBe(true);
+  });
+
+  it('a Gatherer becomes the building, which then grows by itself', () => {
+    const g = dino();
+    g.players[0]!.blocks = 500;
+    order(g, { t: 'build', p: 0, kind: K.Den, tx: 13, ty: 34 });
+    const den = mine(g, K.Den)[0]!;
+    expect(den.built).toBe(false);
+    expect(g.players[0]!.blocks).toBe(500 - def(K.Den).cost);
+    run(g, 120);
+    // The Gatherer has walked over and is gone: seven left, and its supply is free again.
+    expect(mine(g, K.Gatherer).length).toBe(7);
+    expect(den.builder).toBe(-1);
+    expect(den.progress).toBeGreaterThan(0);
+    expect(g.players[0]!.supply).toBe(7);
+    expect(g.players[0]!.stats.lostUnits).toBe(0);
+    run(g, def(K.Den).time);
+    expect(den.built).toBe(true);
+    expect(den.hp).toBe(def(K.Den).hp);
+    expect(mine(g, K.Gatherer).length).toBe(7);
+  });
+
+  it('cancelling a Dino building gives the Gatherer back', () => {
+    const g = dino();
+    g.players[0]!.blocks = 500;
+    order(g, { t: 'build', p: 0, kind: K.Den, tx: 13, ty: 34 });
+    run(g, 150);
+    expect(mine(g, K.Gatherer).length).toBe(7);
+    order(g, { t: 'cancel', p: 0, id: mine(g, K.Den)[0]!.id });
+    expect(mine(g, K.Den).length).toBe(0);
+    expect(mine(g, K.Gatherer).length).toBe(8);
+    run(g, 100);
+    expect(mine(g, K.Gatherer).every((w) => w.ws !== 0 && !g.nav.blockedAt(w.x, w.y))).toBe(true);
+  });
+
+  it('builds only on nesting ground near a finished Nest, except for a new Nest', () => {
+    const g = dino();
+    g.players[0]!.blocks = 5000;
+    const nest = mine(g, K.Nest)[0]!;
+    const near = { tx: Math.round(nest.x / TILE) + 4, ty: Math.round(nest.y / TILE) - 6 };
+    expect(canPlace(g, 0, K.Den, near.tx, near.ty)).toBe(true);
+    // Open ground by the natural is no good for a Den, and fine for a Nest.
+    const nat = g.map.bases.find((b) => b.side === 0 && b.tier === 1)!;
+    expect(canPlace(g, 0, K.Den, nat.hx - 4, nat.hy)).toBe(false);
+    expect(canPlace(g, 0, K.Nest, nat.hx, nat.hy)).toBe(true);
+    order(g, { t: 'build', p: 0, kind: K.Den, tx: nat.hx - 4, ty: nat.hy });
+    expect(g.events.some((e) => e.t === 'refused' && e.why.includes('nesting ground'))).toBe(true);
+    // The Green Army builds where it likes, and neither side can use the other's buildings.
+    expect(canPlace(g, 1, K.Barracks, nat.hx - 4, nat.hy)).toBe(true);
+    order(g, { t: 'build', p: 0, kind: K.Barracks, tx: near.tx, ty: near.ty });
+    order(g, { t: 'train', p: 0, kind: K.Worker });
+    order(g, { t: 'train', p: 1, kind: K.Raptor });
+    expect(mine(g, K.Barracks).length + mine(g, K.Worker).length + mine(g, K.Egg, 1).length).toBe(0);
+    // Once a Nest stands at the natural, the ground around it is nesting ground too.
+    order(g, { t: 'build', p: 0, kind: K.Nest, tx: nat.hx, ty: nat.hy });
+    run(g, 900);
+    expect(mine(g, K.Nest).length).toBe(2);
+    expect(mine(g, K.Nest).every((n) => n.built)).toBe(true);
+    expect(canPlace(g, 0, K.Den, nat.hx - 4, nat.hy)).toBe(true);
+    expect(g.players[0]!.cap).toBe(2 * def(K.Nest).provides);
+  });
+
+  it('dinosaurs need their Dens, and Raptors hatch two to an egg', () => {
+    const g = dino();
+    g.players[0]!.blocks = 3000;
+    g.players[0]!.gas = 3000;
+    order(g, { t: 'train', p: 0, kind: K.Raptor });
+    expect(g.events.some((e) => e.t === 'refused' && e.why === 'Needs a Den')).toBe(true);
+    order(g, { t: 'build', p: 0, kind: K.Wallow, tx: 13, ty: 34 });
+    expect(g.events.some((e) => e.t === 'refused' && e.why === 'Needs a Den first')).toBe(true);
+    const g2 = withDen();
+    const supply = g2.players[0]!.supply, blocks = g2.players[0]!.blocks;
+    order(g2, { t: 'train', p: 0, kind: K.Raptor });
+    expect(g2.players[0]!.supply).toBe(supply + 2);
+    expect(g2.players[0]!.blocks).toBe(blocks - def(K.Raptor).cost);
+    run(g2, def(K.Raptor).time + 1);
+    const raptors = mine(g2, K.Raptor);
+    expect(raptors.length).toBe(2);
+    expect(raptors.every((r) => r.group === 0)).toBe(true);
+    run(g2, 30);
+    expect(Math.abs(raptors[0]!.x - raptors[1]!.x) + Math.abs(raptors[0]!.y - raptors[1]!.y)).toBeGreaterThan(TILE / 4);
+    order(g2, { t: 'train', p: 0, kind: K.Horn });
+    expect(g2.events.some((e) => e.t === 'refused' && e.why === 'Needs a Wallow')).toBe(true);
+    order(g2, { t: 'train', p: 0, kind: K.Rex });
+    expect(g2.events.some((e) => e.t === 'refused' && e.why === 'Needs a Great Cave')).toBe(true);
+  });
+
+  it('a Dig on a battery pack brings Batteries in, and Claws and Hide are researched at the Bone Pit', () => {
+    const g = withDen();
+    const pack = g.ents.filter((e) => e.kind === K.Cell).sort((a, b) => (a.x - mine(g, K.Nest)[0]!.x) ** 2 + (a.y - mine(g, K.Nest)[0]!.y) ** 2 - (b.x - mine(g, K.Nest)[0]!.x) ** 2 - (b.y - mine(g, K.Nest)[0]!.y) ** 2)[0]!;
+    order(g, { t: 'build', p: 0, kind: K.Dig, tx: pack.x / TILE - 1, ty: pack.y / TILE - 1 });
+    order(g, { t: 'build', p: 0, kind: K.BonePit, tx: 9, ty: 32 });
+    order(g, { t: 'research', p: 0, kind: K.Weapons });
+    order(g, { t: 'research', p: 0, kind: K.Claws });
+    expect(g.events.some((e) => e.t === 'refused' && e.why === 'Needs a Bone Pit')).toBe(true);
+    const before = g.players[0]!.stats.gathered2;
+    run(g, 700);
+    expect(mine(g, K.Dig)[0]?.built).toBe(true);
+    expect(g.players[0]!.stats.gathered2).toBeGreaterThan(before);
+    order(g, { t: 'research', p: 0, kind: K.Claws });
+    order(g, { t: 'research', p: 0, kind: K.Hide });
+    run(g, researchCost(K.Claws, 0).time + researchCost(K.Hide, 0).time + 5);
+    expect(g.players[0]!.weapons).toBe(1);
+    expect(g.players[0]!.armour).toBe(1);
+  });
+
+  it('teeth must reach: a Raptor bites what it touches, a building at any wall, and gains no range from a cliff', () => {
+    const g = createGame(1, undefined, ['dino', 'green']);
+    const r = spawn(g, K.Raptor, 0, 46 * TILE, 30 * TILE);
+    const t = spawn(g, K.Trooper, 1, 46 * TILE + TILE * 3, 30 * TILE);
+    t.mode = O.Hold;
+    r.group = 3;
+    step(g);
+    expect(t.hp).toBe(def(K.Trooper).hp);
+    run(g, 30);
+    // It closed the gap and bit; it didn't hit from three tiles off.
+    expect(t.hp).toBeLessThan(def(K.Trooper).hp);
+    expect(Math.abs(r.x - t.x)).toBeLessThan(TILE);
+    // A Raptor at the corner of a Barracks can bite it.
+    const g2 = createGame(1, undefined, ['dino', 'green']);
+    g2.players[1]!.blocks = 1000;
+    const b = spawn(g2, K.Barracks, 1, 47 * TILE + TILE / 2, 30 * TILE + TILE / 2);
+    g2.nav.setRect(46, 29, 3, 1);
+    const r2 = spawn(g2, K.Raptor, 0, 45 * TILE + TILE / 2, 28 * TILE + TILE / 2);
+    r2.group = 3;
+    run(g2, 40);
+    expect(b.hp).toBeLessThan(def(K.Barracks).hp);
+  });
+
+  it('a Horn charges the last few steps, and a Bronto stomp hurts everything around its target', () => {
+    const g = createGame(1, undefined, ['dino', 'green']);
+    const h = spawn(g, K.Horn, 0, 44 * TILE, 30 * TILE);
+    h.group = 3;
+    const far = spawn(g, K.Trooper, 1, 49 * TILE, 30 * TILE);
+    far.mode = O.Hold;
+    far.hp = 9999;
+    step(g);
+    const x0 = h.x;
+    run(g, 4);
+    expect((h.x - x0) / 4).toBeGreaterThan(def(K.Horn).speed);
+    const g2 = createGame(1, undefined, ['dino', 'green']);
+    const br = spawn(g2, K.Bronto, 0, 46 * TILE, 30 * TILE);
+    br.group = 3;
+    const ts = [0, 1, 2].map((i) => spawn(g2, K.Trooper, 1, 47 * TILE + i * 150, 30 * TILE + (i - 1) * 120));
+    for (const t of ts) t.mode = O.Hold;
+    run(g2, 45);
+    expect(ts.filter((t) => t.hp < def(K.Trooper).hp).length).toBe(3);
+  });
+
+  it('a Ptero flies, and fights flyers as well as the ground', () => {
+    const g = createGame(1, undefined, ['dino', 'green']);
+    const p = spawn(g, K.Ptero, 0, 30 * TILE, 12 * TILE);
+    p.group = 3;
+    const gs = spawn(g, K.Gunship, 1, 36 * TILE, 16 * TILE);
+    gs.mode = O.Hold;
+    // The Gunship is over the ridge; the Ptero goes straight at it over the rock, and the Gunship can't answer.
+    schedule(g, { t: 'order', p: 0, group: 3, mode: O.Attack, x: 36 * TILE, y: 16 * TILE });
+    run(g, 60);
+    expect(gs.hp).toBeLessThan(def(K.Gunship).hp);
+    expect(p.hp).toBe(def(K.Ptero).hp);
+  });
+
+  it('a side with no Nest left has lost, and an egg can be broken before it hatches', () => {
+    const g = dino();
+    g.players[0]!.blocks = 500;
+    order(g, { t: 'train', p: 0, kind: K.Gatherer });
+    const egg = mine(g, K.Egg)[0]!;
+    egg.hp = 0;
+    step(g);
+    expect(mine(g, K.Egg).length).toBe(0);
+    expect(g.players[0]!.stats.lostUnits).toBe(1);
+    run(g, 200);
+    expect(mine(g, K.Gatherer).length).toBe(8);
+    mine(g, K.Nest)[0]!.hp = 0;
+    step(g);
+    expect(g.winner).toBe(1);
+  });
+
+  it('keeps hatching what it is told to keep coming, taking turns for the eggs', () => {
+    const g = withDen();
+    schedule(g, { t: 'repeat', p: 0, kind: K.Gatherer, on: true });
+    schedule(g, { t: 'repeat', p: 0, kind: K.Raptor, on: true });
+    run(g, 900);
+    expect(mine(g, K.Gatherer).length).toBeGreaterThan(9);
+    expect(mine(g, K.Raptor).length).toBeGreaterThan(3);
+  });
+});
+
+describe('the Dino unit table', () => {
+  const duel = (a: Kind, na: number, b: Kind, nb: number) => {
+    const r = fight([{ kind: a, n: na }], [{ kind: b, n: nb }]);
+    const s = fight([{ kind: b, n: nb }], [{ kind: a, n: na }]);
+    return r.left[0] > 0 && r.left[1] === 0 && s.left[1] > 0 && s.left[0] === 0;
+  };
+  /** `a` beats `b` when both sides spend the same; a Raptor is priced as half its egg. */
+  const beats = (a: Kind, b: Kind, budget = 1800) => duel(a, Math.round(budget / worth(a)), b, Math.round(budget / worth(b)));
+  const alone = (kind: Kind, n: number, against: Kind) => fight([{ kind, n }], [{ kind: against, n: 1 }], 1).left;
+
+  it('Raptors beat slow shooters; splash, flyers, Turrets and Volcanoes beat Raptors', () => {
+    expect(beats(K.Raptor, K.Lancer)).toBe(true);
+    expect(beats(K.Raptor, K.Mortar)).toBe(true);
+    expect(beats(K.Tank, K.Raptor)).toBe(true);
+    expect(beats(K.Bronto, K.Raptor)).toBe(true);
+    expect(beats(K.Gunship, K.Raptor)).toBe(true);
+    expect(beats(K.Ptero, K.Raptor)).toBe(true);
+    // Eight Raptors are twice the price of a Turret, and still lose to one.
+    expect(alone(K.Raptor, 8, K.Turret)[0]).toBe(0);
+    expect(alone(K.Raptor, 8, K.Volcano)[0]).toBe(0);
+  });
+  it('Spitters beat flyers and Light at range, Troopers narrowly; splash, Horns and Raptors up close beat Spitters', () => {
+    expect(beats(K.Spitter, K.Gunship)).toBe(true);
+    expect(beats(K.Spitter, K.Ptero)).toBe(true);
+    expect(beats(K.Spitter, K.Lancer)).toBe(true);
+    expect(beats(K.Spitter, K.Runner)).toBe(true);
+    expect(beats(K.Spitter, K.Trooper)).toBe(true);
+    expect(beats(K.Tank, K.Spitter)).toBe(true);
+    expect(beats(K.Horn, K.Spitter)).toBe(true);
+    expect(beats(K.Raptor, K.Spitter)).toBe(true);
+  });
+  it('Horns beat Light and break a Turret; Lancers and flyers beat Horns', () => {
+    expect(beats(K.Horn, K.Trooper)).toBe(true);
+    expect(beats(K.Horn, K.Raptor)).toBe(true);
+    expect(beats(K.Horn, K.Runner)).toBe(true);
+    expect(alone(K.Horn, 1, K.Turret)[1]).toBe(0);
+    expect(beats(K.Lancer, K.Horn)).toBe(true);
+    expect(beats(K.Gunship, K.Horn)).toBe(true);
+  });
+  it('Pteros beat Gunships and slow shooters; Troopers, Spitters, Flak Tracks and Turrets beat Pteros', () => {
+    expect(beats(K.Ptero, K.Gunship)).toBe(true);
+    expect(beats(K.Ptero, K.Lancer)).toBe(true);
+    expect(beats(K.Ptero, K.Mortar)).toBe(true);
+    expect(beats(K.Trooper, K.Ptero)).toBe(true);
+    expect(beats(K.Spitter, K.Ptero)).toBe(true);
+    expect(beats(K.Flak, K.Ptero)).toBe(true);
+    expect(alone(K.Ptero, 1, K.Turret)[0]).toBe(0);
+  });
+  it('Brontos beat massed Light and break a Turret; Lancers and flyers beat Brontos', () => {
+    expect(beats(K.Bronto, K.Trooper)).toBe(true);
+    expect(beats(K.Bronto, K.Spitter)).toBe(true);
+    expect(alone(K.Bronto, 1, K.Turret)[1]).toBe(0);
+    expect(beats(K.Lancer, K.Bronto)).toBe(true);
+    expect(beats(K.Ptero, K.Bronto)).toBe(true);
+  });
+  it('a Rex beats everything Armoured, Juggernauts included; massed Lancers and flyers beat a Rex', () => {
+    expect(beats(K.Rex, K.Tank, 2000)).toBe(true);
+    expect(beats(K.Rex, K.Horn, 1500)).toBe(true);
+    expect(beats(K.Rex, K.Bronto, 3500)).toBe(true);
+    expect(duel(K.Rex, 4, K.Jugger, 4)).toBe(true);
+    expect(beats(K.Lancer, K.Rex, 2000)).toBe(true);
+    expect(beats(K.Gunship, K.Rex)).toBe(true);
+  });
+});
+
 describe('fair to both sides', () => {
   it('a fight between two mirrored armies is a mirror to the last shot, whichever side was made first', () => {
     const W = 96 * TILE, H = 48 * TILE;
@@ -601,43 +913,76 @@ describe('determinism', () => {
     expect(hash(replay)).toBe(hash(g));
   });
 
-  it('uses whole numbers only', () => {
-    const g = createGame(5);
-    const bots = [new Bot(0, 5), new Bot(1, 6)];
-    for (let i = 0; i < 1500; i++) {
-      for (const b of bots) for (const c of b.think(makeView(g, b.p))) schedule(g, c);
+  it('uses whole numbers only, with either faction on the field', () => {
+    for (const sides of [['green', 'green'], ['dino', 'green'], ['dino', 'dino']] as const) {
+      const g = createGame(5, undefined, sides);
+      const bots = [new Bot(0, 5, { faction: sides[0], foe: sides[1] }), new Bot(1, 6, { faction: sides[1], foe: sides[0] })];
+      for (let i = 0; i < 1500; i++) {
+        for (const b of bots) for (const c of b.think(makeView(g, b.p))) schedule(g, c);
+        step(g);
+      }
+      for (const e of g.ents) {
+        expect(Number.isInteger(e.x) && Number.isInteger(e.y) && Number.isInteger(e.hp)).toBe(true);
+        expect(Number.isInteger(e.frac) && Number.isInteger(e.amount) && Number.isInteger(e.eggs)).toBe(true);
+      }
+      for (const pl of g.players) expect(Number.isInteger(pl.blocks) && Number.isInteger(pl.gas) && Number.isInteger(pl.supply)).toBe(true);
+    }
+  });
+
+  it('a match with dinosaurs on the field is identical on a re-run and on a replay from its command log', () => {
+    const sides = ['dino', 'green'] as const;
+    const a = playMatch(42, { plan: 'standard', tech: 'armour' }, { plan: 'standard', tech: 'armour' }, 4500, undefined, sides);
+    const b = playMatch(42, { plan: 'standard', tech: 'armour' }, { plan: 'standard', tech: 'armour' }, 4500, undefined, sides);
+    expect(a.hash).toBe(b.hash);
+    expect(a.commands).toBe(b.commands);
+    expect((a.made[0].Raptor ?? 0) + (a.made[0].Horn ?? 0)).toBeGreaterThan(20);
+    // And once more from the orders alone.
+    const g = createGame(9, undefined, sides);
+    const bots = [new Bot(0, 9, { faction: 'dino', foe: 'green' }), new Bot(1, 10, { faction: 'green', foe: 'dino' })];
+    for (let i = 0; i < 2500; i++) {
+      for (const bot of bots) for (const c of bot.think(makeView(g, bot.p))) schedule(g, c);
       step(g);
     }
-    for (const e of g.ents) {
-      expect(Number.isInteger(e.x) && Number.isInteger(e.y) && Number.isInteger(e.hp)).toBe(true);
-      expect(Number.isInteger(e.frac) && Number.isInteger(e.amount)).toBe(true);
+    const again = createGame(9, undefined, sides);
+    const log = [...g.log];
+    let k = 0;
+    for (let i = 0; i < 2500; i++) {
+      while (k < log.length && log[k]!.tick === again.tick + 1) again.pending.push({ tick: again.tick + 1, cmd: log[k++]!.cmd });
+      step(again);
     }
-    expect(Number.isInteger(g.players[0]!.blocks) && Number.isInteger(g.players[0]!.gas)).toBe(true);
+    expect(hash(again)).toBe(hash(g));
   });
 });
 
 describe('content', () => {
   it('every unit has a place to be trained and sane numbers', () => {
     for (const d of Object.values(DEFS)) expect(d.hp).toBeGreaterThan(0);
-    const f = FACTIONS.green;
-    for (const k of f.units) {
-      const d = def(k);
-      expect(d.building).toBe(false);
-      expect(f.buildings).toContain(d.madeAt);
-      expect(d.speed).toBeGreaterThan(0);
-      expect(d.supply).toBeGreaterThan(0);
-      expect(d.short.length).toBeLessThanOrEqual(8);
-      for (const need of d.needs) expect(f.buildings).toContain(need);
-      // Everything that fights can be hurt by something.
-      expect(f.units.some((o) => def(o).vs[d.cls]! > 0 && def(o).range > 0)).toBe(true);
+    for (const f of [FACTIONS.green, FACTIONS.dino]) {
+      for (const k of f.units) {
+        const d = def(k);
+        expect(d.building).toBe(false);
+        expect(f.buildings).toContain(d.madeAt);
+        expect(d.speed).toBeGreaterThan(0);
+        expect(d.supply).toBeGreaterThan(0);
+        expect(d.short.length).toBeLessThanOrEqual(8);
+        for (const need of d.needs) expect(f.buildings).toContain(need);
+        // Everything that fights can be hurt by something, in its own faction and in the other.
+        for (const foe of [FACTIONS.green, FACTIONS.dino]) {
+          expect(foe.units.some((o) => def(o).vs[d.cls]! > 0 && def(o).range > 0)).toBe(true);
+        }
+      }
+      for (const k of f.buildings) {
+        expect(def(k).building).toBe(true);
+        expect(def(k).size).toBeGreaterThan(0);
+        expect(def(k).short.length).toBeLessThanOrEqual(8);
+        for (const need of def(k).needs) expect(f.buildings).toContain(need);
+      }
+      // Eight buildings fit a three-by-three panel; so do nine Green units and seven dinosaurs.
+      expect(f.buildings.length).toBe(8);
+      expect(f.units.length).toBeLessThanOrEqual(9);
     }
-    for (const k of f.buildings) {
-      expect(def(k).building).toBe(true);
-      expect(def(k).size).toBeGreaterThan(0);
-      for (const need of def(k).needs) expect(f.buildings).toContain(need);
-    }
-    expect(f.units.length).toBe(9);
-    expect(f.buildings.length).toBe(8);
+    expect(FACTIONS.green.units.length).toBe(9);
+    expect(FACTIONS.dino.units.length).toBe(7);
     expect(RULES.groups).toBe(4);
   });
 });

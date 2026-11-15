@@ -1,55 +1,70 @@
-// How the difficulty levels stack up: each level against the others, and simple one-trick play against each.
+// How the difficulty levels stack up, for each faction: each level against the others, an idle player against
+// each, and simple one-trick play against each.
 // Run: npx tsx lab/levels.ts [seeds]
-import { type Trick } from '../src/ai/bot';
-import { mmss, playMatch } from './match';
+import { TRICKS } from '../src/ai/bot';
+import type { Faction } from '../src/sim/types';
+import { mmss } from './match';
+import { playAll, type Job } from './pool';
 
 const seeds = Number(process.argv[2] ?? 8);
 const NAMES = ['Easy', 'Normal'];
+const FACTIONS: Faction[] = ['green', 'dino'];
+const LABEL = { green: 'Green Army', dino: 'Dino Pack' } as const;
 const pct = (n: number, d: number) => `${Math.round((100 * n) / d)}%`.padStart(4);
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
 
-console.log('Win rate of the row level against the column level (random openings):');
-console.log(' '.repeat(8) + NAMES.map((n) => n.padStart(8)).join(''));
-for (let a = 0; a < NAMES.length; a++) {
-  const cells: string[] = [];
-  for (let b = 0; b < NAMES.length; b++) {
-    if (a === b) { cells.push('.'.padStart(8)); continue; }
-    let w = 0, n = 0;
+// Every match is listed first and played together; each line of the report then reads its own slice.
+const jobs: Job[] = [];
+const slice = (make: () => void): [number, number] => {
+  const from = jobs.length;
+  make();
+  return [from, jobs.length];
+};
+
+const levelRows = FACTIONS.flatMap((fn) => FACTIONS.map((fe) => ({
+  fn, fe,
+  at: slice(() => {
     for (let s = 1; s <= seeds; s++) {
-      const r1 = playMatch(s * 31 + 5, { level: a }, { level: b });
-      const r2 = playMatch(s * 31 + 6, { level: b }, { level: a });
-      n += 2;
-      if (r1.winner === 0) w++;
-      if (r2.winner === 1) w++;
+      jobs.push({ seed: s * 31 + 5, a: { level: 1 }, b: { level: 0 }, factions: [fn, fe] });
+      jobs.push({ seed: s * 31 + 6, a: { level: 0 }, b: { level: 1 }, factions: [fe, fn] });
     }
-    cells.push(pct(w, n).padStart(8));
-  }
-  console.log(NAMES[a]!.padEnd(8) + cells.join(''));
+  }),
+})));
+const idleRows = FACTIONS.flatMap((me) => FACTIONS.flatMap((foe) => NAMES.map((_, level) => ({
+  me, foe, level,
+  at: slice(() => {
+    for (let s = 1; s <= seeds; s++) jobs.push({ seed: s * 17 + 2, a: { level: -1 }, b: { level }, maxTicks: 18000, factions: [me, foe] });
+  }),
+}))));
+const trickRows = FACTIONS.flatMap((f) => TRICKS[f].flatMap((trick) => NAMES.map((_, level) => ({
+  f, trick, level,
+  at: slice(() => {
+    for (let s = 1; s <= seeds; s++) {
+      jobs.push({ seed: s * 53 + 3, a: { trick, level: 1 }, b: { level }, factions: [f, f] });
+      jobs.push({ seed: s * 53 + 4, a: { level }, b: { trick, level: 1 }, factions: [f, f] });
+    }
+  }),
+}))));
+const rs = await playAll(jobs);
+/** Wins for the side that sits in seat 0 on even matches of a slice and seat 1 on odd ones. */
+const wins = ([from, to]: [number, number]) => {
+  let w = 0;
+  for (let i = from; i < to; i++) if (rs[i]!.winner === (i - from) % 2) w++;
+  return w;
+};
+
+console.log('Win rate of Normal against Easy (random openings), by who plays what:');
+for (const row of levelRows) {
+  console.log(`  Normal ${LABEL[row.fn].padEnd(10)} against Easy ${LABEL[row.fe].padEnd(10)} ${pct(wins(row.at), row.at[1] - row.at[0])}`);
 }
 console.log('\nA player who does nothing at all: when the opponent first hits them, and when the match ends.');
-for (let level = 0; level < NAMES.length; level++) {
-  const hits: number[] = [], ends: number[] = [];
-  for (let s = 1; s <= seeds; s++) {
-    const r = playMatch(s * 17 + 2, { trick: 'turtle', level: -1 }, { level }, 18000);
-    if (r.firstHit[0] >= 0) hits.push(r.firstHit[0]);
-    ends.push(r.ticks);
-  }
-  console.log(`${NAMES[level]!.padEnd(7)} first hit: median ${mmss(median(hits))}, earliest ${mmss(Math.min(...hits))}; match over: median ${mmss(median(ends))}`);
+for (const row of idleRows) {
+  const mine = rs.slice(row.at[0], row.at[1]);
+  const hits = mine.map((r) => r.firstHit[0]).filter((t) => t >= 0), ends = mine.map((r) => r.ticks);
+  console.log(`  idle ${LABEL[row.me].padEnd(10)} against ${NAMES[row.level]!.padEnd(6)} ${LABEL[row.foe].padEnd(10)} first hit: median ${mmss(median(hits))}, earliest ${mmss(Math.min(...hits))}; match over: median ${mmss(median(ends))}`);
 }
-const tricks: Trick[] = ['troopers', 'runners', 'lancers', 'turtle', 'tanks', 'gunships'];
-console.log('\nOne-trick bots (win rate of the trick) against each level:');
-for (const trick of tricks) {
-  const row: string[] = [];
-  for (let level = 0; level < NAMES.length; level++) {
-    let w = 0, n = 0;
-    for (let s = 1; s <= seeds; s++) {
-      const a = playMatch(s * 53 + 3, { trick, level: 1 }, { level });
-      const b = playMatch(s * 53 + 4, { level }, { trick, level: 1 });
-      n += 2;
-      if (a.winner === 0) w++;
-      if (b.winner === 1) w++;
-    }
-    row.push(`${NAMES[level]} ${pct(w, n)}`);
-  }
-  console.log(`${trick.padEnd(9)} ${row.join('   ')}`);
+console.log('\nOne-trick bots (win rate of the trick) against each level of their own faction:');
+for (const f of FACTIONS) for (const trick of TRICKS[f]) {
+  const cells = trickRows.filter((x) => x.f === f && x.trick === trick).map((row) => `${NAMES[row.level]} ${pct(wins(row.at), row.at[1] - row.at[0])}`);
+  console.log(`  ${trick.padEnd(9)} ${cells.join('   ')}`);
 }

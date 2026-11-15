@@ -1,12 +1,12 @@
 // The counter table: every unit against every other at equal cost (Blocks plus Batteries), both sides attack-moving.
 // A cell is how much of its army the row keeps (positive) or the column keeps (negative), in percent.
-import { def } from '../src/sim/data';
-import { K, type Kind } from '../src/sim/types';
+import { FIGHTERS, def, worth } from '../src/sim/data';
+import type { Kind } from '../src/sim/types';
 import { fight } from './arena';
 
 const budget = Number(process.argv[2] ?? 1800);
-const units: Kind[] = [K.Trooper, K.Lancer, K.Runner, K.Tank, K.Mortar, K.Flak, K.Gunship, K.Jugger];
-const price = (k: Kind) => def(k).cost + def(k).gas;
+const units: Kind[] = FIGHTERS;
+const price = (k: Kind) => worth(k);
 const count = (k: Kind) => Math.max(1, Math.round(budget / price(k)));
 
 export function cell(a: Kind, b: Kind): number {
@@ -19,7 +19,7 @@ export function cell(a: Kind, b: Kind): number {
 }
 
 if (process.argv[1]?.endsWith('matrix.ts')) {
-  const pad = (s: string | number, n = 9) => String(s).padStart(n);
+  const pad = (s: string | number, n = 8) => String(s).padStart(n);
   console.log(`budget ${budget}: ` + units.map((u) => `${count(u)} ${def(u).short}`).join(', '));
   console.log(pad('', 10) + units.map((u) => pad(def(u).short)).join(''));
   for (const a of units) {

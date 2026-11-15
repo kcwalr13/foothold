@@ -3,8 +3,8 @@ import { Bot, type BotOptions } from '../src/ai/bot';
 import { createGame, hash, schedule, type Game } from '../src/sim/state';
 import { step } from '../src/sim/step';
 import { makeView } from '../src/sim/view';
-import { def } from '../src/sim/data';
-import { K } from '../src/sim/types';
+import { def, isHall, isWorker } from '../src/sim/data';
+import { K, type Faction } from '../src/sim/types';
 
 export interface Result {
   seed: number;
@@ -28,9 +28,12 @@ export interface Result {
   commands: number;
 }
 
-export function playMatch(seed: number, a: BotOptions = {}, b: BotOptions = {}, maxTicks = 15000, watch?: (g: Game) => void): Result {
-  const g = createGame(seed);
-  const bots = [new Bot(0, seed, a), new Bot(1, seed + 1, b)];
+export function playMatch(
+  seed: number, a: BotOptions = {}, b: BotOptions = {}, maxTicks = 15000, watch?: (g: Game) => void,
+  factions: readonly [Faction, Faction] = ['green', 'green'],
+): Result {
+  const g = createGame(seed, undefined, factions);
+  const bots = [new Bot(0, seed, { ...a, faction: factions[0], foe: factions[1] }), new Bot(1, seed + 1, { ...b, faction: factions[1], foe: factions[0] })];
   const peak: [number, number] = [0, 0];
   const made: [Record<string, number>, Record<string, number>] = [{}, {}];
   const known = new Set<number>();
@@ -41,7 +44,7 @@ export function playMatch(seed: number, a: BotOptions = {}, b: BotOptions = {}, 
     if (g.tick % 20 === 0) {
       const army = [0, 0];
       for (const e of g.ents) {
-        if (e.owner < 0 || e.kind === K.Worker || def(e.kind).building) continue;
+        if (e.owner < 0 || isWorker(e.kind) || e.kind === K.Egg || def(e.kind).building) continue;
         army[e.owner]! += def(e.kind).supply;
         if (!known.has(e.id)) {
           known.add(e.id);
@@ -53,7 +56,7 @@ export function playMatch(seed: number, a: BotOptions = {}, b: BotOptions = {}, 
       peak[1] = Math.max(peak[1], army[1]!);
     }
   }
-  const count = (p: number) => g.ents.filter((e) => e.owner === p && e.kind === K.HQ).length;
+  const count = (p: number) => g.ents.filter((e) => e.owner === p && isHall(e.kind)).length;
   return {
     seed, winner: g.winner, ticks: g.tick,
     plans: [a.trick ?? bots[0]!.plan, b.trick ?? bots[1]!.plan],

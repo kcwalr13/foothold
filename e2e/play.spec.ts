@@ -347,6 +347,170 @@ test('every unit and building of the full arsenal is drawn, near and far, with n
   expect(errors).toEqual([]);
 });
 
+// ---------------------------------------------------------------- the Dino Pack
+
+const DINO = 'play=1&seed=7&me=dino';
+
+test('choose a side on the menu: the Dino Pack plays, and the choice is remembered', async ({ page: p }, info) => {
+  await p.goto('./?nosw');
+  await expect(p.getByRole('button', { name: 'Play the Green Army' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(p.getByRole('button', { name: 'Against either' })).toHaveAttribute('aria-pressed', 'true');
+  await p.getByRole('button', { name: 'Play the Dino Pack' }).tap();
+  await p.getByRole('button', { name: 'Against the Green Army' }).tap();
+  await noSmallButtons(p);
+  await p.screenshot({ path: info.outputPath('menu.png') });
+  await p.getByRole('button', { name: 'Normal' }).tap();
+  await p.waitForFunction(() => !!(window as Any).__fh);
+  expect(await state<string[]>(p, '(m) => m.g.players.map((pl) => pl.faction)')).toEqual(['dino', 'green']);
+  await expect(p.getByRole('button', { name: 'Hatch', exact: true })).toBeVisible();
+  await expect(p.locator('.grid .tile')).toHaveCount(7);
+  await expect(p.locator('[data-stat="eggs"]')).toHaveText('1/3');
+  await expect(p.locator('[data-stat="workers"]')).toContainText('8/12');
+  await noSmallButtons(p);
+  await p.getByRole('button', { name: 'Build', exact: true }).tap();
+  await expect(p.locator('.grid .tile')).toHaveCount(8);
+  await noSmallButtons(p);
+  await p.getByRole('button', { name: 'Tech', exact: true }).tap();
+  await expect(p.getByRole('button', { name: 'Research Claws' })).toBeVisible();
+  await expect(p.getByRole('button', { name: 'Research Hide' })).toBeVisible();
+  await noSmallButtons(p);
+  await p.screenshot({ path: info.outputPath('dino-start.png') });
+  // Back at the menu the same sides are still picked; against the Dino Pack it is a Dino mirror.
+  await p.goto('./?nosw');
+  await expect(p.getByRole('button', { name: 'Play the Dino Pack' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(p.getByRole('button', { name: 'Against the Green Army' })).toHaveAttribute('aria-pressed', 'true');
+  await p.getByRole('button', { name: 'Against the Dino Pack' }).tap();
+  await p.getByRole('button', { name: 'Easy' }).tap();
+  await p.waitForFunction(() => !!(window as Any).__fh);
+  expect(await state<string[]>(p, '(m) => m.g.players.map((pl) => pl.faction)')).toEqual(['dino', 'dino']);
+});
+
+test('hatch with a tap: the egg leaves the Nest and a dinosaur climbs out', async ({ page: p }, info) => {
+  await start(p, DINO);
+  await run(p, 2);
+  await expect(p.locator('[data-stat="eggs"]')).toHaveText('1/3');
+  await p.getByRole('button', { name: 'Hatch Gatherer' }).tap();
+  await run(p, 3);
+  expect(await state<number>(p, '(m) => m.g.players[0].blocks')).toBe(0);
+  expect(await state<number[]>(p, '(m) => m.g.ents.filter((e) => e.kind === 19 && e.owner === 0).map((e) => e.queue[0])')).toEqual([10]);
+  await expect(p.locator('[data-stat="eggs"]')).toHaveText('0/3');
+  // The Nest has no egg ready, and says so.
+  await p.evaluate(() => { (window as Any).__fh.g.players[0].blocks = 400; });
+  await run(p, 2);
+  await p.getByRole('button', { name: 'Hatch Gatherer' }).tap();
+  await expect(p.locator('.toast.warn')).toContainText('No egg ready yet');
+  await run(p, 100);
+  expect(await state<number>(p, '(m) => m.g.ents.filter((e) => e.kind === 10 && e.owner === 0).length')).toBe(9);
+  expect(await state<number>(p, '(m) => m.g.ents.filter((e) => e.kind === 19).length')).toBe(0);
+  // Eggs come back on their own, up to three; a press and hold keeps one kind hatching.
+  await expect(p.locator('[data-stat="eggs"]')).toHaveText('2/3');
+  await hold(p, '[aria-label="Hatch Gatherer"]');
+  await run(p, 3);
+  expect(await state<number[]>(p, '(m) => m.g.players[0].repeat')).toEqual([10]);
+  await run(p, 300);
+  expect(await state<number>(p, '(m) => m.g.ents.filter((e) => e.kind === 10 && e.owner === 0).length')).toBeGreaterThan(11);
+  // Raptors need a Den, and then come two to an egg.
+  await p.getByRole('button', { name: 'Hatch Raptor' }).tap();
+  await expect(p.locator('.toast.warn', { hasText: 'Den' })).toContainText('Needs a Den');
+  await hold(p, '[aria-label="Hatch Gatherer"]');
+  await p.evaluate(() => { const m = (window as Any).__fh; m.debugSpawn(32, 0, 13.5, 35.5); m.g.players[0].blocks = 400; });
+  await run(p, 60);
+  await expect(p.getByRole('button', { name: 'Hatch Raptor' })).toContainText('×2');
+  await p.getByRole('button', { name: 'Hatch Raptor' }).tap();
+  await run(p, 3);
+  await p.screenshot({ path: info.outputPath('hatching.png') });
+  await run(p, 130);
+  expect(await state<number>(p, '(m) => m.g.ents.filter((e) => e.kind === 11 && e.owner === 0).length')).toBe(2);
+  await noSmallButtons(p);
+});
+
+test('a Gatherer becomes the building, and only on nesting ground', async ({ page: p }, info) => {
+  await start(p, DINO);
+  await p.evaluate(() => { (window as Any).__fh.g.players[0].blocks = 600; });
+  await run(p, 2);
+  await p.getByRole('button', { name: 'Build', exact: true }).tap();
+  await p.getByRole('button', { name: 'Build Den' }).tap();
+  await expect(p.locator('.bar.place')).toContainText('nesting ground');
+  await noSmallButtons(p);
+  expect(await state<boolean>(p, '(m) => m.placing.value.ok')).toBe(true);
+  // Far from the Nest the outline turns red and the build is refused.
+  await p.evaluate(() => { (window as Any).__fh.movePlace(30, 36); });
+  expect(await state<boolean>(p, '(m) => m.placing.value.ok')).toBe(false);
+  await p.getByRole('button', { name: 'Confirm build' }).tap();
+  await expect(p.locator('.toast.warn')).toContainText('nesting ground');
+  await p.evaluate(() => { (window as Any).__fh.movePlace(13, 34); });
+  expect(await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value')).toMatchObject({ tx: 13, ty: 34, ok: true });
+  await p.screenshot({ path: info.outputPath('nesting-ground.png') });
+  await p.getByRole('button', { name: 'Confirm build' }).tap();
+  await run(p, 3);
+  expect(await state<number>(p, '(m) => m.g.players[0].blocks')).toBe(500);
+  // The Gatherer walks over and is gone; the Den then grows by itself.
+  await run(p, 120);
+  expect(await state<number>(p, '(m) => m.g.ents.filter((e) => e.kind === 10 && e.owner === 0).length')).toBe(7);
+  expect(await state<number>(p, '(m) => m.g.ents.find((e) => e.kind === 32 && e.owner === 0).builder')).toBe(-1);
+  await expect(p.locator('[data-stat="workers"]')).toContainText('7/12');
+  // Cancel it while it grows and the Gatherer climbs back out with the Blocks.
+  const site = await state<{ x: number; y: number }>(p, '(m) => { const e = m.g.ents.find((e) => e.kind === 32 && e.owner === 0); return m.toScreen(e.x, e.y); }');
+  await p.touchscreen.tap(site.x, site.y);
+  await expect(p.locator('.bar')).toContainText('growing');
+  await p.getByRole('button', { name: 'Cancel it' }).tap();
+  await run(p, 3);
+  expect(await state<number>(p, '(m) => m.g.ents.filter((e) => e.kind === 32 && e.owner === 0).length')).toBe(0);
+  expect(await state<number>(p, '(m) => m.g.ents.filter((e) => e.kind === 10 && e.owner === 0).length')).toBe(8);
+  expect(await state<number>(p, '(m) => m.g.players[0].blocks')).toBeGreaterThanOrEqual(560);
+});
+
+test('every dinosaur and Dino building is drawn, near and far, with nothing going wrong', async ({ page: p }, info) => {
+  const errors: string[] = [];
+  p.on('pageerror', (e) => errors.push(e.message));
+  await start(p, DINO);
+  await p.evaluate(() => {
+    const m = (window as Any).__fh;
+    m.g.players[0].explored.fill(1);
+    m.g.players[0].gas = 2000;
+    m.g.players[0].blocks = 2000;
+    [32, 33, 34, 35, 36, 37, 31].forEach((k, i) => m.debugSpawn(k, 0, 12.5 + (i % 4) * 4, 31.5 + Math.floor(i / 4) * 12));
+    [10, 11, 12, 13, 14, 15, 16].forEach((k, i) => {
+      m.debugSpawn(k, 0, 12 + (i % 4) * 1.5, 37.5 + Math.floor(i / 4) * 1.5);
+      m.debugSpawn(k, 1, 18.5 + (i % 4) * 1.5, 37.5 + Math.floor(i / 4) * 1.5);
+    });
+    // The Green Army across the way, so every kind of hit is drawn as well.
+    [2, 3, 5, 7, 8].forEach((k, i) => m.debugSpawn(k, 1, 20 + i * 1.2, 41));
+    m.cam.x = 16 * 256; m.cam.y = 38 * 256; m.cam.zoom = 24; m.clampCam();
+    m.paused.value = false;
+  });
+  await p.getByRole('button', { name: 'Hatch Rex' }).tap();
+  await p.waitForTimeout(1200);
+  await p.screenshot({ path: info.outputPath('dinosaurs.png') });
+  expect(await state<number>(p, '(m) => m.fx.length + m.g.events.length')).toBeGreaterThan(0);
+  expect(await state<number>(p, '(m) => m.g.ents.filter((e) => e.kind === 19).length')).toBe(1);
+  await p.evaluate(() => { const m = (window as Any).__fh; m.cam.zoom = 6; m.clampCam(); });
+  await p.waitForTimeout(600);
+  await p.screenshot({ path: info.outputPath('dinosaurs-far.png') });
+  await p.getByRole('button', { name: 'Build', exact: true }).tap();
+  await p.getByRole('button', { name: 'Build Volcano' }).tap();
+  await p.waitForTimeout(300);
+  await p.screenshot({ path: info.outputPath('dinosaurs-placing.png') });
+  await noSmallButtons(p);
+  expect(errors).toEqual([]);
+});
+
+test('the Dino opponent comes for you too, and beats an idle army', async ({ page: p }, info) => {
+  test.setTimeout(120_000);
+  await start(p, 'play=1&seed=7&foe=dino');
+  const ended = await p.evaluate(() => {
+    const m = (window as Any).__fh;
+    for (let i = 0; i < 12000 && m.g.winner < 0; i++) m.tick();
+    return { winner: m.g.winner, hit: m.g.players[0].stats.firstAttackTick };
+  });
+  expect(ended.winner).toBe(1);
+  expect(ended.hit).toBeGreaterThan(0);
+  expect(ended.hit).toBeLessThan(6000);
+  await expect(p.getByRole('heading', { name: 'Defeat' })).toBeVisible();
+  await noSmallButtons(p);
+  await p.screenshot({ path: info.outputPath('defeat-by-dinos.png') });
+});
+
 test('drag pans, the wheel zooms, and the whole map fits between the panels', async ({ page: p }, info) => {
   await start(p);
   const c0 = await state<{ x: number; y: number; zoom: number }>(p, '(m) => ({ ...m.cam })');

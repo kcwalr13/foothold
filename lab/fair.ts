@@ -12,11 +12,11 @@ import { def } from '../src/sim/data';
 import { createGame, schedule } from '../src/sim/state';
 import { step } from '../src/sim/step';
 import { makeView } from '../src/sim/view';
-import { TILE } from '../src/sim/types';
+import { TILE, type Faction } from '../src/sim/types';
 import { mmss } from './match';
 
-export function firstBreak(plan: Plan, tech: Tech, maxTicks: number, dice = 99): { tick: number; detail: string[] } {
-  const g = createGame(1);
+export function firstBreak(plan: Plan, tech: Tech, maxTicks: number, dice = 99, faction: Faction = 'green'): { tick: number; detail: string[] } {
+  const g = createGame(1, undefined, [faction, faction]);
   const W = g.map.w * TILE, H = g.map.h * TILE;
   const bots = [new Bot(0, 1, { plan, tech, dice }), new Bot(1, 1, { plan, tech, dice })];
   // The two bots think on the same ticks only if they share a phase, which the shared dice give them.
@@ -46,10 +46,13 @@ export function firstBreak(plan: Plan, tech: Tech, maxTicks: number, dice = 99):
  * Plays `a` against `b`, and at the same time `b` against `a`, each opponent keeping its own dice.
  * Returns the first tick at which the second match is not the first turned half a circle, or -1.
  */
-export function seatSwap(a: BotOptions, b: BotOptions, seed: number, maxTicks: number): { tick: number; ticks: number; winner: number; detail: string[] } {
-  const X = createGame(seed), Y = createGame(seed);
+export function seatSwap(
+  a: BotOptions, b: BotOptions, seed: number, maxTicks: number, fa: Faction = 'green', fb: Faction = 'green',
+): { tick: number; ticks: number; winner: number; detail: string[] } {
+  const X = createGame(seed, undefined, [fa, fb]), Y = createGame(seed, undefined, [fb, fa]);
   const W = X.map.w * TILE, H = X.map.h * TILE;
-  const bx = [new Bot(0, seed, a), new Bot(1, seed, b)], by = [new Bot(0, seed, b), new Bot(1, seed, a)];
+  const A = { ...a, faction: fa, foe: fb }, B = { ...b, faction: fb, foe: fa };
+  const bx = [new Bot(0, seed, A), new Bot(1, seed, B)], by = [new Bot(0, seed, B), new Bot(1, seed, A)];
   while (X.winner < 0 && X.tick < maxTicks) {
     for (const bot of bx) for (const cmd of bot.think(makeView(X, bot.p))) schedule(X, cmd);
     for (const bot of by) for (const cmd of bot.think(makeView(Y, bot.p))) schedule(Y, cmd);
@@ -83,9 +86,9 @@ if (process.argv[1]?.endsWith('fair.ts')) {
     const plans = (process.argv[3] ? [process.argv[3]] : allPlans) as Plan[];
     const techs = (process.argv[4] ? [process.argv[4]] : allTechs) as Tech[];
     const ticks = Number(process.argv[5] ?? 9000);
-    for (const plan of plans) for (const tech of techs) {
-      const r = firstBreak(plan, tech, ticks);
-      console.log(`mirror ${plan}/${tech}: ${r.tick < 0 ? r.detail[0] : `breaks at ${mmss(r.tick)} (tick ${r.tick})`}`);
+    for (const faction of ['green', 'dino'] as const) for (const plan of plans) for (const tech of techs) {
+      const r = firstBreak(plan, tech, ticks, 99, faction);
+      console.log(`mirror ${faction} ${plan}/${tech}: ${r.tick < 0 ? r.detail[0] : `breaks at ${mmss(r.tick)} (tick ${r.tick})`}`);
       if (r.tick >= 0) for (const d of r.detail) console.log('   ' + d);
     }
   }
@@ -96,9 +99,12 @@ if (process.argv[1]?.endsWith('fair.ts')) {
       // Every opening meets every opening, the tech paths turning as they go; every third match is against a one-trick or an Easy opponent.
       const a: BotOptions = { plan: allPlans[i % 3]!, tech: allTechs[(i * 2 + Math.floor(i / 9)) % 3]!, dice: 1000 + i };
       const b: BotOptions = { plan: allPlans[Math.floor(i / 3) % 3]!, tech: allTechs[(i + 1) % 3]!, dice: 2000 + i };
-      if (i % 3 === 2) Object.assign(b, i % 2 === 0 ? { trick: (['tanks', 'gunships', 'turtle'] as const)[Math.floor(i / 3) % 3] } : { level: 0 });
-      const r = seatSwap(a, b, 50 + i, ticks);
-      const name = (o: BotOptions) => `${o.plan}/${o.tech}${o.trick ? ` (${o.trick})` : ''}${o.level === 0 ? ' (Easy)' : ''}`;
+      // The first six are Green against Green as before; then Dino against Green, and Dino against Dino.
+      const fa: Faction = i < 6 ? 'green' : 'dino', fb: Faction = i < 12 ? 'green' : 'dino';
+      if (i % 3 === 2) Object.assign(b, i % 2 === 0 && fb === 'green' ? { trick: (['tanks', 'gunships', 'turtle'] as const)[Math.floor(i / 3) % 3] } : { level: 0 });
+      const r = seatSwap(a, b, 50 + i, ticks, fa, fb);
+      const name0 = (o: BotOptions) => `${o.plan}/${o.tech}${o.trick ? ` (${o.trick})` : ''}${o.level === 0 ? ' (Easy)' : ''}`;
+      const name = (o: BotOptions) => `${o === a ? fa : fb} ${name0(o)}`;
       if (r.tick < 0) same++;
       console.log(`swap ${name(a)} v ${name(b)}: ${r.tick < 0 ? `the same match to ${mmss(r.ticks)}${r.winner >= 0 ? `, won by the ${r.winner === 0 ? 'first' : 'second'}` : ', unfinished'}` : `differs from ${mmss(r.tick)} (tick ${r.tick})`}`);
       for (const d of r.detail) console.log('   ' + d);

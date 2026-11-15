@@ -1,6 +1,7 @@
 // Draws the match: a hand-drawn paper map with toy soldiers on it. No art files; everything is drawn here.
-import { def } from '../sim/data';
+import { RULES, def, isRefinery, isWorker } from '../sim/data';
 import { centroid, groupUnits, visibleTo, type Game } from '../sim/state';
+import { drawDino, drawDinoBuilding, drawDinoHit, drawDinoMarker, drawPtero, isDinoBuilding, isDinoUnit } from './dinos';
 import { C, K, O, TILE, W, type Entity, type GameMap, type Ghost } from '../sim/types';
 import { INSET, type Fx, type Match } from './match';
 
@@ -293,7 +294,22 @@ export class Renderer {
     // Placement grid; for a Refinery, a ring round every pack that is free.
     const pl = m.placing.value;
     if (pl) this.placeGrid(pl.tx, pl.ty, def(pl.kind).size, z, o);
-    if (pl && pl.kind === K.Refinery) {
+    if (pl && isDinoBuilding(pl.kind) && pl.kind !== K.Nest && pl.kind !== K.Dig) {
+      // Nesting ground: where a Dino building may go.
+      x.strokeStyle = `rgba(47,143,58,${0.5 + 0.25 * Math.sin(now / 200)})`;
+      x.fillStyle = 'rgba(70,170,80,0.07)';
+      x.lineWidth = 2;
+      x.setLineDash([8, 6]);
+      for (const e of g.ents) {
+        if (e.owner !== me || e.kind !== K.Nest || !e.built) continue;
+        x.beginPath();
+        x.arc(sx(e.x), sy(e.y), RULES.nestGround * z, 0, Math.PI * 2);
+        x.fill();
+        x.stroke();
+      }
+      x.setLineDash([]);
+    }
+    if (pl && isRefinery(pl.kind)) {
       x.strokeStyle = `rgba(47,143,58,${0.55 + 0.35 * Math.sin(now / 160)})`;
       x.lineWidth = 2.5;
       for (const e of g.ents) {
@@ -377,7 +393,7 @@ export class Renderer {
     for (let pass = 0; pass < 2; pass++) {
       for (const e of g.ents) {
         if (e.owner < 0 || def(e.kind).building) continue;
-        if ((e.kind === K.Worker) !== (pass === 0)) continue;
+        if ((isWorker(e.kind) || e.kind === K.Egg) !== (pass === 0)) continue;
         if (e.owner !== me && !visibleTo(g, me, e)) continue;
         if (def(e.kind).air) {
           air.push(e);
@@ -589,9 +605,16 @@ export class Renderer {
     const alpha = x.globalAlpha;
     if (!built) x.globalAlpha = alpha * 0.55;
     x.fillStyle = 'rgba(0,0,0,0.22)';
-    this.rr(px - h + 3, py - h + 4, s, s, r);
+    if (isDinoBuilding(e.kind)) {
+      x.beginPath();
+      x.ellipse(px + 3, py + 4, h * 0.96, h * 0.96, 0, 0, Math.PI * 2);
+    } else {
+      this.rr(px - h + 3, py - h + 4, s, s, r);
+    }
     x.fill();
-    if (e.kind === K.HQ) {
+    if (isDinoBuilding(e.kind)) {
+      drawDinoBuilding(x, px, py, z, e.kind, t, (e as Entity).eggs ?? 0, performance.now());
+    } else if (e.kind === K.HQ) {
       x.fillStyle = t.dark;
       this.rr(px - h + 1, py - h + 1, s - 2, s - 2, r);
       x.fill();
@@ -843,6 +866,10 @@ export class Renderer {
    */
   private marker(px: number, py: number, z: number, e: Entity): void {
     const x = this.ctx, t = TEAM[e.owner]!;
+    if (isDinoUnit(e.kind)) {
+      drawDinoMarker(x, px, py, z, e, t);
+      return;
+    }
     const r = e.kind === K.Worker ? Math.max(1.6, z * 0.22) : Math.max(3, z * 0.4);
     x.fillStyle = t.fill;
     x.strokeStyle = t.dark;
@@ -953,6 +980,10 @@ export class Renderer {
   /** A Gunship: its shadow on the paper, then the machine itself above it, rotor turning. */
   private flyer(px: number, py: number, z: number, e: Entity, now: number): void {
     const x = this.ctx, t = TEAM[e.owner]!;
+    if (e.kind === K.Ptero) {
+      drawPtero(x, px, py, z, e, t, now);
+      return;
+    }
     const r = z * 0.46, a = Math.atan2(e.fy, e.fx || 0.0001);
     x.fillStyle = 'rgba(0,0,0,0.2)';
     x.beginPath();
@@ -1012,6 +1043,10 @@ export class Renderer {
 
   /** A plastic figure on its base, seen from above. */
   private figure(px: number, py: number, z: number, e: Entity): void {
+    if (isDinoUnit(e.kind)) {
+      drawDino(this.ctx, px, py, z, e, TEAM[e.owner]!, performance.now());
+      return;
+    }
     if (def(e.kind).cls === C.Armoured) {
       this.vehicle(px, py, z, e);
       return;
@@ -1191,6 +1226,7 @@ export class Renderer {
     const k = Math.min(1, (now - f.born) / f.life);
     if (f.t === 'shot') {
       const x1 = sx(f.x1), y1 = sy(f.y1), x2 = sx(f.x2), y2 = sy(f.y2);
+      if (drawDinoHit(x, f.kind, x1, y1, x2, y2, z, k)) return;
       const blast = (def(f.kind).splash / TILE) * z;
       if (f.kind === K.Mortar) {
         // A shell lobbed high: it climbs, hangs and drops, its shadow running along the ground under it.
@@ -1281,7 +1317,8 @@ export class Renderer {
     } else if (f.t === 'fall') {
       // A toy soldier tipped over on the paper.
       const px = sx(f.x1), py = sy(f.y1), t = TEAM[f.owner] ?? TEAM[0]!;
-      const r = z * 0.34, a = Math.atan2(f.y2, f.x2 || 0.0001) + 1.2;
+      // A fallen dinosaur is as big as it was standing.
+      const r = Math.max(z * 0.34, isDinoUnit(f.kind) ? (def(f.kind).radius / TILE) * z * 0.85 : 0), a = Math.atan2(f.y2, f.x2 || 0.0001) + 1.2;
       x.save();
       x.translate(px, py);
       x.rotate(a);
@@ -1367,7 +1404,7 @@ export function drawMini(c: HTMLCanvasElement, r: Renderer, m: Match): void {
     if (e.owner !== m.me && !visibleTo(g, m.me, e)) continue;
     const b = def(e.kind).building;
     x.fillStyle = e.owner === m.me ? (b ? '#1f5a1a' : '#2f9a2f') : (b ? '#8a2a12' : '#e0452b');
-    const s = b ? 4 : e.kind === K.Worker ? 1.5 : def(e.kind).supply >= 3 ? 3.5 : 2.5;
+    const s = b ? 4 : isWorker(e.kind) || e.kind === K.Egg ? 1.5 : def(e.kind).supply >= 3 ? 3.5 : 2.5;
     x.fillRect(e.x * kx - s / 2, e.y * ky - s / 2, s, s);
   }
   const a = m.toWorld(INSET.left, INSET.top), b2 = m.toWorld(m.viewW - INSET.right, m.viewH);
