@@ -4,7 +4,7 @@ import { def } from '../src/sim/data';
 import { createGame, hash, schedule, type Game } from '../src/sim/state';
 import { step } from '../src/sim/step';
 import { makeView } from '../src/sim/view';
-import type { Faction } from '../src/sim/types';
+import { K, type Faction } from '../src/sim/types';
 
 export interface FrenzyResult {
   seed: number;
@@ -26,6 +26,11 @@ export interface FrenzyResult {
   firstMarch: number[];
   /** The tick each side's base or Turrets were first hit; -1 if they never were. */
   firstHit: number[];
+  /** The tick each side lost its first Collector, and its second, while its base still stood; -1 if it never did. */
+  collectorDown: number[];
+  collectorsGone: number[];
+  /** What each side had bought by the end: Weapons, Armour, Muster, Haul, Might, Grit, Tempo. */
+  bought: number[][];
   hash: number;
   commands: number;
 }
@@ -40,12 +45,22 @@ export function playFrenzy(
   const outAt = factions.map(() => -1), lvlAt5 = factions.map(() => 1);
   const made: Record<string, number>[] = factions.map(() => ({}));
   const known = new Set<number>();
+  const collectorDown = factions.map(() => -1), collectorsGone = factions.map(() => -1);
   while (g.winner === -1 && g.tick < maxTicks) {
     for (const bot of bots) for (const cmd of bot.think(makeView(g, bot.p))) schedule(g, cmd);
     step(g);
     watch?.(g);
     for (const ev of g.events) if (ev.t === 'out' && outAt[ev.owner]! < 0) outAt[ev.owner] = g.tick;
     if (g.tick === 3000) g.players.forEach((pl, i) => { lvlAt5[i] = pl.heroLvl; });
+    if (g.tick % 10 === 0) {
+      const standing = factions.map(() => 0);
+      for (const e of g.ents) if (e.kind === K.Collector && e.owner >= 0) standing[e.owner]!++;
+      g.players.forEach((pl, i) => {
+        if (pl.out) return;
+        if (standing[i]! < 2 && collectorDown[i]! < 0) collectorDown[i] = g.tick;
+        if (standing[i]! < 1 && collectorsGone[i]! < 0) collectorsGone[i] = g.tick;
+      });
+    }
     if (g.tick % 20 === 0) {
       for (const e of g.ents) {
         if (e.owner < 0 || known.has(e.id) || def(e.kind).building || def(e.kind).hero || e.ttl !== 0) continue;
@@ -65,6 +80,8 @@ export function playFrenzy(
   return {
     seed, factions: [...factions], bents: all.map((b) => b.bent), winner: g.winner, ticks: g.tick, outAt, place,
     heroLvl: g.players.map((p) => p.heroLvl), kills: g.players.map((p) => p.stats.killedUnits), spent: g.players.map((p) => p.stats.spent),
-    lvlAt5, made, firstMarch: all.map((b) => b.firstMarch), firstHit: g.players.map((p) => p.stats.firstAttackTick), hash: hash(g), commands: g.log.length,
+    lvlAt5, made, firstMarch: all.map((b) => b.firstMarch), firstHit: g.players.map((p) => p.stats.firstAttackTick),
+    collectorDown, collectorsGone, bought: g.players.map((p) => [p.weapons, p.armour, p.muster, p.haul, p.might, p.grit, p.tempo]),
+    hash: hash(g), commands: g.log.length,
   };
 }

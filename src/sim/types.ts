@@ -16,10 +16,16 @@ export const K = {
   Pile: 40, Cell: 41, Tower: 42,
   /** Frenzy's heroes: one a side, steered by hand. */
   Captain: 50, Alpha: 51,
+  /** Frenzy only. The Green Army's foot soldier with a fixed bayonet: its free unit, and it fights hand to hand. */
+  Bayonet: 52,
+  /** Frenzy only. Stands behind a base, brings in Blocks by itself, and is where upgrades are bought. */
+  Collector: 28,
   /** Research, queued at the Armory or the Bone Pit like a unit. */
   Weapons: 100, Armour: 101, Claws: 102, Hide: 103,
-  /** Frenzy only: the base turns out units faster. */
-  Muster: 104,
+  /** Frenzy only, bought on the spot at a Collector. Muster: the base turns out units faster. Haul: Collectors bring in more. */
+  Muster: 104, Haul: 105,
+  /** Frenzy only: the hero's own. Might: it and its abilities hit harder. Grit: more health. Tempo: abilities ready sooner. */
+  Might: 106, Grit: 107, Tempo: 108,
 } as const;
 export type Kind = (typeof K)[keyof typeof K];
 
@@ -177,6 +183,8 @@ export interface Entity {
   ttl: number;
   /** The side that brought it down, or -1: set on the tick it falls. */
   by: number;
+  /** A hero's Grit, 0 to 3, as its side has bought it: more health. 0 for everything else. */
+  grit: number;
 }
 
 export interface GroupState {
@@ -238,6 +246,12 @@ export interface Player {
   unlocked: Kind[];
   /** Muster level, 0 to 3: how fast the base works. */
   muster: number;
+  /** Haul level, 0 to 4: how much each Collector brings in. */
+  haul: number;
+  /** The hero's upgrades, 0 to 3 each. */
+  might: number;
+  grit: number;
+  tempo: number;
   /** Work the base has done toward its next unit, in tenths of a Block of worth. */
   bank: number;
   /** How many units the base has turned out: which of the mix comes next. */
@@ -314,8 +328,8 @@ export interface GameMap {
   bases: BaseSite[];
   /** Watchtowers: whoever alone stands beside one sees the country around it. */
   towers: { tx: number; ty: number }[];
-  /** Frenzy: what each side starts with beside its base. Top-left tiles for the Turrets; sub-units for the hero. */
-  posts: { side: number; turrets: { tx: number; ty: number }[]; hero: { x: number; y: number } }[];
+  /** Frenzy: what each side starts with beside its base. Top-left tiles for the Turrets and the Collectors; sub-units for the hero. */
+  posts: { side: number; turrets: { tx: number; ty: number }[]; collectors: { tx: number; ty: number }[]; hero: { x: number; y: number } }[];
   /** Decoration for the renderer, in tile coordinates. */
   roads: { x: number; y: number }[][];
   labels: { text: string; x: number; y: number; rot: number; small?: boolean }[];

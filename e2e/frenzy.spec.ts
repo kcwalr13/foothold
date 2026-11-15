@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ABILITIES, FRENZY, abilityPower, frenzyUnits } from '../src/sim/data';
+import { ABILITIES, FRENZY, abilityPower, frenzyUnits, frenzyUpgrades, heroHp, income } from '../src/sim/data';
 import { K, TILE } from '../src/sim/types';
 import { type Any, hold, noSmallButtons, run, start, state } from './helpers';
 
@@ -41,12 +41,17 @@ test('Frenzy from the menu: four sides, a hero, and every control is thumb-sized
   await expect(p.locator('[data-stat="batteries"]')).toHaveCount(0);
   await expect(p.locator('[data-stat="workers"]')).toHaveCount(0);
   await expect(p.locator('[data-stat="base"]')).toHaveText('100%');
+  // Two Collectors standing, and what they bring in each second beside the Blocks.
+  await expect(p.locator('[data-stat="income"]')).toHaveText(`+${income(2, 0)}`);
   await expect(p.locator('.table i')).toHaveCount(4);
-  // The army panel: the hero, its three abilities, two groups, and Follow where Groups was.
+  // The army panel: the hero, its three abilities, two groups, and Follow where Groups was. The hero goes
+  // its own way unless Follow is switched on, and Attack is lit from the start with nothing selected.
   await expect(p.getByRole('button', { name: 'Your Captain' })).toBeVisible();
   await expect(p.locator('.ability')).toHaveCount(3);
   await expect(p.locator('.right .group')).toHaveCount(3);
-  await expect(p.getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(p.getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(p.getByRole('button', { name: 'Attack', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(p.getByRole('button', { name: 'Move', exact: true })).toBeEnabled();
   await noSmallButtons(p);
   const { w, h } = await p.evaluate(() => ({ w: innerWidth, h: innerHeight }));
   for (const sel of ['.top', '.left', '.right', '.mini', '.orders', '.abilities']) {
@@ -58,8 +63,11 @@ test('Frenzy from the menu: four sides, a hero, and every control is thumb-sized
   }
   await p.screenshot({ path: info.outputPath('frenzy-start.png') });
   await p.getByRole('button', { name: 'Tech', exact: true }).tap();
-  for (const name of ['Buy Weapons', 'Buy Armour', 'Buy Muster']) await expect(p.getByRole('button', { name })).toBeVisible();
+  for (const name of ['Weapons', 'Armour', 'Muster', 'Haul', 'Might', 'Grit', 'Tempo']) await expect(p.getByRole('button', { name: `Buy ${name}` })).toBeVisible();
+  await expect(p.locator('.grid.ups .tile')).toHaveCount(frenzyUpgrades('green').length);
+  await expect(p.locator('[data-note="tech"]')).toContainText('at your Collectors');
   await noSmallButtons(p);
+  await p.screenshot({ path: info.outputPath('frenzy-tech-start.png') });
   await p.getByRole('button', { name: 'Pause' }).tap();
   await expect(p.getByRole('heading', { name: 'Paused' })).toBeVisible();
   await noSmallButtons(p);
@@ -75,7 +83,7 @@ test('Frenzy from the menu: four sides, a hero, and every control is thumb-sized
   await expect(p.getByRole('button', { name: 'Your Alpha' })).toBeVisible();
   await noSmallButtons(p);
   await p.getByRole('button', { name: 'Tech', exact: true }).tap();
-  for (const name of ['Buy Claws', 'Buy Hide', 'Buy Muster']) await expect(p.getByRole('button', { name })).toBeVisible();
+  for (const name of ['Claws', 'Hide', 'Muster', 'Haul', 'Might', 'Grit', 'Tempo']) await expect(p.getByRole('button', { name: `Buy ${name}` })).toBeVisible();
   await noSmallButtons(p);
   await p.screenshot({ path: info.outputPath('frenzy-dino.png') });
   // Classic is still there, and still the game it was.
@@ -87,12 +95,16 @@ test('Frenzy from the menu: four sides, a hero, and every control is thumb-sized
   await expect(p.getByRole('button', { name: 'Build', exact: true })).toBeVisible();
 });
 
-test('the base makes the army by itself: unlock with Blocks, tap units in and out of the mix, buy upgrades', async ({ page: p }, info) => {
+test('the base makes the army by itself: Bayonets first; unlock with Blocks and tap units in and out of the mix', async ({ page: p }, info) => {
   await start(p, FRENZY_GREEN);
   await run(p, 160);
-  const troopers = await state<number>(p, `(m) => m.g.ents.filter((e) => e.owner === 0 && e.kind === ${K.Trooper}).length`);
-  expect(troopers).toBeGreaterThanOrEqual(2);
-  await expect(p.locator('[data-group="0"]')).toContainText(String(troopers));
+  // The free unit is the one that fights hand to hand; Troopers are there to be unlocked.
+  const first = await state<number>(p, `(m) => m.g.ents.filter((e) => e.owner === 0 && e.kind === ${K.Bayonet}).length`);
+  expect(first).toBeGreaterThanOrEqual(2);
+  expect(await state<number>(p, `(m) => m.g.ents.filter((e) => e.owner === 0 && e.kind === ${K.Trooper}).length`)).toBe(0);
+  await expect(p.locator('[data-group="0"]')).toContainText(String(first));
+  await expect(p.getByRole('button', { name: 'Stop making Bayonets' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(p.getByRole('button', { name: 'Unlock Troopers' })).toBeVisible();
   // Too dear: it says so, and nothing is spent.
   await p.getByRole('button', { name: 'Unlock Juggernauts' }).tap();
   await expect(p.locator('.toast').filter({ hasText: 'Not enough Blocks' })).toBeVisible();
@@ -100,76 +112,158 @@ test('the base makes the army by itself: unlock with Blocks, tap units in and ou
   await p.getByRole('button', { name: 'Unlock Lancers' }).tap();
   await run(p, 2);
   expect(await state(p, '(m) => ({ blocks: m.g.players[0].blocks > 880 && m.g.players[0].blocks < 920, unlocked: m.g.players[0].unlocked, mix: m.g.players[0].repeat })'))
-    .toEqual({ blocks: true, unlocked: [K.Trooper, K.Lancer], mix: [K.Trooper, K.Lancer] });
+    .toEqual({ blocks: true, unlocked: [K.Bayonet, K.Lancer], mix: [K.Bayonet, K.Lancer] });
   await expect(p.getByRole('button', { name: 'Stop making Lancers' })).toHaveAttribute('aria-pressed', 'true');
   // Out of the mix, and back in; the last one cannot be taken out.
-  await p.getByRole('button', { name: 'Stop making Troopers' }).tap();
+  await p.getByRole('button', { name: 'Stop making Bayonets' }).tap();
   await run(p, 2);
   expect(await state<number[]>(p, '(m) => m.g.players[0].repeat')).toEqual([K.Lancer]);
-  await expect(p.getByRole('button', { name: 'Make Troopers' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(p.getByRole('button', { name: 'Make Bayonets' })).toHaveAttribute('aria-pressed', 'false');
   await p.getByRole('button', { name: 'Stop making Lancers' }).tap();
   await run(p, 2);
   await expect(p.locator('.toast').filter({ hasText: 'The base must make something' })).toBeVisible();
   expect(await state<number[]>(p, '(m) => m.g.players[0].repeat')).toEqual([K.Lancer]);
   await run(p, 200);
   expect(await state<number>(p, `(m) => m.g.ents.filter((e) => e.owner === 0 && e.kind === ${K.Lancer}).length`)).toBeGreaterThanOrEqual(2);
-  expect(await state<number>(p, `(m) => m.g.ents.filter((e) => e.owner === 0 && e.kind === ${K.Trooper}).length`)).toBeLessThanOrEqual(troopers + 1);
-  await p.getByRole('button', { name: 'Make Troopers' }).tap();
+  expect(await state<number>(p, `(m) => m.g.ents.filter((e) => e.owner === 0 && e.kind === ${K.Bayonet}).length`)).toBeLessThanOrEqual(first + 1);
+  await p.getByRole('button', { name: 'Make Bayonets' }).tap();
   await run(p, 2);
-  expect(await state<number[]>(p, '(m) => m.g.players[0].repeat')).toEqual([K.Lancer, K.Trooper]);
+  expect(await state<number[]>(p, '(m) => m.g.players[0].repeat')).toEqual([K.Lancer, K.Bayonet]);
   await noSmallButtons(p);
   await p.screenshot({ path: info.outputPath('frenzy-spawn.png') });
-  // Upgrades are bought on the spot.
-  await p.getByRole('button', { name: 'Tech', exact: true }).tap();
-  const before = await state<number>(p, '(m) => m.g.players[0].blocks');
+});
+
+test('Collectors bring the Blocks in and sell the upgrades: the army\'s, Haul, and the hero\'s own', async ({ page: p }, info) => {
+  await start(p, FRENZY_GREEN);
+  await run(p, 30);
+  const tab = () => p.locator('.tabs.two button.on');
+  // A tap on a Collector, out on the map, opens what it sells.
+  await expect(tab()).toHaveText('Spawn');
+  const c = await state<{ x: number; y: number }>(p, `(m) => { const e = m.g.ents.find((e) => e.owner === 0 && e.kind === ${K.Collector}); m.cam.x = e.x + 4 * 256; m.cam.y = e.y - 3 * 256; m.cam.zoom = 22; m.clampCam(); return m.toScreen(e.x, e.y); }`);
+  await p.touchscreen.tap(c.x, c.y);
+  await expect(tab()).toHaveText('Tech');
+  await p.screenshot({ path: info.outputPath('frenzy-collectors.png') });
+  // Every second, what the two of them bring in.
+  const before = await state<{ blocks: number; tick: number }>(p, '(m) => ({ blocks: m.g.players[0].blocks, tick: m.g.tick })');
+  await run(p, 100);
+  expect(await state<number>(p, '(m) => m.g.players[0].blocks')).toBe(before.blocks + 10 * income(2, 0));
+  // Bought on the spot: one of the army's, one of the base's.
+  await p.evaluate(() => { const m = (window as Any).__fh; m.g.players[0].blocks = 2000; m.refresh(); });
   await p.getByRole('button', { name: 'Buy Weapons' }).tap();
   await p.getByRole('button', { name: 'Buy Muster' }).tap();
   await run(p, 2);
-  expect(await state(p, '(m) => ({ weapons: m.g.players[0].weapons, armour: m.g.players[0].armour, muster: m.g.players[0].muster, blocks: m.g.players[0].blocks })'))
-    .toMatchObject({ weapons: 1, armour: 0, muster: 1 });
-  expect(await state<number>(p, '(m) => m.g.players[0].blocks')).toBeLessThan(before - FRENZY.researchCost[0]! - FRENZY.musterCost[0]! + 20);
-  await expect(p.getByRole('button', { name: 'Buy Weapons' }).locator('.pips')).toHaveText('●○○○');
+  expect(await state(p, '(m) => ({ weapons: m.g.players[0].weapons, armour: m.g.players[0].armour, muster: m.g.players[0].muster })')).toEqual({ weapons: 1, armour: 0, muster: 1 });
+  await expect(p.getByRole('button', { name: 'Buy Weapons' })).toHaveAttribute('data-level', '1');
+  await expect(p.getByRole('button', { name: 'Buy Weapons' }).locator('.pips i.on')).toHaveCount(1);
+  await expect(p.getByRole('button', { name: 'Buy Weapons' }).locator('.pips i')).toHaveCount(FRENZY.researchCost.length);
+  // Haul: more from each Collector, and the top bar says so.
+  await p.getByRole('button', { name: 'Buy Haul' }).tap();
+  await expect(p.locator('[data-note="tech"]')).toContainText('Each Collector brings in more Blocks');
+  await run(p, 2);
+  expect(await state<number>(p, '(m) => m.g.players[0].haul')).toBe(1);
+  await expect(p.locator('[data-stat="income"]')).toHaveText(`+${income(2, 1)}`);
+  await expect(p.locator('.toast').filter({ hasText: `Haul level 1: ${income(2, 1)} Blocks a second` })).toBeVisible();
+  // The hero's own: Grit is health, at once.
+  const hpBefore = await state<number>(p, '(m) => m.hero().hp');
+  await p.getByRole('button', { name: 'Buy Grit' }).tap();
+  await expect(p.locator('[data-note="tech"]')).toContainText('Your hero has more health');
+  await run(p, 2);
+  expect(await state<number>(p, '(m) => m.hero().hp')).toBe(hpBefore + heroHp(K.Captain, 1, 1) - heroHp(K.Captain, 1, 0));
+  await p.getByRole('button', { name: 'Buy Might' }).tap();
+  await p.getByRole('button', { name: 'Buy Tempo' }).tap();
+  await run(p, 2);
+  expect(await state(p, '(m) => ({ might: m.g.players[0].might, grit: m.g.players[0].grit, tempo: m.g.players[0].tempo })')).toEqual({ might: 1, grit: 1, tempo: 1 });
+  await noSmallButtons(p);
+  await p.screenshot({ path: info.outputPath('frenzy-tech.png') });
+  // Not enough: it says so.
   await p.evaluate(() => { const m = (window as Any).__fh; m.g.players[0].blocks = 0; m.refresh(); });
   await p.getByRole('button', { name: 'Buy Armour' }).tap();
   await expect(p.locator('.toast').filter({ hasText: 'Not enough Blocks' })).toBeVisible();
-  await p.screenshot({ path: info.outputPath('frenzy-tech.png') });
+  // One Collector down: half comes in. Both down: nothing does, and nothing can be bought.
+  await p.evaluate((kind) => { const m = (window as Any).__fh; m.g.ents.find((e: Any) => e.owner === 0 && e.kind === kind).hp = 0; }, K.Collector);
+  await run(p, 3);
+  await expect(p.locator('[data-stat="income"]')).toHaveText(`+${income(1, 1)}`);
+  await expect(p.locator('.toast').filter({ hasText: `A Collector is down: ${income(1, 1)} Blocks a second now` })).toBeVisible();
+  await p.evaluate((kind) => { const m = (window as Any).__fh; m.g.ents.find((e: Any) => e.owner === 0 && e.kind === kind).hp = 0; m.g.players[0].blocks = 3000; }, K.Collector);
+  await run(p, 3);
+  await expect(p.locator('[data-stat="income"]')).toHaveText('+0');
+  await expect(p.locator('.toast').filter({ hasText: 'Both Collectors are down' })).toBeVisible();
+  await expect(p.locator('[data-note="tech"]')).toContainText('nothing can be bought');
+  await p.getByRole('button', { name: 'Buy Armour' }).tap();
+  await run(p, 2);
+  await expect(p.locator('.toast').filter({ hasText: 'Upgrades are bought at a Collector, and yours are down' })).toBeVisible();
+  expect(await state<number>(p, '(m) => m.g.players[0].armour')).toBe(0);
+  // Units can still be unlocked.
+  await p.getByRole('button', { name: 'Spawn', exact: true }).tap();
+  await p.getByRole('button', { name: 'Unlock Troopers' }).tap();
+  await run(p, 2);
+  expect(await state<number[]>(p, '(m) => m.g.players[0].unlocked')).toContain(K.Trooper);
 });
 
-test('steer the hero: tap it, tap the map; Follow takes the first group along, and the minimap sends it too', async ({ page: p }, info) => {
+test('a Collector under attack says so by name', async ({ page: p }) => {
+  await start(p, FRENZY_GREEN);
+  await run(p, 20);
+  // An enemy Lancer in the corner behind a Collector, out of sight of the Turrets: it has only the Collector to shoot at.
+  await p.evaluate(({ collector, lancer }) => {
+    const m = (window as Any).__fh;
+    const c = m.g.ents.find((e: Any) => e.owner === 0 && e.kind === collector);
+    m.debugSpawn(lancer, 1, c.x / 256 - 1.4, c.y / 256 + 1.4);
+  }, { collector: K.Collector, lancer: K.Lancer });
+  await run(p, 40);
+  await expect(p.locator('.toast').filter({ hasText: 'Collector under attack' }).first()).toBeVisible();
+  expect(await state<boolean>(p, `(m) => m.g.ents.some((e) => e.owner === 0 && e.kind === ${K.Collector} && e.hp < 2500)`)).toBe(true);
+});
+
+test('steer the hero: it goes its own way; Follow takes the first group along; the minimap sends it too', async ({ page: p }, info) => {
   await start(p, FRENZY_GREEN);
   await run(p, 160);
   const hero = p.getByRole('button', { name: 'Your Captain' }), follow = p.getByRole('button', { name: 'Follow' });
+  await expect(follow).toHaveAttribute('aria-pressed', 'false');
   await hero.tap();
   expect(await state<number>(p, '(m) => m.sel.value')).toBe(FRENZY.heroGroup);
-  await expect(p.locator('.hint')).toContainText('Captain and Group 1');
-  // One tap on the map: the hero goes, and so does the army.
-  const at = { x: 13.5 * TILE, y: 49.5 * TILE };
+  await expect(p.locator('.hint')).toContainText('Captain:');
+  // One tap on the map: the hero goes, and the army stays where it is.
+  const at = { x: 15.5 * TILE, y: 47.5 * TILE };
+  const army = await state<{ mode: number; x: number; y: number }>(p, '(m) => m.g.players[0].groups[0]');
   const spot = await state<{ x: number; y: number }>(p, `(m) => { const h = m.hero(); m.cam.x = h.x; m.cam.y = h.y; m.cam.zoom = 20; m.clampCam(); return m.toScreen(${at.x}, ${at.y}); }`);
   await p.touchscreen.tap(spot.x, spot.y);
   await run(p, 2);
   const sent = await state<{ mode: number; x: number; y: number }[]>(p, '(m) => m.g.players[0].groups');
   expect(sent[FRENZY.heroGroup]).toMatchObject({ mode: 1 });
-  expect(sent[0]).toMatchObject({ mode: 1 });
-  expect(Math.abs(sent[0]!.x - at.x) + Math.abs(sent[0]!.y - at.y)).toBeLessThan(TILE);
+  expect(Math.abs(sent[FRENZY.heroGroup]!.x - at.x) + Math.abs(sent[FRENZY.heroGroup]!.y - at.y)).toBeLessThan(TILE);
+  expect(sent[0]).toEqual(army);
   await run(p, 120);
   expect(await state<boolean>(p, `(m) => { const h = m.hero(); return Math.abs(h.x - ${at.x}) < 2 * 256 && Math.abs(h.y - ${at.y}) < 2 * 256; }`)).toBe(true);
+  expect(await state<boolean>(p, `(m) => m.g.ents.filter((e) => e.owner === 0 && e.group === 0).every((e) => Math.hypot(e.x - ${at.x}, e.y - ${at.y}) > 2 * 256)`)).toBe(true);
   expect(await state<number>(p, '(m) => m.sel.value')).toBe(FRENZY.heroGroup);
-  // A tap right among its own army is still an order, not a change of selection.
+  // Follow on: the same tap now moves the first group too, and a tap among that group is still an order.
+  await follow.tap();
+  await expect(follow).toHaveAttribute('aria-pressed', 'true');
+  await expect(p.locator('.hint')).toContainText('Captain and Group 1');
+  const next = { x: 17.5 * TILE, y: 49.5 * TILE };
+  const spot2 = await state<{ x: number; y: number }>(p, `(m) => { const h = m.hero(); m.cam.x = h.x; m.cam.y = h.y; m.clampCam(); return m.toScreen(${next.x}, ${next.y}); }`);
+  await p.touchscreen.tap(spot2.x, spot2.y);
+  await run(p, 2);
+  const both = await state<{ mode: number; x: number; y: number }[]>(p, '(m) => m.g.players[0].groups');
+  expect(both[FRENZY.heroGroup]).toMatchObject({ mode: 1 });
+  expect(both[0]).toMatchObject({ mode: 1 });
+  expect(Math.abs(both[0]!.x - next.x) + Math.abs(both[0]!.y - next.y)).toBeLessThan(TILE);
+  await run(p, 100);
   const among = await state<{ x: number; y: number }>(p, '(m) => { const u = m.g.ents.find((e) => e.owner === 0 && e.group === 0); const h = m.hero(); m.cam.x = h.x; m.cam.y = h.y; m.clampCam(); return m.toScreen(u.x + 60, u.y + 60); }');
   await p.touchscreen.tap(among.x, among.y);
   await run(p, 2);
   expect(await state<number>(p, '(m) => m.sel.value')).toBe(FRENZY.heroGroup);
-  // Follow off: the hero goes alone, and the army can be picked up by a tap on one of its units.
+  // Follow off again: the hero goes alone by the minimap, and the army is picked up by a tap on one of its units.
   await follow.tap();
   await expect(follow).toHaveAttribute('aria-pressed', 'false');
   await expect(p.locator('.hint')).toContainText('Captain:');
-  const army = await state<{ x: number; y: number }>(p, '(m) => m.g.players[0].groups[0]');
+  const held = await state<{ x: number; y: number }>(p, '(m) => m.g.players[0].groups[0]');
   const mini = (await p.locator('.mini').boundingBox())!;
   // The square map sits in the middle half of the minimap's box: six tenths across the box is seven tenths across the map.
   await p.touchscreen.tap(mini.x + mini.width * 0.6, mini.y + mini.height * 0.5);
   await run(p, 2);
   const now = await state<{ mode: number; x: number; y: number }[]>(p, '(m) => m.g.players[0].groups');
-  expect(now[0]).toMatchObject({ x: army.x, y: army.y });
+  expect(now[0]).toMatchObject({ x: held.x, y: held.y });
   expect(Math.abs(now[FRENZY.heroGroup]!.x / TILE - 63 * 0.7)).toBeLessThan(2.5);
   expect(Math.abs(now[FRENZY.heroGroup]!.y / TILE - 63 * 0.5)).toBeLessThan(2.5);
   const unit = await state<{ x: number; y: number }>(p, '(m) => { const u = m.g.ents.find((e) => e.owner === 0 && e.group === 0); m.cam.x = u.x; m.cam.y = u.y; m.clampCam(); return m.toScreen(u.x, u.y); }');
@@ -183,23 +277,95 @@ test('steer the hero: tap it, tap the map; Follow takes the first group along, a
   await run(p, 2);
   expect(await state<{ mode: number }>(p, `(m) => m.g.players[0].groups[${FRENZY.heroGroup}]`)).toMatchObject({ mode: 3 });
   await p.screenshot({ path: info.outputPath('frenzy-hero.png') });
+  await follow.tap();
   await start(p, FRENZY_GREEN);
-  await expect(p.getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'false');
-  await p.getByRole('button', { name: 'Follow' }).tap();
   await expect(p.getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'true');
+  await p.getByRole('button', { name: 'Follow' }).tap();
+  await expect(p.getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('while the hero is down the army still answers, and new units head for where it was sent', async ({ page: p }) => {
+test('Attack and Move stick: whichever was pressed stays lit whatever is selected, falls or comes back', async ({ page: p }) => {
   await start(p, FRENZY_GREEN);
   await run(p, 160);
+  const attack = p.getByRole('button', { name: 'Attack', exact: true }), move = p.getByRole('button', { name: 'Move', exact: true });
+  const lit = async (which: 'attack' | 'move') => {
+    await expect(move).toHaveAttribute('aria-pressed', which === 'move' ? 'true' : 'false');
+    await expect(attack).toHaveAttribute('aria-pressed', which === 'attack' ? 'true' : 'false');
+    await expect(move).toBeEnabled();
+    await expect(attack).toBeEnabled();
+  };
+  // Nothing selected: Attack is lit, and Move can be pressed all the same.
+  expect(await state<number>(p, '(m) => m.sel.value')).toBe(-1);
+  await lit('attack');
+  await move.tap();
+  await lit('move');
+  // The hero, then the army: each goes without stopping to fight, and Move is still lit after each.
+  const tapAt = async (tx: number, ty: number) => {
+    const s = await state<{ x: number; y: number }>(p, `(m) => { m.cam.x = 13 * 256; m.cam.y = 50 * 256; m.cam.zoom = 18; m.clampCam(); return m.toScreen(${tx} * 256, ${ty} * 256); }`);
+    await p.touchscreen.tap(s.x, s.y);
+    await run(p, 2);
+  };
+  await p.getByRole('button', { name: 'Your Captain' }).tap();
+  await lit('move');
+  await expect(p.locator('.hint')).toContainText('without stopping to fight');
+  await tapAt(16.5, 47.5);
+  expect(await state<{ mode: number }>(p, `(m) => m.g.players[0].groups[${FRENZY.heroGroup}]`)).toMatchObject({ mode: 2 });
+  await p.getByRole('button', { name: 'Group 1' }).tap();
+  await lit('move');
+  await tapAt(17.5, 50.5);
+  expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 2 });
+  await lit('move');
+  // The hero falls and the army is wiped out: still Move. The group new units join takes an order even
+  // with nobody in it, and takes it as a Move.
+  await p.evaluate(() => { const m = (window as Any).__fh; for (const e of m.g.ents) if (e.owner === 0 && e.group >= 0) e.hp = 0; });
+  await run(p, 12);
+  await lit('move');
+  await tapAt(15.5, 48.5);
+  expect(await state<number>(p, '(m) => m.sel.value')).toBe(0);
+  expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 2 });
+  await lit('move');
+  // The hero comes back, new units arrive: still Move, and the next order is a Move.
+  await run(p, 170);
+  await expect(p.getByRole('button', { name: 'Your Captain', exact: true })).toHaveAttribute('data-hero', 'up');
+  await lit('move');
   await p.getByRole('button', { name: 'Your Captain', exact: true }).tap();
+  // (Well clear of the new units, which wait where the army was sent: a tap on one of them would pick them up.)
+  await tapAt(20.5, 53.5);
+  expect(await state<number>(p, '(m) => m.sel.value')).toBe(FRENZY.heroGroup);
+  expect(await state<{ mode: number }>(p, `(m) => m.g.players[0].groups[${FRENZY.heroGroup}]`)).toMatchObject({ mode: 2 });
+  // Only pressing Attack changes it, and then that sticks the same way.
+  await attack.tap();
+  await lit('attack');
+  await p.getByRole('button', { name: 'Group 1' }).tap();
+  await lit('attack');
+  await tapAt(17.5, 50.5);
+  expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 1 });
+  await p.getByRole('button', { name: 'Your Captain', exact: true }).tap();
+  await lit('attack');
+  await noSmallButtons(p);
+});
+
+test('a fallen hero stays picked up; with Follow on the army answers meanwhile, and new units head for where it was sent', async ({ page: p }) => {
+  await start(p, FRENZY_GREEN);
+  await run(p, 160);
+  const hero = p.getByRole('button', { name: 'Your Captain', exact: true });
+  await hero.tap();
   await p.evaluate(() => { const m = (window as Any).__fh; m.hero().hp = 0; });
   await run(p, 4);
-  await expect(p.getByRole('button', { name: 'Your Captain', exact: true })).toHaveAttribute('data-hero', 'down');
-  await expect(p.getByRole('button', { name: 'Your Captain', exact: true })).toContainText('back in');
-  await expect(p.locator('.hint')).toContainText('Group 1:');
-  const at = { x: 13.5 * TILE, y: 49.5 * TILE };
+  await expect(hero).toHaveAttribute('data-hero', 'down');
+  await expect(hero).toContainText('back in');
+  const at = { x: 15.5 * TILE, y: 47.5 * TILE };
   const spot = await state<{ x: number; y: number }>(p, `(m) => { m.cam.x = 11 * 256; m.cam.y = 52 * 256; m.cam.zoom = 20; m.clampCam(); return m.toScreen(${at.x}, ${at.y}); }`);
+  // On its own (Follow is off): a tap says the hero is down, moves nobody, and leaves it picked up.
+  const idle = await state<{ x: number; y: number }>(p, '(m) => m.g.players[0].groups[0]');
+  await p.touchscreen.tap(spot.x, spot.y);
+  await run(p, 2);
+  await expect(p.locator('.toast').filter({ hasText: 'Your Captain is down' }).first()).toBeVisible();
+  expect(await state<number>(p, '(m) => m.sel.value')).toBe(FRENZY.heroGroup);
+  expect(await state<{ x: number; y: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject(idle);
+  // With Follow on, the same tap sends the army.
+  await p.getByRole('button', { name: 'Follow' }).tap();
+  await expect(p.locator('.hint')).toContainText('Group 1:');
   await p.touchscreen.tap(spot.x, spot.y);
   await run(p, 2);
   expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 1 });
@@ -210,12 +376,18 @@ test('while the hero is down the army still answers, and new units head for wher
   expect(await state<number>(p, '(m) => m.aim.value')).toBe(-1);
   // It comes back at the base, whole, and still selected.
   await run(p, 160);
-  await expect(p.getByRole('button', { name: 'Your Captain', exact: true })).toHaveAttribute('data-hero', 'up');
+  await expect(hero).toHaveAttribute('data-hero', 'up');
+  expect(await state<number>(p, '(m) => m.sel.value')).toBe(FRENZY.heroGroup);
   expect(await state<boolean>(p, '(m) => { const h = m.hero(); return !!h && Math.abs(h.x - 11 * 256) < 3 * 256 && Math.abs(h.y - 52 * 256) < 3 * 256; }')).toBe(true);
   // Meanwhile the base kept working, and everything it made went where the army was sent.
-  const army = await state<{ n: number; near: boolean }>(p, `(m) => { const us = m.g.ents.filter((e) => e.owner === 0 && e.group === 0); return { n: us.length, near: us.every((e) => Math.abs(e.x - ${at.x}) < 4 * 256 && Math.abs(e.y - ${at.y}) < 4 * 256) }; }`);
+  const army = await state<{ n: number; headed: boolean; there: number }>(p, `(m) => {
+    const us = m.g.ents.filter((e) => e.owner === 0 && e.group === 0), near = (x, y) => Math.abs(x - ${at.x}) < 4 * 256 && Math.abs(y - ${at.y}) < 4 * 256;
+    return { n: us.length, headed: us.every((e) => near(e.dx, e.dy)), there: us.filter((e) => near(e.x, e.y)).length };
+  }`);
   expect(army.n).toBeGreaterThan(before);
-  expect(army.near).toBe(true);
+  expect(army.headed).toBe(true);
+  expect(army.there).toBeGreaterThanOrEqual(before);
+  await p.getByRole('button', { name: 'Follow' }).tap();
 });
 
 test('abilities: Grenade is aimed with a tap inside the ring, Rally goes off at once, and each waits its turn', async ({ page: p }, info) => {
@@ -291,10 +463,10 @@ test('the Alpha pounces where it is pointed, roars, and calls the pack', async (
   await p.touchscreen.tap(spot.x, spot.y);
   await run(p, pounce!.delay + 3);
   expect(await state<boolean>(p, `(m) => { const h = m.hero(); return Math.hypot(h.x - ${at.x}, h.y - ${at.y}) < 1.5 * 256; }`)).toBe(true);
-  // A wall is no place to land.
+  // The roof of its own Nest is no place to land.
   await run(p, pounce!.cd);
   await p.getByRole('button', { name: pounce!.name }).tap();
-  const wall = await state<{ x: number; y: number }>(p, '(m) => { m.cam.x = 12 * 256; m.cam.y = 48 * 256; m.clampCam(); return m.toScreen(8.5 * 256, 46.5 * 256); }');
+  const wall = await state<{ x: number; y: number }>(p, '(m) => { m.cam.x = 12 * 256; m.cam.y = 50 * 256; m.clampCam(); return m.toScreen(9.5 * 256, 53.5 * 256); }');
   await p.touchscreen.tap(wall.x, wall.y);
   await expect(p.locator('.toast').filter({ hasText: "Can't land there" })).toBeVisible();
   expect(await state<number>(p, '(m) => m.aim.value')).toBe(0);

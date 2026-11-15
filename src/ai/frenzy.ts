@@ -5,7 +5,7 @@
 // Everything it works out is the same seen from every corner: points are rounded away from the middle of
 // the map, and where two choices are level the one that comes first going round the table from its own
 // seat wins. Four copies with the same dice therefore play a match that is the same turned a quarter circle.
-import { ABILITIES, FACTIONS, FRENZY, UNLOCK, def, frenzyUnits, heroHp, isHall, worth } from '../sim/data';
+import { ABILITIES, FACTIONS, FRENZY, UNLOCK, def, frenzyUnits, heroHp, isHall, upgradeCosts, worth, type Levels } from '../sim/data';
 import { power, type View } from '../sim/view';
 import { C, K, O, TILE, type Command, type Entity, type Faction, type Kind } from '../sim/types';
 
@@ -24,27 +24,34 @@ export interface FrenzyBotOptions {
 }
 
 interface Pt { x: number; y: number }
-type Buy = { unlock: Kind } | { research: 'weapons' | 'armour' | 'muster' };
+type Buy = { unlock: Kind } | { research: keyof Levels };
 
 // The army in the field, and the reserve: whatever the base turns out while the army is away gathers at home
 // and goes out together, not one at a time into whatever is waiting.
 const ARMY = 0, RESERVE = 1, HERO = FRENZY.heroGroup;
 const u = (kind: Kind): Buy => ({ unlock: kind });
 const W: Buy = { research: 'weapons' }, A: Buy = { research: 'armour' }, M: Buy = { research: 'muster' };
+// Haul, and the hero's own: Might, Grit, Tempo.
+const H: Buy = { research: 'haul' }, MI: Buy = { research: 'might' }, GR: Buy = { research: 'grit' }, TE: Buy = { research: 'tempo' };
 
-/** What each bent buys, in order. Anything it can't yet afford it saves for. */
+/**
+ * What each bent buys, in order. Anything it can't yet afford it saves for. Haul comes early in every list:
+ * it pays for the rest. The hero's own upgrades come once the army has its teeth.
+ */
 const SHOPPING: Record<Faction, Record<Bent, Buy[]>> = {
   green: {
-    swarm: [u(K.Lancer), M, W, M, A, u(K.Tank), M, W, A, u(K.Flak), u(K.Jugger), u(K.Mortar), u(K.Gunship), u(K.Runner)],
-    heavy: [u(K.Lancer), u(K.Tank), M, W, A, u(K.Jugger), M, W, u(K.Flak), A, M, u(K.Mortar), u(K.Gunship), u(K.Runner)],
-    air: [u(K.Lancer), M, u(K.Gunship), W, u(K.Tank), A, M, W, u(K.Flak), A, u(K.Jugger), M, u(K.Mortar), u(K.Runner)],
+    swarm: [u(K.Lancer), H, M, W, u(K.Trooper), M, A, H, u(K.Tank), M, W, A, GR, u(K.Flak), H, u(K.Jugger), MI, u(K.Mortar), u(K.Gunship), u(K.Runner)],
+    heavy: [u(K.Lancer), H, u(K.Tank), M, W, A, H, u(K.Jugger), M, W, GR, u(K.Trooper), u(K.Flak), A, M, H, MI, u(K.Mortar), u(K.Gunship), u(K.Runner)],
+    air: [u(K.Lancer), H, M, u(K.Gunship), W, u(K.Tank), A, H, M, W, GR, u(K.Trooper), u(K.Flak), A, u(K.Jugger), M, H, MI, u(K.Mortar), u(K.Runner)],
   },
   dino: {
-    swarm: [u(K.Spitter), M, W, M, A, u(K.Horn), M, W, A, u(K.Rex), u(K.Bronto), u(K.Ptero)],
-    heavy: [u(K.Spitter), u(K.Horn), M, W, A, u(K.Rex), M, W, u(K.Bronto), A, M, u(K.Ptero)],
-    air: [u(K.Spitter), M, u(K.Ptero), W, u(K.Horn), A, M, W, A, u(K.Rex), M, u(K.Bronto)],
+    swarm: [u(K.Spitter), H, M, W, M, A, H, u(K.Horn), M, W, A, GR, H, u(K.Rex), MI, u(K.Bronto), u(K.Ptero)],
+    heavy: [u(K.Spitter), H, u(K.Horn), M, W, A, H, u(K.Rex), M, W, GR, u(K.Bronto), A, M, H, MI, u(K.Ptero)],
+    air: [u(K.Spitter), H, M, u(K.Ptero), W, u(K.Horn), A, H, M, W, GR, A, u(K.Rex), M, H, MI, u(K.Bronto)],
   },
 };
+/** Once the list is done: Weapons and Armour to the top turn about, the last of Haul, then the hero's own. */
+const AFTER: Buy[] = [W, A, W, A, W, A, W, A, H, H, H, H, TE, MI, GR, TE, MI, GR, TE, MI, GR];
 
 const d2 = (a: Pt, b: Pt) => (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y);
 const within = (a: Pt, b: Pt, tiles: number) => d2(a, b) <= tiles * TILE * tiles * TILE;
@@ -66,8 +73,8 @@ function rng(seed: number): () => number {
 const heroPower = (h: Entity): number => Math.round(((260 + 70 * h.lvl) * h.hp) / heroHp(h.kind, h.lvl));
 const might = (e: Entity): number => (def(e.kind).hero ? heroPower(e) : power(e));
 
-/** How far an Easy opponent takes its upgrades. */
-const EASY_MUSTER = 1, EASY_RESEARCH = 2;
+/** How far an Easy opponent takes its upgrades: the rest of its Blocks pile up unspent. */
+const EASY: Levels = { muster: 1, weapons: 2, armour: 2, haul: 1, might: 1, grit: 1, tempo: 0 };
 
 export class FrenzyBot {
   readonly level: number;
@@ -135,7 +142,7 @@ export class FrenzyBot {
     return { x: away(a.x + (b.x - a.x) * share, m.x), y: away(a.y + (b.y - a.y) * share, m.y) };
   }
 
-  /** Where the army waits: at the top of its own way down, on the high ground. */
+  /** Where the army waits: a little way out from its own base, toward the middle. */
   private staging(v: View): Pt {
     return this.toward(v, this.baseOf(v, this.p), this.middle(v), 0.2);
   }
@@ -193,8 +200,11 @@ export class FrenzyBot {
     // Flyers overhead and nothing bought that shoots up well: that comes first.
     const antiAir = v.faction === 'green' ? K.Flak : K.Spitter;
     if (this.level >= 1 && this.classes[2]! > 6 && !v.unlocked.includes(antiAir)) list = [u(antiAir), ...list];
-    // Once the list is done, Blocks go on Weapons and Armour to the top, turn about.
-    list = [...list, W, A, W, A, W, A, W, A];
+    list = [...list, ...AFTER];
+    // Upgrades are bought at a Collector. With none standing, only units can still be unlocked.
+    const shop = v.own.some((e) => e.kind === K.Collector);
+    const kindOf = (key: keyof Levels): Kind => (key === 'weapons' ? f.research[0]! : key === 'armour' ? f.research[1]!
+      : key === 'muster' ? K.Muster : key === 'haul' ? K.Haul : key === 'might' ? K.Might : key === 'grit' ? K.Grit : K.Tempo);
     for (let i = 0; i < list.length; i++) {
       const b = list[i]!;
       if ('unlock' in b) {
@@ -202,17 +212,13 @@ export class FrenzyBot {
         if (v.blocks >= UNLOCK[b.unlock]!) out.push({ t: 'unlock', p: this.p, kind: b.unlock });
         break;
       }
+      if (!shop) continue;
       // Each mention in the list is one level: the third Muster in it asks for Muster three.
       const asked = list.slice(0, i + 1).filter((x) => x === b).length;
-      // Easy stops early: one level of Muster, two each of Weapons and Armour. Its Blocks pile up after that.
-      if (b.research === 'muster') {
-        if (v.muster >= asked || (this.level === 0 && v.muster >= EASY_MUSTER)) continue;
-        if (v.blocks >= FRENZY.musterCost[v.muster]!) out.push({ t: 'research', p: this.p, kind: K.Muster });
-        break;
-      }
-      const level = b.research === 'weapons' ? v.weapons : v.armour;
-      if (level >= asked || level >= FRENZY.researchCost.length || (this.level === 0 && level >= EASY_RESEARCH)) continue;
-      if (v.blocks >= FRENZY.researchCost[level]!) out.push({ t: 'research', p: this.p, kind: f.research[b.research === 'weapons' ? 0 : 1]! });
+      const kind = kindOf(b.research), costs = upgradeCosts(kind), level = v[b.research];
+      // Easy stops early.
+      if (level >= asked || level >= costs.length || (this.level === 0 && level >= EASY[b.research])) continue;
+      if (v.blocks >= costs[level]!) out.push({ t: 'research', p: this.p, kind });
       break;
     }
     this.mix(v, out);
@@ -236,7 +242,9 @@ export class FrenzyBot {
         add(K.Flak);
         add(K.Trooper);
       }
-      if (pick.length < 2 || this.bent === 'swarm' || (heed && light > armoured * 2)) add(K.Trooper);
+      if (this.bent === 'swarm' || (heed && light > armoured * 2)) add(K.Trooper);
+      // Bayonets in front of whatever shoots, until something heavier can stand there.
+      if (pick.length < 2 || this.bent === 'swarm' || !(pick.includes(K.Jugger) || pick.includes(K.Tank))) add(K.Bayonet);
     } else {
       if (this.bent === 'air') add(K.Ptero);
       add(K.Rex);
@@ -359,7 +367,7 @@ export class FrenzyBot {
     this.troopsAt = at;
     this.troops = troops.length;
     const home = { x: hall.x, y: hall.y };
-    // Trouble at home: enemies on the plateau, or the base itself being hit.
+    // Trouble at home: enemies near the base, or the base itself being hit.
     const raiders = v.enemies.filter((e) => !def(e.kind).building && within(e, home, 11));
     const threat = raiders.reduce((s, e) => s + might(e), 0);
     const hit = v.hurt.length > 0;

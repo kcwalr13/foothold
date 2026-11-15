@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { quarterBreak } from '../../lab/quarter';
-import { ABILITIES, FACTIONS, FRENZY, UNLOCK, WORK, abilityPower, def, heroDmg, heroHp, levelNeeds, respawnTicks, worth } from './data';
-import { heroOf, hallOf, middleHolder } from './frenzy';
+import { ABILITIES, FACTIONS, FRENZY, UNLOCK, WORK, abilityCd, abilityPower, def, frenzyUnits, frenzyUpgrades, heroDmg, heroHp, income, levelNeeds, respawnTicks, upgradeCosts, worth } from './data';
+import { collectorsOf, heroOf, hallOf, middleHolder } from './frenzy';
 import { fourCorners } from './map';
 import { createGame, hash, maxHp, schedule, spawn, visibleTo, type Game } from './state';
-import { step } from './step';
+import { land, step } from './step';
 import { makeView } from './view';
 import { K, O, TILE, type Command, type Entity, type Faction, type Kind } from './types';
 
@@ -21,7 +21,7 @@ const stand = (h: Entity, x: number, y: number) => { h.x = h.ax = h.dx = x; h.y 
 const refusals = (g: Game) => g.events.filter((e) => e.t === 'refused').map((e) => (e.t === 'refused' ? e.why : ''));
 
 describe('Frenzy: the map', () => {
-  it('is the same turned a quarter circle, bases, Turrets and heroes included', () => {
+  it('is the same turned a quarter circle, bases, Turrets, Collectors and heroes included', () => {
     const m = fourCorners();
     expect(m.w).toBe(m.h);
     expect(m.seats).toBe(4);
@@ -45,19 +45,46 @@ describe('Frenzy: the map', () => {
     for (const p of m.posts) {
       const i = Math.floor(p.hero.y / TILE) * m.w + Math.floor(p.hero.x / TILE);
       expect(field[i]).toBeLessThan(0xffff);
-      expect(m.high[i]).toBe(1);
+    }
+  });
+
+  it('stands each base on level ground, its Turrets in line either side of it and its Collectors behind', () => {
+    const g = createGame(1, undefined, MIXED);
+    const m = g.map, mid = (m.w * TILE) / 2;
+    // No high ground anywhere: nothing to hide behind, nothing that outranges from above.
+    expect(m.high.every((v) => v === 0)).toBe(true);
+    const far = (e: Entity) => Math.hypot(e.x - mid, e.y - mid);
+    for (const pl of g.players) {
+      const hall = hallOf(g, pl.id)!;
+      const turrets = mine(g, pl.id, FACTIONS[pl.faction].turret), collectors = mine(g, pl.id, K.Collector);
+      expect(turrets.length).toBe(2);
+      expect(collectors.length).toBe(2);
+      // In line: each Turret is as far from the middle as the base is, to within a tile, and they stand on
+      // opposite sides of the line from the base to the middle.
+      for (const t of turrets) expect(Math.abs(far(t) - far(hall))).toBeLessThan(TILE);
+      const side = (e: Entity) => Math.sign((e.x - hall.x) * (mid - hall.y) - (e.y - hall.y) * (mid - hall.x));
+      expect(side(turrets[0]!) * side(turrets[1]!)).toBe(-1);
+      // Behind: each Collector is further from the middle than the base, close by it, and inside both Turrets' reach.
+      for (const c of collectors) {
+        expect(far(c)).toBeGreaterThan(far(hall) + 3 * TILE);
+        expect(Math.hypot(c.x - hall.x, c.y - hall.y)).toBeLessThan(8 * TILE);
+        const guns = turrets.filter((t) => Math.hypot(c.x - t.x, c.y - t.y) - def(K.Collector).radius <= def(t.kind).range + FRENZY.turretReach);
+        expect(guns.length).toBeGreaterThanOrEqual(1);
+      }
     }
   });
 });
 
 describe('Frenzy: the base', () => {
-  it('starts each side with a base, two Turrets, a hero and no Workers', () => {
+  it('starts each side with a base, two Turrets, two Collectors, a hero and no Workers', () => {
     const g = createGame(1, undefined, MIXED);
     expect(g.mode).toBe('frenzy');
     for (const pl of g.players) {
       const f = FACTIONS[pl.faction];
       expect(mine(g, pl.id, f.hall).length).toBe(1);
       expect(mine(g, pl.id, f.turret).length).toBe(2);
+      expect(mine(g, pl.id, K.Collector).length).toBe(2);
+      expect(mine(g, pl.id, K.Collector).every((c) => c.hp === def(K.Collector).hp && maxHp(c) === def(K.Collector).hp)).toBe(true);
       expect(mine(g, pl.id, f.worker).length).toBe(0);
       const h = hero(g, pl.id);
       expect(h.kind).toBe(f.hero);
@@ -73,31 +100,63 @@ describe('Frenzy: the base', () => {
     expect(g.ents.filter((e) => e.kind === K.Pile || e.kind === K.Cell).length).toBe(0);
   });
 
-  it('makes its first fighter by itself: a Trooper every five seconds, Raptors two at a time', () => {
+  it('makes its first fighter by itself: Bayonets one at a time, Raptors two at a time, and both fight hand to hand', () => {
+    // The free unit of each faction is the one that has to close with its enemy.
+    expect(frenzyUnits('green')[0]).toBe(K.Bayonet);
+    expect(frenzyUnits('dino')[0]).toBe(K.Raptor);
+    expect(def(K.Bayonet).melee && def(K.Raptor).melee).toBe(true);
     const g = createGame(1, undefined, MIXED);
-    run(g, 49);
-    expect(mine(g, 0, K.Trooper).length).toBe(0);
+    const each = WORK[K.Bayonet]! / FRENZY.musterRate[0]!, pair = WORK[K.Raptor]! / FRENZY.musterRate[0]!;
+    run(g, each - 1);
+    expect(mine(g, 0, K.Bayonet).length).toBe(0);
     run(g, 1);
-    expect(mine(g, 0, K.Trooper).length).toBe(1);
-    expect(mine(g, 1, K.Raptor).length).toBe(2);
-    run(g, 50);
-    expect(mine(g, 0, K.Trooper).length).toBe(2);
-    expect(mine(g, 1, K.Raptor).length).toBe(4);
+    expect(mine(g, 0, K.Bayonet).length).toBe(1);
+    expect(mine(g, 1, K.Raptor).length).toBe(2 * Math.floor(each / pair));
+    run(g, each);
+    expect(mine(g, 0, K.Bayonet).length).toBe(2);
+    expect(mine(g, 1, K.Raptor).length).toBe(2 * Math.floor((2 * each) / pair));
     // New units join the group new units are set to join, and stand a few steps out from the base.
-    expect(mine(g, 0, K.Trooper).every((u) => u.group === g.players[0]!.rally)).toBe(true);
+    expect(mine(g, 0, K.Bayonet).every((u) => u.group === g.players[0]!.rally)).toBe(true);
+    // Classic knows nothing of the Bayonet: it is Frenzy's own.
+    expect(FACTIONS.green.units.includes(K.Bayonet)).toBe(false);
+    expect(mine(createGame(1), 0, K.Bayonet).length).toBe(0);
+  });
+
+  it('a Bayonet has to reach what it fights, and cannot touch a flyer; Troopers, who can, are unlocked with Blocks', () => {
+    const g = createGame(1, undefined, GREEN);
+    const b = spawn(g, K.Bayonet, 0, FIELD.x, FIELD.y), t = spawn(g, K.Trooper, 1, FIELD.x + 5 * TILE, FIELD.y);
+    t.mode = O.Hold;
+    t.cd = 99999;
+    run(g, 8);
+    // Seen, and charged at, but not yet hurt: nothing it carries reaches five tiles.
+    expect(t.hp).toBe(def(K.Trooper).hp);
+    expect(b.x).toBeGreaterThan(FIELD.x + TILE / 2);
+    let ticks = 0;
+    while (t.hp === def(K.Trooper).hp && ticks++ < 100) step(g);
+    expect(t.hp).toBeLessThan(def(K.Trooper).hp);
+    expect(Math.hypot(b.x - t.x, b.y - t.y)).toBeLessThanOrEqual(def(K.Bayonet).range + def(K.Trooper).radius + 2);
+    // A Gunship right overhead is out of its reach for good.
+    t.hp = 0;
+    const ship = spawn(g, K.Gunship, 1, b.x + TILE / 2, b.y);
+    ship.mode = O.Hold;
+    ship.cd = 99999;
+    run(g, 40);
+    expect(ship.hp).toBe(def(K.Gunship).hp);
+    expect(UNLOCK[K.Trooper]).toBeGreaterThan(0);
+    expect(frenzyUnits('green')).toContain(K.Trooper);
   });
 
   it('stops at its supply, and the unit it was working on waits at the door', () => {
     const g = createGame(1, undefined, GREEN);
-    run(g, 50 * FRENZY.supply + 200);
+    run(g, (WORK[K.Bayonet]! / FRENZY.musterRate[0]!) * FRENZY.supply + 200);
     expect(g.players[0]!.supply).toBe(FRENZY.supply);
-    expect(mine(g, 0, K.Trooper).length).toBe(FRENZY.supply);
-    const full = WORK[K.Trooper]!;
+    expect(mine(g, 0, K.Bayonet).length).toBe(FRENZY.supply);
+    const full = WORK[K.Bayonet]!;
     expect(g.players[0]!.bank).toBe(full);
     // Room for one: it comes out on the very next tick, and only one.
-    mine(g, 0, K.Trooper)[0]!.hp = 0;
+    mine(g, 0, K.Bayonet)[0]!.hp = 0;
     run(g, 2);
-    expect(mine(g, 0, K.Trooper).length).toBe(FRENZY.supply);
+    expect(mine(g, 0, K.Bayonet).length).toBe(FRENZY.supply);
     expect(g.players[0]!.bank).toBeLessThan(full);
   });
 
@@ -107,11 +166,11 @@ describe('Frenzy: the base', () => {
     const at = { x: 20 * TILE + 128, y: 44 * TILE + 128 };
     schedule(g, { t: 'order', p: 0, group: 0, mode: O.Attack, x: at.x, y: at.y });
     run(g, 2);
-    for (const e of mine(g, 0, K.Trooper)) e.hp = 0;
+    for (const e of mine(g, 0, K.Bayonet)) e.hp = 0;
     run(g, 2);
-    expect(mine(g, 0, K.Trooper).length).toBe(0);
+    expect(mine(g, 0, K.Bayonet).length).toBe(0);
     run(g, 260);
-    const made = mine(g, 0, K.Trooper).sort((a, b) => a.id - b.id);
+    const made = mine(g, 0, K.Bayonet).sort((a, b) => a.id - b.id);
     expect(made.length).toBeGreaterThanOrEqual(3);
     // The first ones out are there by now, and nobody was left standing at the door.
     for (const e of made.slice(0, 2)) expect(Math.hypot(e.x - at.x, e.y - at.y)).toBeLessThan(3 * TILE);
@@ -120,13 +179,13 @@ describe('Frenzy: the base', () => {
     // A group told to hold, or never sent anywhere, keeps its new units at home as before.
     const h = createGame(1, undefined, GREEN);
     run(h, 200);
-    for (const e of mine(h, 1, K.Trooper)) expect(Math.hypot(e.x - hallOf(h, 1)!.x, e.y - hallOf(h, 1)!.y)).toBeLessThan(9 * TILE);
+    for (const e of mine(h, 1, K.Bayonet)) expect(Math.hypot(e.x - hallOf(h, 1)!.x, e.y - hallOf(h, 1)!.y)).toBeLessThan(9 * TILE);
   });
 
-  it('is paid a trickle of Blocks, and more for holding the middle alone', () => {
+  it('is paid by its Collectors every second, and more for holding the middle alone', () => {
     const g = createGame(1, undefined, GREEN);
     run(g, 100);
-    expect(g.players[0]!.blocks).toBe(FRENZY.startBlocks + 10 * FRENZY.trickle);
+    expect(g.players[0]!.blocks).toBe(FRENZY.startBlocks + 10 * income(2, 0));
     const mid = (g.map.w * TILE) / 2;
     const u = spawn(g, K.Trooper, 2, mid + TILE, mid + TILE);
     u.mode = O.Hold;
@@ -141,32 +200,68 @@ describe('Frenzy: the base', () => {
     expect(middleHolder(g)).toBe(-1);
   });
 
+  it('loses half its income with one Collector down and all of it with both, and Haul raises what each brings in', () => {
+    const g = createGame(1, undefined, GREEN);
+    const pl = g.players[0]!;
+    const [a, b] = mine(g, 0, K.Collector) as [Entity, Entity];
+    pl.blocks = 0;
+    run(g, 100);
+    expect(pl.blocks).toBe(10 * 2 * FRENZY.collect);
+    a.hp = 0;
+    run(g, 100);
+    expect(collectorsOf(g, 0)).toBe(1);
+    expect(pl.blocks).toBe(10 * 2 * FRENZY.collect + 10 * FRENZY.collect);
+    // Haul: each Collector still standing brings in more. It costs what the table says and no more.
+    pl.blocks = 1000;
+    schedule(g, { t: 'research', p: 0, kind: K.Haul });
+    run(g, 1);
+    expect([pl.haul, pl.blocks]).toEqual([1, 1000 - FRENZY.haulCost[0]!]);
+    run(g, 99);
+    expect(pl.blocks).toBe(1000 - FRENZY.haulCost[0]! + 10 * (FRENZY.collect + FRENZY.haulPer));
+    expect(income(2, 4)).toBe(2 * (FRENZY.collect + 4 * FRENZY.haulPer));
+    // With none standing nothing comes in, and there is nowhere to buy an upgrade; units can still be unlocked.
+    const before = pl.blocks;
+    b.hp = 0;
+    run(g, 100);
+    expect(collectorsOf(g, 0)).toBe(0);
+    expect(pl.blocks).toBe(before);
+    schedule(g, { t: 'research', p: 0, kind: K.Weapons });
+    run(g, 1);
+    expect(refusals(g)).toEqual(['Upgrades are bought at a Collector, and yours are down']);
+    expect([pl.weapons, pl.blocks]).toEqual([0, before]);
+    schedule(g, { t: 'unlock', p: 0, kind: K.Lancer });
+    run(g, 1);
+    expect(pl.unlocked).toContain(K.Lancer);
+    // What was bought before is kept.
+    expect(pl.haul).toBe(1);
+  });
+
   it('unlocks a unit once, for Blocks, and makes the mix in turn', () => {
     const g = createGame(1, undefined, GREEN);
     const pl = g.players[0]!;
     schedule(g, { t: 'unlock', p: 0, kind: K.Tank });
     run(g, 1);
-    expect(pl.unlocked).toEqual([K.Trooper]);
+    expect(pl.unlocked).toEqual([K.Bayonet]);
     expect(refusals(g)).toEqual(['Not enough Blocks']);
     schedule(g, { t: 'repeat', p: 0, kind: K.Tank, on: true });
     run(g, 1);
-    expect(pl.repeat).toEqual([K.Trooper]);
+    expect(pl.repeat).toEqual([K.Bayonet]);
     pl.blocks = 1000;
     schedule(g, { t: 'unlock', p: 0, kind: K.Lancer });
     schedule(g, { t: 'unlock', p: 0, kind: K.Raptor });
     run(g, 1);
     expect(pl.blocks).toBe(1000 - UNLOCK[K.Lancer]!);
-    expect(pl.unlocked).toEqual([K.Trooper, K.Lancer]);
-    expect(pl.repeat).toEqual([K.Trooper, K.Lancer]);
+    expect(pl.unlocked).toEqual([K.Bayonet, K.Lancer]);
+    expect(pl.repeat).toEqual([K.Bayonet, K.Lancer]);
     schedule(g, { t: 'unlock', p: 0, kind: K.Lancer });
     run(g, 1);
     expect(pl.blocks).toBe(1000 - UNLOCK[K.Lancer]!);
     run(g, 400);
-    const t = mine(g, 0, K.Trooper).length, l = mine(g, 0, K.Lancer).length;
+    const t = mine(g, 0, K.Bayonet).length, l = mine(g, 0, K.Lancer).length;
     expect(l).toBeGreaterThanOrEqual(2);
     expect(Math.abs(t - l)).toBeLessThanOrEqual(2);
     // Out of the mix again; but the base must always make something.
-    schedule(g, { t: 'repeat', p: 0, kind: K.Trooper, on: false });
+    schedule(g, { t: 'repeat', p: 0, kind: K.Bayonet, on: false });
     run(g, 1);
     expect(pl.repeat).toEqual([K.Lancer]);
     schedule(g, { t: 'repeat', p: 0, kind: K.Lancer, on: false });
@@ -191,11 +286,89 @@ describe('Frenzy: the base', () => {
     for (const kind of [K.Muster, K.Weapons]) schedule(g, { t: 'research', p: 0, kind });
     run(g, 1);
     expect(refusals(g)).toEqual(['Muster is at its top level', 'Weapons is at its top level']);
-    // Twice the work a tick: twice the Troopers.
+    // Twice the work a tick: twice the Bayonets.
     const slow = createGame(1, undefined, GREEN);
     run(g, 499);
     run(slow, 500);
-    expect(mine(g, 0, K.Trooper).length).toBe(2 * mine(slow, 0, K.Trooper).length);
+    const fast = mine(g, 0, K.Bayonet).length, plain = mine(slow, 0, K.Bayonet).length;
+    expect(fast).toBeGreaterThanOrEqual(2 * plain);
+    expect(fast).toBeLessThanOrEqual(2 * plain + 1);
+  });
+
+  it('sells the same list to both factions: the army\'s, the base\'s and the hero\'s own, each with its levels and prices', () => {
+    for (const f of ['green', 'dino'] as const) {
+      const list = frenzyUpgrades(f);
+      expect(list.slice(0, 2)).toEqual(FACTIONS[f].research);
+      expect(list.slice(2)).toEqual([K.Muster, K.Haul, K.Might, K.Grit, K.Tempo]);
+    }
+    expect(upgradeCosts(K.Weapons)).toBe(FRENZY.researchCost);
+    expect(upgradeCosts(K.Hide)).toBe(FRENZY.researchCost);
+    expect(upgradeCosts(K.Muster)).toBe(FRENZY.musterCost);
+    expect(upgradeCosts(K.Haul)).toBe(FRENZY.haulCost);
+    for (const k of [K.Might, K.Grit, K.Tempo]) expect(upgradeCosts(k)).toBe(FRENZY.gearCost);
+    // Every level of everything costs more than the one before: there is always something dearer to save for.
+    for (const k of frenzyUpgrades('green')) {
+      const costs = upgradeCosts(k);
+      for (let i = 1; i < costs.length; i++) expect(costs[i]!).toBeGreaterThan(costs[i - 1]!);
+    }
+    // Haul pays for itself within the round: its first level is back in under two minutes with both Collectors up.
+    expect(FRENZY.haulCost[0]! / (2 * FRENZY.haulPer)).toBeLessThan(120);
+  });
+
+  it('the hero\'s own upgrades: Grit is health at once, Might is harder hits and abilities, Tempo is abilities sooner', () => {
+    const g = createGame(1, undefined, MIXED);
+    const pl = g.players[0]!, h = hero(g, 0), a = ABILITIES[K.Captain]![0]!;
+    pl.blocks = 5000;
+    stand(h, FIELD.x, FIELD.y);
+    h.cd = 99999;
+    h.hp -= 100;
+    for (const kind of [K.Grit, K.Might, K.Tempo]) schedule(g, { t: 'research', p: 0, kind });
+    run(g, 1);
+    expect([pl.grit, pl.might, pl.tempo]).toEqual([1, 1, 1]);
+    expect(pl.blocks).toBe(5000 - 3 * FRENZY.gearCost[0]!);
+    // Grit: the standing hero is the better for it at once, wounds and all.
+    expect(maxHp(h)).toBe(heroHp(K.Captain, 1, 1));
+    expect(heroHp(K.Captain, 1, 1)).toBe(Math.trunc((def(K.Captain).hp * (100 + FRENZY.gritPer)) / 100));
+    expect(h.hp).toBe(heroHp(K.Captain, 1, 1) - 100);
+    // Might: each hit and each ability; not how many answer a call.
+    expect(heroDmg(K.Captain, 1, 1)).toBe(Math.trunc((def(K.Captain).dmg * (100 + FRENZY.mightPer)) / 100));
+    expect(abilityPower(a, 1, 1)).toBe(Math.trunc((a.power * (100 + FRENZY.mightPer)) / 100));
+    const pack = ABILITIES[K.Alpha]![2]!;
+    expect(abilityPower(pack, 6, 3)).toBe(abilityPower(pack, 6, 0));
+    const tank = spawn(g, K.Tank, 1, FIELD.x + 4 * TILE, FIELD.y);
+    tank.mode = O.Hold;
+    tank.cd = 99999;
+    schedule(g, { t: 'cast', p: 0, slot: 0, x: tank.x, y: tank.y });
+    run(g, 1);
+    // Tempo: the Grenade is ready again sooner than its listed wait.
+    expect(abilityCd(a, 1)).toBe(Math.trunc((a.cd * (100 - FRENZY.tempoPer)) / 100));
+    expect(pl.cds[0]).toBe(g.tick + abilityCd(a, 1));
+    run(g, a.delay);
+    expect(tank.hp).toBe(def(K.Tank).hp - abilityPower(a, 1, 1));
+    // A hit from the hero's own rifle is the harder for Might, too.
+    const before = tank.hp;
+    h.cd = 0;
+    h.tgt = tank.id;
+    h.mode = O.Hold;
+    let ticks = 0;
+    while (tank.hp === before && ticks++ < 30) step(g);
+    expect(before - tank.hp).toBe(Math.trunc((heroDmg(K.Captain, 1, 1) * def(K.Captain).vs[def(K.Tank).cls]!) / 100));
+    // Three levels of each, and a hero that falls comes back with its Grit.
+    for (let i = 0; i < 3; i++) for (const kind of [K.Grit, K.Might, K.Tempo]) schedule(g, { t: 'research', p: 0, kind });
+    run(g, 1);
+    expect([pl.grit, pl.might, pl.tempo]).toEqual([3, 3, 3]);
+    expect(refusals(g)).toEqual(['Grit is at its top level', 'Might is at its top level', 'Tempo is at its top level']);
+    expect(pl.stats.spent).toBe(3 * FRENZY.gearCost.reduce((x, y) => x + y, 0));
+    h.hp = 0;
+    run(g, 2);
+    while (!heroOf(g, pl) && g.tick < 2000) step(g);
+    const back = hero(g, 0);
+    expect([back.grit, back.hp]).toEqual([3, heroHp(K.Captain, 1, 3)]);
+    // The Dino Pack's Alpha is sold the same three.
+    g.players[1]!.blocks = 1000;
+    schedule(g, { t: 'research', p: 1, kind: K.Grit });
+    run(g, 1);
+    expect(maxHp(hero(g, 1))).toBe(heroHp(K.Alpha, 1, 1));
   });
 
   it('takes no orders to build, train or cancel, and none at all from a side that is out', () => {
@@ -249,8 +422,44 @@ describe('Frenzy: the base holds, until overtime', () => {
     while (g.winner === -1 && g.tick < FRENZY.overtime + 4000) step(g);
     expect(g.winner).toBe(2);
     const seconds = Math.floor(g.tick / 10) - Math.floor(t0 / 10);
-    expect(g.players[2]!.blocks - before).toBe(seconds * (FRENZY.trickle + FRENZY.middle));
+    expect(g.players[2]!.blocks - before).toBe(seconds * (income(2, 0) + FRENZY.middle));
     expect(g.players[2]!.stats.killedBuildings).toBe(0);
+  });
+});
+
+describe('Frenzy: Collectors under attack', () => {
+  it('to an attacker a Collector is a building like any other: a Turret that shoots back comes first', () => {
+    const g = createGame(1, undefined, GREEN);
+    const hall = hallOf(g, 0)!, c = mine(g, 0, K.Collector)[0]!;
+    const at = { x: Math.round((hall.x * 3 + c.x * 2) / 5), y: Math.round((hall.y * 2 + c.y * 3) / 5) + TILE };
+    hero(g, 0).hp = 0;
+    run(g, 2);
+    const lancer = spawn(g, K.Lancer, 1, at.x, at.y);
+    lancer.hp = 100000;
+    run(g, 6);
+    expect(g.byId.get(lancer.tgt)?.kind).toBe(K.Turret);
+    // And a base's Turret hits three times as hard as a Classic one.
+    const shot = Math.trunc((Math.trunc((def(K.Turret).dmg * FRENZY.turretPower) / 100) * def(K.Turret).vs[def(K.Lancer).cls]!) / 100);
+    expect(FRENZY.turretPower).toBeGreaterThan(100);
+    expect((100000 - lancer.hp) % shot).toBe(0);
+    expect(100000 - lancer.hp).toBeGreaterThanOrEqual(shot);
+  });
+
+  it('bringing one down pays a quarter of its worth, and its side is the poorer every second after', () => {
+    const g = createGame(1, undefined, GREEN);
+    const c = mine(g, 1, K.Collector)[0]!;
+    c.hp = 5;
+    const before = g.players[0]!.blocks;
+    land(g, [{ t: c, dmg: 10, by: 0 }]);
+    run(g, 1);
+    const bounty = Math.trunc((worth(K.Collector) * FRENZY.bounty) / 100);
+    expect(bounty).toBeGreaterThanOrEqual(100);
+    expect(g.events.some((e) => e.t === 'bounty' && e.owner === 0 && e.amount === bounty)).toBe(true);
+    expect(g.players[0]!.blocks).toBeGreaterThanOrEqual(before + bounty);
+    expect(g.players[0]!.stats.killedBuildings).toBe(1);
+    expect(collectorsOf(g, 1)).toBe(1);
+    // The ground it stood on is open again.
+    expect(g.nav.blockedAt(c.x, c.y)).toBe(false);
   });
 });
 
@@ -597,7 +806,7 @@ describe('Frenzy: abilities', () => {
     hero(g, 1).mode = h.mode = O.Hold;
     hero(g, 1).cd = h.cd = 99999;
     run(g, 10);
-    expect(g.players[1]!.blocks).toBe(b1 + FRENZY.trickle);
+    expect(g.players[1]!.blocks).toBe(b1 + income(2, 0));
     expect(g.players[1]!.heroXp).toBe(0);
     expect(g.players[0]!.stats.lostUnits).toBe(0);
     run(g, a.time);

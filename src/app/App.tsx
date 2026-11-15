@@ -120,20 +120,22 @@ function Menu({ onPlay }: { onPlay: (level: number, choice: Choice) => void }) {
             {frenzy ? (
               <ul class="how">
                 <li><b>The round.</b> Four corners, every side for itself. Lose your base and you are out; the last base standing wins.</li>
-                <li><b>Left thumb, the base.</b> It makes units by itself, for as long as there is supply. Spawn: unlock a unit with Blocks, then tap it into or out of the mix. Tech: Weapons, Armour and Muster (a faster base) are bought on the spot.</li>
-                <li><b>Right thumb, the hero.</b> Tap your hero, then the map. With Follow on, your first group goes wherever the hero is sent. Abilities open at levels 1, 3 and 6: tap one, then the map if a ring appears. A fallen hero comes back at the base, and mends there.</li>
+                <li><b>Left thumb, the base.</b> It makes units by itself, for as long as there is supply: Bayonets or Raptors to begin with, who fight hand to hand. Spawn: unlock a unit with Blocks, then tap it into or out of the mix.</li>
+                <li><b>Collectors.</b> The two behind your base bring in your Blocks, and sell everything on the Tech tab: Weapons and Armour for the army, Muster for a faster base, Haul for more Blocks, and Might, Grit and Tempo for your hero. Lose one and half your Blocks stop; lose both and nothing can be bought. Tap a Collector to open Tech.</li>
+                <li><b>Right thumb, the hero.</b> Tap your hero, then the map. It goes on its own; switch Follow on and your first group goes wherever it is sent. Abilities open at levels 1, 3 and 6: tap one, then the map if a ring appears. A fallen hero comes back at the base, and mends there.</li>
+                <li><b>Attack and Move.</b> Attack fights on the way and Move doesn't stop. Whichever you press stays lit, for the hero and every group, until you press the other. Hold digs in.</li>
                 <li><b>Groups.</b> New units join Group 1. Press and hold a group (or tap the empty one) to split some off, and to choose which group new units join.</li>
-                <li><b>Blocks.</b> A steady trickle, a share of everything your side brings down, and more for holding the Watchtower in the middle alone. A hero learns from every enemy that falls near it.</li>
+                <li><b>Blocks.</b> What your Collectors bring in, a share of everything your side brings down, and more for holding the Watchtower in the middle alone. A hero learns from every enemy that falls near it.</li>
                 <li><b>Overtime.</b> From 10:00 every base crumbles, except the base of the side that holds the middle.</li>
                 <li><b>Map.</b> Drag to pan, pinch to zoom. Double-tap the hero or a group to jump to it. Pause, top right, also sets the speed: half or three-quarter to take your time, double to hurry.</li>
-                <li><b>Infantry.</b> Troopers beat Runners and Lancers, and shoot down Gunships. Runners run down Lancers and Mortars. Lancers break Tanks, Juggernauts, Turrets and bases.</li>
+                <li><b>Infantry.</b> Bayonets are tough and cheap, but must reach what they fight and can't touch a flyer. Troopers shoot, and shoot down Gunships. Runners are quick, and run down Lancers and Mortars. Lancers break Tanks, Juggernauts, Turrets and bases.</li>
                 <li><b>Vehicles.</b> Tanks and Juggernauts blast crowds of infantry. Mortars outrange Turrets but must stand still to fire. Flak Tracks hit only flyers. Gunships fly over anything and wreck vehicles.</li>
-                <li><b>Dinosaurs.</b> Raptors come in pairs and run down Lancers and Mortars. Spitters shoot ground and air. Horns charge infantry and walls. Pteros fly, fight other flyers, and tear into whatever can't shoot up. Brontos stomp crowds and buildings flat. A Rex eats Tanks. Most must reach what they bite.</li>
+                <li><b>Dinosaurs.</b> Raptors come in pairs, and run down Lancers and Mortars. Spitters shoot ground and air. Horns charge infantry and walls. Pteros fly, fight other flyers, and tear into whatever can't shoot up. Brontos stomp crowds and buildings flat. A Rex eats Tanks. Most must reach what they bite.</li>
               </ul>
             ) : (
               <ul class="how">
                 <li><b>Left thumb, the base.</b> Train: tap a unit to queue one, press and hold to keep them coming. Build: pick a building, drag its outline onto the map, then Build.</li>
-                <li><b>Right thumb, the armies.</b> Tap a group, then tap the map or the minimap to send it. Attack fights on the way and Move doesn't stop; a group keeps whichever you set. Hold digs in.</li>
+                <li><b>Right thumb, the armies.</b> Tap a group, then tap the map or the minimap to send it. Attack fights on the way and Move doesn't stop; whichever you press stays lit, for every group, until you press the other. Hold digs in.</li>
                 <li><b>Groups.</b> Tap Groups (or an empty group): tap the units you want, then the group they should join. New units join the group marked +new.</li>
                 <li><b>Map.</b> Drag to pan, pinch to zoom. Double-tap a group to jump to it. Pause, top right, also sets the speed: half or three-quarter to take your time, double to hurry.</li>
                 <li><b>Economy.</b> A base has work for about 12 Workers on Blocks. A Refinery on a battery pack puts three more on Batteries, which buy vehicles, Gunships and research. More bases mean more of both and a higher supply cap.</li>

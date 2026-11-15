@@ -176,6 +176,19 @@ export const DEFS: Record<number, Def> = {
     ...base, kind: K.Alpha, name: 'Alpha', plural: 'Alphas', short: 'Alpha', cls: C.Armoured, hp: 1000, cost: 0, time: 0, supply: 0,
     speed: 84, radius: t(0.44), sight: 10, range: t(0.7), dmg: 30, cooldown: 9, vs: [100, 110, 0, 110], melee: true, charge: 30, hero: true,
   },
+  // ---------------------------------------------------------------- Frenzy's own
+  // The Green Army's free unit in Frenzy: a foot soldier with a fixed bayonet. Tougher than a Trooper and
+  // quick on its feet, because it has to cross the ground a Trooper shoots over. It can't reach a flyer.
+  [K.Bayonet]: {
+    ...base, kind: K.Bayonet, name: 'Bayonet', plural: 'Bayonets', short: 'Bayonet', cls: C.Light, hp: 80, cost: 50, time: 150, supply: 1,
+    speed: 72, radius: t(0.3), sight: 8, range: t(0.55), dmg: 9, cooldown: 8, vs: [100, 60, 0, 60], melee: true, charge: 22,
+  },
+  // Two stand behind every base. Each brings in Blocks by itself, and upgrades are bought while one stands.
+  // Its price is never paid: it sets what bringing one down is worth.
+  [K.Collector]: {
+    ...base, kind: K.Collector, name: 'Collector', plural: 'Collectors', short: 'Collector', cls: C.Structure, hp: 2500, cost: 600, time: 0, supply: 0,
+    radius: t(1), sight: 7, size: 2, building: true,
+  },
   // ---------------------------------------------------------------- research (cost and time are for the first level)
   [K.Weapons]: {
     ...base, kind: K.Weapons, name: 'Weapons', plural: 'Weapons', short: 'Weapons', cls: C.Structure, hp: 1, cost: 150, gas: 150, time: 600, supply: 0,
@@ -195,6 +208,22 @@ export const DEFS: Record<number, Def> = {
   },
   [K.Muster]: {
     ...base, kind: K.Muster, name: 'Muster', plural: 'Muster', short: 'Muster', cls: C.Structure, hp: 1, cost: 150, time: 0, supply: 0,
+    radius: 0, sight: 0,
+  },
+  [K.Haul]: {
+    ...base, kind: K.Haul, name: 'Haul', plural: 'Haul', short: 'Haul', cls: C.Structure, hp: 1, cost: 200, time: 0, supply: 0,
+    radius: 0, sight: 0,
+  },
+  [K.Might]: {
+    ...base, kind: K.Might, name: 'Might', plural: 'Might', short: 'Might', cls: C.Structure, hp: 1, cost: 200, time: 0, supply: 0,
+    radius: 0, sight: 0,
+  },
+  [K.Grit]: {
+    ...base, kind: K.Grit, name: 'Grit', plural: 'Grit', short: 'Grit', cls: C.Structure, hp: 1, cost: 200, time: 0, supply: 0,
+    radius: 0, sight: 0,
+  },
+  [K.Tempo]: {
+    ...base, kind: K.Tempo, name: 'Tempo', plural: 'Tempo', short: 'Tempo', cls: C.Structure, hp: 1, cost: 200, time: 0, supply: 0,
     radius: 0, sight: 0,
   },
 };
@@ -230,8 +259,9 @@ export interface Roster {
   buildings: Kind[];
   units: Kind[];
   research: Kind[];
-  /** Frenzy: who leads it. */
+  /** Frenzy: who leads it, and the units its base can make, in panel order. The first comes free. */
   hero: Kind;
+  frenzy: Kind[];
 }
 
 /** Faction rosters, in the order the panels show them. */
@@ -241,12 +271,14 @@ export const FACTIONS: Record<Faction, Roster> = {
     buildings: [K.HQ, K.Refinery, K.Barracks, K.Factory, K.Airfield, K.Armory, K.Heavy, K.Turret],
     units: [K.Worker, K.Trooper, K.Lancer, K.Runner, K.Tank, K.Mortar, K.Flak, K.Gunship, K.Jugger],
     research: [K.Weapons, K.Armour], hero: K.Captain,
+    frenzy: [K.Bayonet, K.Trooper, K.Lancer, K.Runner, K.Tank, K.Mortar, K.Flak, K.Gunship, K.Jugger],
   },
   dino: {
     name: 'Dino Pack', hall: K.Nest, worker: K.Gatherer, refinery: K.Dig, turret: K.Volcano, lab: K.BonePit, first: K.Den,
     buildings: [K.Nest, K.Dig, K.Den, K.Wallow, K.Roost, K.BonePit, K.Cave, K.Volcano],
     units: [K.Gatherer, K.Raptor, K.Spitter, K.Horn, K.Ptero, K.Bronto, K.Rex],
     research: [K.Claws, K.Hide], hero: K.Alpha,
+    frenzy: [K.Raptor, K.Spitter, K.Horn, K.Ptero, K.Bronto, K.Rex],
   },
 };
 export const FACTION_LIST: Faction[] = ['green', 'dino'];
@@ -311,9 +343,13 @@ export function researchCost(kind: number, level: number): { cost: number; gas: 
 /** Frenzy's numbers: four corners, bases that make their own units, a hero each. */
 export const FRENZY = {
   startBlocks: 100,
-  /** Blocks a side is paid every second, and what holding the middle Watchtower alone adds. */
-  trickle: 3,
-  middle: 2,
+  /**
+   * Blocks each standing Collector brings in every second, what each level of Haul adds to that, and what
+   * holding the middle Watchtower alone adds. A base has two Collectors, so it starts on 4 a second.
+   */
+  collect: 2,
+  haulPer: 1,
+  middle: 4,
   /** Supply a base can keep in the field. */
   supply: 40,
   /**
@@ -324,6 +360,11 @@ export const FRENZY = {
   turretHp: 1500,
   /** A base's Turrets also reach further than Classic ones, so that Lancers can't pick them off from out of range. */
   turretReach: t(1.5),
+  /**
+   * And they hit harder, in percent of a Classic Turret's shot: on level ground, standing beside the base and
+   * not in front of it, two Classic Turrets would not slow an early rush at all.
+   */
+  turretPower: 300,
   /** Work a base does each tick, by Muster level. What each unit takes is in `WORK`. */
   musterRate: [10, 13, 16, 20] as readonly number[],
   /**
@@ -332,6 +373,19 @@ export const FRENZY = {
    */
   musterCost: [150, 300, 450] as readonly number[],
   researchCost: [150, 300, 450, 600] as readonly number[],
+  /**
+   * Haul pays for itself: each level adds 2 Blocks a second to a base with both Collectors standing, so the
+   * first is back in a minute and three quarters and the last in five and a half. Greed, bought early.
+   */
+  haulCost: [200, 350, 500, 650] as readonly number[],
+  /**
+   * The hero's own upgrades, three levels of each: somewhere for late Blocks to go. Might: the hero's hits
+   * and its abilities' damage. Grit: its health. Tempo: how soon an ability is ready again. All in percent a level.
+   */
+  gearCost: [200, 400, 600] as readonly number[],
+  mightPer: 15,
+  gritPer: 20,
+  tempoPer: 12,
   /** What a kill pays the side that made it: this share of the fallen unit's worth, in percent. */
   bounty: 25,
   /** A hero is worth this, and this more for each of its levels. A base is worth a flat sum. */
@@ -374,7 +428,7 @@ export const FRENZY = {
 
 /** What it costs to unlock a unit for the mix. The first fighter of each faction comes free. */
 export const UNLOCK: Record<number, number> = {
-  [K.Lancer]: 100, [K.Runner]: 100, [K.Flak]: 200, [K.Tank]: 400, [K.Mortar]: 400, [K.Gunship]: 500, [K.Jugger]: 800,
+  [K.Trooper]: 100, [K.Lancer]: 100, [K.Runner]: 100, [K.Flak]: 200, [K.Tank]: 400, [K.Mortar]: 400, [K.Gunship]: 500, [K.Jugger]: 800,
   [K.Spitter]: 100, [K.Horn]: 300, [K.Ptero]: 350, [K.Bronto]: 500, [K.Rex]: 800,
 };
 
@@ -385,12 +439,57 @@ export const UNLOCK: Record<number, number> = {
  * prices would give: with no eggs to bank in Frenzy, numbers are how it keeps up.
  */
 export const WORK: Record<number, number> = {
-  [K.Trooper]: 500, [K.Lancer]: 680, [K.Runner]: 580, [K.Flak]: 1150, [K.Tank]: 1550, [K.Mortar]: 1550, [K.Gunship]: 1900, [K.Jugger]: 2900,
+  [K.Bayonet]: 420, [K.Trooper]: 420, [K.Lancer]: 600, [K.Runner]: 500, [K.Flak]: 1050, [K.Tank]: 1400, [K.Mortar]: 1400, [K.Gunship]: 1750, [K.Jugger]: 2700,
   [K.Raptor]: 340, [K.Spitter]: 420, [K.Horn]: 800, [K.Ptero]: 1050, [K.Bronto]: 1650, [K.Rex]: 2450,
 };
 
 /** The units a faction can field in Frenzy, in panel order. */
-export const frenzyUnits = (f: Faction): Kind[] => FACTIONS[f].units.filter((k) => !isWorker(k));
+export const frenzyUnits = (f: Faction): Kind[] => FACTIONS[f].frenzy;
+
+/** Everything a Collector sells, in panel order: the army's, the base's, the hero's. */
+export const frenzyUpgrades = (f: Faction): Kind[] => [...FACTIONS[f].research, K.Muster, K.Haul, K.Might, K.Grit, K.Tempo];
+
+/** The levels a side holds, as far as upgrades go. */
+export interface Levels { weapons: number; armour: number; muster: number; haul: number; might: number; grit: number; tempo: number }
+type LevelKey = keyof Levels;
+
+/** Which of a side's levels an upgrade raises. */
+export function upgradeKey(kind: number): LevelKey {
+  switch (kind) {
+    case K.Muster: return 'muster';
+    case K.Haul: return 'haul';
+    case K.Might: return 'might';
+    case K.Grit: return 'grit';
+    case K.Tempo: return 'tempo';
+    default: return researchOf(kind);
+  }
+}
+
+/** What each level of an upgrade costs in Frenzy, first level first. Its length is how many levels there are. */
+export function upgradeCosts(kind: number): readonly number[] {
+  switch (kind) {
+    case K.Muster: return FRENZY.musterCost;
+    case K.Haul: return FRENZY.haulCost;
+    case K.Might: case K.Grit: case K.Tempo: return FRENZY.gearCost;
+    default: return FRENZY.researchCost;
+  }
+}
+
+/** One line on what an upgrade does, for the panel. */
+export function upgradeBlurb(kind: number): string {
+  switch (kind) {
+    case K.Weapons: case K.Claws: return 'Your units hit harder';
+    case K.Armour: case K.Hide: return 'Your units take less';
+    case K.Muster: return 'The base makes units faster';
+    case K.Haul: return 'Each Collector brings in more Blocks';
+    case K.Might: return 'Your hero and its abilities hit harder';
+    case K.Grit: return 'Your hero has more health';
+    default: return "Your hero's abilities are ready sooner";
+  }
+}
+
+/** Blocks a side's Collectors bring in each second: nothing with none standing. */
+export const income = (collectors: number, haul: number): number => collectors * (FRENZY.collect + haul * FRENZY.haulPer);
 
 export interface Ability {
   name: string;
@@ -435,12 +534,26 @@ export const ABILITIES: Record<number, readonly Ability[]> = {
   ],
 };
 
-/** How strong an ability is in the hands of a hero of this level. */
-export const abilityPower = (a: Ability, level: number): number => a.power + a.per * Math.max(0, level - a.level);
+/**
+ * How strong an ability is in the hands of a hero of this level: its damage, which Might raises, or for one
+ * that calls units up, how many (which Might does not).
+ */
+export function abilityPower(a: Ability, level: number, might = 0): number {
+  const p = a.power + a.per * Math.max(0, level - a.level);
+  return a.kind === 'pack' ? p : Math.trunc((p * (100 + FRENZY.mightPer * might)) / 100);
+}
 
-/** A hero's full health and the damage of one of its hits, at a level. Everything else has what its Def says. */
-export const heroHp = (kind: number, level: number): number => Math.trunc((DEFS[kind]!.hp * (100 + FRENZY.hpPer * Math.max(0, level - 1))) / 100);
-export const heroDmg = (kind: number, level: number): number => Math.trunc((DEFS[kind]!.dmg * (100 + FRENZY.dmgPer * Math.max(0, level - 1))) / 100);
+/** Ticks before an ability can be used again, by a hero with this much Tempo. */
+export const abilityCd = (a: Ability, tempo = 0): number => Math.max(10, Math.trunc((a.cd * (100 - FRENZY.tempoPer * tempo)) / 100));
+
+/**
+ * A hero's full health and the damage of one of its hits, at a level, with what Grit and Might add.
+ * Everything else has what its Def says.
+ */
+export const heroHp = (kind: number, level: number, grit = 0): number =>
+  Math.trunc((Math.trunc((DEFS[kind]!.hp * (100 + FRENZY.hpPer * Math.max(0, level - 1))) / 100) * (100 + FRENZY.gritPer * grit)) / 100);
+export const heroDmg = (kind: number, level: number, might = 0): number =>
+  Math.trunc((Math.trunc((DEFS[kind]!.dmg * (100 + FRENZY.dmgPer * Math.max(0, level - 1))) / 100) * (100 + FRENZY.mightPer * might)) / 100);
 
 /** Experience a hero of this level needs for the next one. */
 export const levelNeeds = (level: number): number => FRENZY.levelXp * level;

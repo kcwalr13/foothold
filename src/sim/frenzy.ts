@@ -1,7 +1,7 @@
 // Frenzy: four corners, bases that make their own units, a hero each, every side for itself.
 // The tick itself is the one in step.ts; this file holds what only Frenzy has. Like everything in src/sim it
 // is whole numbers only, and nothing here may depend on which side's turn it is in a loop.
-import { ABILITIES, FRENZY, UNLOCK, WORK, abilityPower, def, frenzyUnits, isHall, levelNeeds, researchOf, respawnTicks, worth, FACTIONS, type Ability } from './data';
+import { ABILITIES, FRENZY, UNLOCK, WORK, abilityCd, abilityPower, def, frenzyUnits, frenzyUpgrades, income, isHall, levelNeeds, respawnTicks, upgradeCosts, upgradeKey, worth, type Ability } from './data';
 import { dist } from './nav';
 import { countSupply, maxHp, placeHero, spawn, turned, type Game } from './state';
 import { land, snapOpen, spawnUnit, type Hit } from './step';
@@ -59,22 +59,35 @@ export function frenzyMix(g: Game, c: Extract<Command, { t: 'repeat' }>): void {
   }
 }
 
-/** Weapons, Armour and Muster are bought on the spot: there is no lab to study them in. */
+/** How many of a side's Collectors stand. */
+export function collectorsOf(g: Game, p: number): number {
+  let n = 0;
+  for (const e of g.ents) if (e.owner === p && e.kind === K.Collector && e.hp > 0) n++;
+  return n;
+}
+
+/**
+ * Upgrades are bought on the spot, at a Collector: there is no lab to study them in, but with no Collector
+ * standing there is nowhere to buy.
+ */
 export function frenzyResearch(g: Game, c: Extract<Command, { t: 'research' }>): void {
   const pl = g.players[c.p];
-  if (!pl) return;
-  const hall = hallOf(g, c.p);
-  if (c.kind === K.Muster) {
-    if (pl.muster >= FRENZY.musterCost.length) return refuse(g, c.p, 'Muster is at its top level');
-    if (!pay(g, pl, FRENZY.musterCost[pl.muster]!)) return;
-    pl.muster++;
-  } else {
-    if (!FACTIONS[pl.faction].research.includes(c.kind)) return;
-    const which = researchOf(c.kind);
-    if (pl[which] >= FRENZY.researchCost.length) return refuse(g, c.p, `${def(c.kind).name} is at its top level`);
-    if (!pay(g, pl, FRENZY.researchCost[pl[which]]!)) return;
-    pl[which]++;
+  if (!pl || !frenzyUpgrades(pl.faction).includes(c.kind)) return;
+  if (collectorsOf(g, c.p) === 0) return refuse(g, c.p, 'Upgrades are bought at a Collector, and yours are down');
+  const key = upgradeKey(c.kind), costs = upgradeCosts(c.kind);
+  if (pl[key] >= costs.length) return refuse(g, c.p, `${def(c.kind).name} is at its top level`);
+  if (!pay(g, pl, costs[pl[key]]!)) return;
+  pl[key]++;
+  if (key === 'grit') {
+    // A standing hero is the better for it at once, by as much health as the level adds.
+    const h = heroOf(g, pl);
+    if (h) {
+      const before = maxHp(h);
+      h.grit = pl.grit;
+      h.hp += maxHp(h) - before;
+    }
   }
+  const hall = hallOf(g, c.p);
   if (hall) g.events.push({ t: 'done', owner: c.p, kind: c.kind, x: hall.x, y: hall.y });
 }
 
@@ -110,7 +123,7 @@ export function castNow(g: Game, c: Extract<Command, { t: 'cast' }>): void {
   const pl = g.players[c.p]!;
   const h = heroOf(g, pl)!;
   const a = ABILITIES[h.kind]![c.slot]!;
-  pl.cds[c.slot] = g.tick + a.cd;
+  pl.cds[c.slot] = g.tick + abilityCd(a, pl.tempo);
   const x = a.range > 0 ? c.x : h.x, y = a.range > 0 ? c.y : h.y;
   g.events.push({ t: 'cast', owner: c.p, hero: h.kind, slot: c.slot, x1: h.x, y1: h.y, x2: x, y2: y, r: a.radius, delay: a.delay });
   if (a.kind === 'haste') {
@@ -182,7 +195,7 @@ function resolve(g: Game): void {
   for (const q of due) {
     const a = of(q), pl = g.players[q.owner]!;
     if (pl.out || (a.kind !== 'blast' && !landed.has(q))) continue;
-    const dmg = abilityPower(a, pl.heroLvl);
+    const dmg = abilityPower(a, pl.heroLvl, pl.might);
     for (const e of g.ents) {
       if (e.owner === q.owner || e.owner < 0 || e.hp <= 0) continue;
       const d = def(e.kind);
@@ -202,7 +215,7 @@ export function middleHolder(g: Game): number {
   return -1;
 }
 
-/** Frenzy's share of a tick: abilities land, Blocks come in, bases turn out units, heroes come back and mend. */
+/** Frenzy's share of a tick: abilities land, Collectors bring Blocks in, bases turn out units, heroes come back and mend. */
 export function frenzyTick(g: Game): void {
   if (g.tick === FRENZY.overtime) g.events.push({ t: 'overtime' });
   resolve(g);
@@ -213,7 +226,7 @@ export function frenzyTick(g: Game): void {
     const hall = hallOf(g, pl.id);
     if (!hall) continue;
     if (second) {
-      const got = FRENZY.trickle + (holder === pl.id ? FRENZY.middle : 0);
+      const got = income(collectorsOf(g, pl.id), pl.haul) + (holder === pl.id ? FRENZY.middle : 0);
       pl.blocks += got;
       pl.stats.gathered += got;
       // Overtime: every base but the middle-holder's crumbles. Nobody is paid for a base that falls this way.

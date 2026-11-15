@@ -44,6 +44,10 @@ export interface View {
   sides: readonly { id: number; faction: Faction; out: boolean }[];
   unlocked: readonly Kind[];
   muster: number;
+  haul: number;
+  might: number;
+  grit: number;
+  tempo: number;
   heroLvl: number;
   heroXp: number;
   /** The tick this side's fallen hero returns; 0 while it stands. */
@@ -73,7 +77,7 @@ export function makeView(g: Game, p: number): View {
     canPlace: (kind, tx, ty) => canPlace(g, p, kind, tx, ty),
     blocked: (tx, ty) => g.nav.isBlocked(tx, ty),
     sides: g.players.map((q) => ({ id: q.id, faction: q.faction, out: q.out })),
-    unlocked: pl.unlocked, muster: pl.muster, heroLvl: pl.heroLvl, heroXp: pl.heroXp, heroBack: pl.heroBack, cds: pl.cds, middle,
+    unlocked: pl.unlocked, muster: pl.muster, haul: pl.haul, might: pl.might, grit: pl.grit, tempo: pl.tempo, heroLvl: pl.heroLvl, heroXp: pl.heroXp, heroBack: pl.heroBack, cds: pl.cds, middle,
   };
 }
 

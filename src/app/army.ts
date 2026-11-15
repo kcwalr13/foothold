@@ -14,6 +14,10 @@ function paintBase(p: Pen, t: Team, kind: number): void {
   if (kind === K.Captain) {
     // The Captain's base is the biggest on the table, and rimmed in gold.
     p.o(GOLD, 0, 0, 0.43).o(t.fill, 0, 0, 0.375).o(t.dark, 0, 0, 0.325).o(t.fill, 0, 0, 0.29);
+  } else if (kind === K.Bayonet) {
+    // A shield of a base, point forward: the one that goes in first.
+    p.p(t.fill, [0.4, 0, 0.14, 0.31, -0.3, 0.27, -0.3, -0.27, 0.14, -0.31]);
+    p.p(t.dark, [0.31, 0, 0.1, 0.235, -0.225, 0.205, -0.225, -0.205, 0.1, -0.235]).p(t.fill, [0.26, 0, 0.08, 0.195, -0.185, 0.17, -0.185, -0.17, 0.08, -0.195]);
   } else if (kind === K.Lancer) {
     p.b(t.fill, 0, 0, 0.6, 0.6, 0.12);
     p.b(t.dark, 0, 0, 0.5, 0.5, 0.09).b(t.fill, 0, 0, 0.44, 0.44, 0.07);
@@ -38,6 +42,16 @@ function paintFigure(p: Pen, t: Team, kind: number, ready: boolean): void {
       p.o(t.light, 0.02, 0, 0.165);
       p.o(t.ink, 0.13, 0, 0.075, 0.15);
       star(p, GOLD, 0.0, 0, 0.09);
+      break;
+    case K.Bayonet:
+      // Both hands on a rifle levelled at the hip, and a blade on the end of it: pale, so it shows on any colour.
+      p.b(t.dark, -0.13, 0, 0.11, 0.2, 0.04);
+      p.o(t.dark, 0, 0, 0.12, 0.225);
+      p.l(t.dark, 0.085, [0.01, 0.18, 0.16, 0.1]).l(t.dark, 0.085, [0.03, -0.18, 0.31, 0.0]);
+      p.l(t.ink, 0.07, [-0.06, 0.13, 0.42, 0.03]);
+      p.p(t.ink, [0.4, 0.075, 0.69, 0.005, 0.4, -0.02]).p(IVORY, [0.43, 0.05, 0.64, 0.008, 0.43, -0.002]);
+      p.o(t.light, 0.03, 0, 0.13).o(t.fill, -0.01, 0.0, 0.05, 0.09);
+      p.l(t.ink, 0.035, [0.06, -0.1, 0.06, 0.1]);
       break;
     case K.Trooper:
       p.b(t.dark, -0.13, 0, 0.11, 0.2, 0.04);
@@ -100,7 +114,7 @@ const MUZZLE: Record<number, [number, number, number]> = {
 
 /** How big a square a figure's base and body are painted in: the Captain is a size up from everyone else. */
 const baseHalf = (kind: number): number => (kind === K.Captain ? 0.52 : 0.46);
-const bodyHalf = (kind: number): number => (kind === K.Captain ? 0.74 : 0.56);
+const bodyHalf = (kind: number): number => (kind === K.Captain || kind === K.Bayonet ? 0.74 : 0.56);
 
 function drawInfantry(st: Stage, e: Entity, px: number, py: number, an: Anim, t: Team, size: number): void {
   const { z, toys, now } = st;
@@ -112,7 +126,9 @@ function drawInfantry(st: Stage, e: Entity, px: number, py: number, an: Anim, t:
   shadow(st, base, px, py, face, size, 0.06);
   stamp(st, base, px, py, face, size);
   const since = now - (st.fired.get(e.id) ?? -1e9);
-  const back = kick(since, e.kind === K.Lancer || e.kind === K.Mortar ? 320 : 150) * (e.kind === K.Lancer || e.kind === K.Mortar ? 0.07 : 0.04);
+  // A shot kicks the figure back; a Bayonet's thrust carries it forward, to the length of its arms.
+  const back = e.kind === K.Bayonet ? kick(since, 240) * -0.2
+    : kick(since, e.kind === K.Lancer || e.kind === K.Mortar ? 320 : 150) * (e.kind === K.Lancer || e.kind === K.Mortar ? 0.07 : 0.04);
   const stride = Math.sin(an.step * 13) * an.go;
   if (an.go > 0.05 && z >= 15) {
     // Boots, one ahead and one behind, swapping with every step.
@@ -318,6 +334,21 @@ function sandbags(p: Pen, cx: number, cy: number, rad: number, n: number, from =
 /** A playset piece from above, standing on a plate of its side's plastic. */
 function paintBuilding(p: Pen, t: Team, kind: number): void {
   switch (kind) {
+    case K.Collector: {
+      // A toy-box tray in its side's colour, heaped with Blocks. Both factions keep theirs in the same kind.
+      p.b(t.dark, 0, 0, 1.86, 1.86, 0.26);
+      p.b(t.fill, 0, 0, 1.58, 1.58, 0.16).k(t.ink, 0.06);
+      p.b(t.light, 0, 0, 1.3, 1.3, 0.1).k(t.ink, 0.035);
+      const heap: readonly [number, number, number][] = [[-0.33, -0.3, 0], [0.3, -0.33, 1], [-0.3, 0.33, 2], [0.33, 0.3, 3]];
+      for (const [cx, cy, c] of heap) p.b(PENCIL, cx, cy, 0.56, 0.56, 0.06).b(BLOCK_COLOURS[c]!, cx, cy, 0.46, 0.46, 0.04);
+      // One more on top, askew.
+      const x = p.x;
+      x.save();
+      x.rotate(0.5);
+      p.b(PENCIL, 0, -0.02, 0.56, 0.56, 0.06).b(BLOCK_COLOURS[2], 0, -0.02, 0.46, 0.46, 0.04).b('#f6d67a', -0.08, -0.1, 0.16, 0.14, 0.03);
+      x.restore();
+      break;
+    }
     case K.HQ: {
       // A fort: four walls, a tower at each corner, a keep with a star on its roof.
       p.b(t.dark, 0, 0, 3.84, 3.84, 0.34);
@@ -495,6 +526,16 @@ export function drawArmyBuilding(st: Stage, b: BuildingLook, px: number, py: num
       if (b.since < 110) flash(st, gx + Math.cos(b.aim) * 1.04 * z, gy + Math.sin(b.aim) * 1.04 * z, b.aim, 0.34, b.since / 110);
       break;
     }
+    case K.Collector: {
+      // Blocks arriving: one drops onto the heap every second, and the flag says whose they are.
+      const k = (now / 1000 + b.seed) % 1, p = brush(st, px, py);
+      const drop = Math.max(0, 1 - k * 3.2);
+      x.globalAlpha = Math.min(1, k * 6) * (k > 0.8 ? (1 - k) / 0.2 : 1);
+      p.b(PENCIL, 0.52, -0.5 - drop * 0.5, 0.34, 0.34, 0.04).b(BLOCK_COLOURS[Math.floor(now / 1000 + b.seed) % 4]!, 0.52, -0.5 - drop * 0.5, 0.26, 0.26, 0.03);
+      x.globalAlpha = 1;
+      pennant(st, px - 0.74 * z, py - 0.58 * z, t, 0.8, b.seed);
+      break;
+    }
     case K.Refinery: {
       // The charger hums: its light swells and fades, and the pump house ticks over.
       const p = brush(st, px, py);
@@ -563,7 +604,15 @@ export function drawArmyMarker(st: Stage, e: Entity, px: number, py: number, t: 
   x.lineWidth = 1.25;
   x.beginPath();
   if (e.kind === K.Lancer) x.rect(px - r * 0.85, py - r * 0.85, r * 1.7, r * 1.7);
-  else if (e.kind === K.Runner) {
+  else if (e.kind === K.Bayonet) {
+    // A shield, point forward.
+    const c = Math.cos(face), s = Math.sin(face);
+    const at = (f: number, l: number) => [px + c * f * r - s * l * r, py + s * f * r + c * l * r] as const;
+    const pts = [at(1.35, 0), at(0.4, 0.95), at(-0.95, 0.85), at(-0.95, -0.85), at(0.4, -0.95)];
+    x.moveTo(pts[0]![0], pts[0]![1]);
+    for (const q of pts.slice(1)) x.lineTo(q[0], q[1]);
+    x.closePath();
+  } else if (e.kind === K.Runner) {
     const c = Math.cos(face), s = Math.sin(face);
     x.moveTo(px + c * r * 1.3, py + s * r * 1.3);
     x.lineTo(px - c * r * 0.8 - s * r, py - s * r * 0.8 + c * r);
@@ -605,7 +654,8 @@ export function drawArmyMarker(st: Stage, e: Entity, px: number, py: number, t: 
 /** How far a Green Army piece reaches from its middle when it is standing still, in tiles. */
 export function armyReach(kind: number): number {
   if (def(kind).building) return def(kind).size / 2 + 0.06;
-  return kind === K.Jugger ? 0.92 : kind === K.Tank || kind === K.Flak ? 0.74 : kind === K.Gunship ? 0.78 : kind === K.Captain ? 0.66 : kind === K.Mortar ? 0.52 : 0.5;
+  return kind === K.Jugger ? 0.92 : kind === K.Tank || kind === K.Flak ? 0.74 : kind === K.Gunship ? 0.78 : kind === K.Captain ? 0.66 : kind === K.Bayonet ? 0.6
+    : kind === K.Mortar ? 0.52 : 0.5;
 }
 
 /** A whole Green Army piece, standing still and facing right: what the buttons in the panels show. */

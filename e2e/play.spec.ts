@@ -138,14 +138,16 @@ test('select a group, send it with a tap on the map and on the minimap; Move sta
   expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 2 });
   await expect(move).toHaveAttribute('aria-pressed', 'true');
   await expect(p.locator('.hint')).toContainText('without stopping to fight');
-  await expect(p.locator('[data-group="0"] .gmode')).toHaveText('move');
   await p.touchscreen.tap(mini.x + mini.width * (24 / 96), mini.y + mini.height * (40 / 48));
   await run(p, 2);
   expect(await state<{ mode: number; x: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 2 });
   expect(await state<number>(p, '(m) => m.g.players[0].groups[0].x')).toBeLessThan(27 * 256);
-  // The setting is the group's own: deselect, select again, still Move. Attack switches it back.
+  // It sticks: deselect and it is still lit, and can still be pressed; select again, still Move. Only
+  // pressing Attack switches it back.
   await p.getByRole('button', { name: 'Group 1' }).tap();
-  await expect(move).toBeDisabled();
+  await expect(move).toHaveAttribute('aria-pressed', 'true');
+  await expect(move).toBeEnabled();
+  await expect(attack).toBeEnabled();
   await p.getByRole('button', { name: 'Group 1' }).tap();
   await expect(move).toHaveAttribute('aria-pressed', 'true');
   await attack.tap();

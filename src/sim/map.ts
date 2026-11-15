@@ -83,8 +83,9 @@ export function twinRidges(): GameMap {
 
 /**
  * Four Corners, Frenzy's map: a square, the same seen from every corner. Side 0 starts bottom-left and the
- * others follow a quarter turn at a time: top-left, top-right, bottom-right. Each base sits on a corner
- * plateau with one wide way down, facing the middle; a Watchtower stands on the middle tile.
+ * others follow a quarter turn at a time: top-left, top-right, bottom-right. The ground is level everywhere. Each
+ * base faces the middle with a Turret in line on either side and two Collectors behind it, in the corner; a
+ * Watchtower stands on the middle tile.
  */
 export function fourCorners(): GameMap {
   const n = 63, s = n * TILE;
@@ -103,33 +104,35 @@ export function fourCorners(): GameMap {
   const block = (x0: number, y0: number, x1: number, y1: number) => {
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(rock, x, y, 1);
   };
-  // Side 0's plateau fills the bottom-left corner. Cliffs run along its top and right edges and stop short
-  // of where they would meet: that gap, six tiles of each, is the way down.
-  for (let y = 47; y <= 62; y++) for (let x = 0; x <= 15; x++) set(high, x, y, 1);
-  block(0, 46, 10, 46);
-  block(16, 52, 16, 62);
+  // The ground is level everywhere: a base stands in its corner in the open, with no height to hide behind.
   // A pillar on the way from each base to the middle splits the approach in two.
   block(22, 38, 24, 40);
   // An outcrop half-way along each edge, between neighbours: a narrow way along the edge, a wide one inside.
   block(28, 51, 34, 56);
 
-  // Everything else is laid out for side 0 and turned for the rest.
+  // Everything else is laid out for side 0, in the bottom-left corner, and turned for the rest. The base
+  // sits on the line from its corner to the middle. Its two Turrets stand level with it, one either side,
+  // on the line across. Its two Collectors stand behind it, between the base and the corner. The hero
+  // waits in front.
   const hall = { tx: 6, ty: 53 };
-  const turrets = [{ tx: 9, ty: 48 }, { tx: 13, ty: 52 }];
+  const turrets = [{ tx: 3, ty: 50 }, { tx: 11, ty: 58 }];
+  const collectors = [{ tx: 1, ty: 57 }, { tx: 4, ty: 60 }];
   const hero = { x: 11 * TILE, y: 52 * TILE };
   const bases: BaseSite[] = [];
   const posts: GameMap['posts'] = [];
-  let h = { x: hall.tx, y: hall.ty }, ts = turrets.map((q) => ({ x: q.tx, y: q.ty })), at = hero;
+  let h = { x: hall.tx, y: hall.ty }, at = hero;
+  let ts = turrets.map((q) => ({ x: q.tx, y: q.ty })), cs = collectors.map((q) => ({ x: q.tx, y: q.ty }));
   for (let side = 0; side < 4; side++) {
     bases.push({ id: side, name: 'Corner', side, tier: 0, hx: h.x, hy: h.y, piles: [], cells: [] });
-    posts.push({ side, turrets: ts.map((q) => ({ tx: q.x, ty: q.y })), hero: at });
+    posts.push({ side, turrets: ts.map((q) => ({ tx: q.x, ty: q.y })), collectors: cs.map((q) => ({ tx: q.x, ty: q.y })), hero: at });
     h = turnTile(h.x, h.y, HQ_SIZE);
     ts = ts.map((q) => turnTile(q.x, q.y, 2));
+    cs = cs.map((q) => turnTile(q.x, q.y, 2));
     at = turnPoint(at.x, at.y, s);
   }
   const towers = [{ tx: 31, ty: 31 }];
 
-  let road = [{ x: 16.5, y: 46.5 }, { x: 21, y: 42 }, { x: 25.5, y: 41.5 }, { x: 29, y: 34 }];
+  let road = [{ x: 11.5, y: 51.5 }, { x: 21, y: 42 }, { x: 25.5, y: 41.5 }, { x: 29, y: 34 }];
   let edge = [{ x: 17, y: 56 }, { x: 25, y: 59 }, { x: 31.5, y: 59.5 }, { x: 38, y: 59 }, { x: 46, y: 56 }];
   const roads: { x: number; y: number }[][] = [];
   const labels: GameMap['labels'] = [{ text: 'The Middle', x: 31.5, y: 28.4, rot: 0 }, { text: 'Watchtower', x: 31.5, y: 33.6, rot: 0, small: true }];

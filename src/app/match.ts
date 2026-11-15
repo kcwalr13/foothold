@@ -1,13 +1,14 @@
 // One running match: the game loop, the player's selection and camera, and the numbers the panels show.
 // Nothing here decides a rule; it asks src/sim and sends commands through the same door the opponent uses.
-import { computed, signal } from '@preact/signals';
+import { signal } from '@preact/signals';
 import { Bot } from '../ai/bot';
 import { FrenzyBot } from '../ai/frenzy';
 import {
-  ABILITIES, DEFS, FACTIONS, FRENZY, RULES, UNLOCK, WORK, def, frenzyUnits, isHall, isRefinery, isResearch, isWorker, levelNeeds, researchCost, researchOf,
+  ABILITIES, DEFS, FACTIONS, FRENZY, RULES, UNLOCK, WORK, abilityCd, def, frenzyUnits, frenzyUpgrades, income, isHall, isRefinery, isResearch, isWorker, levelNeeds,
+  researchCost, researchOf, upgradeBlurb, upgradeCosts, upgradeKey,
   type Ability,
 } from '../sim/data';
-import { hallOf, heroOf } from '../sim/frenzy';
+import { collectorsOf, hallOf, heroOf } from '../sim/frenzy';
 import { dist } from '../sim/nav';
 import { canPlace, centroid, createGame, groupUnits, hasBuilt, maxHp, missing, onLayer, onNestingGround, schedule, spawn, turned, type Game } from '../sim/state';
 import { step } from '../sim/step';
@@ -68,7 +69,7 @@ export interface SpawnInfo {
   seconds: number;
 }
 
-export interface UpgradeInfo { kind: Kind; level: number; max: number; cost: number; ok: boolean; why: string }
+export interface UpgradeInfo { kind: Kind; level: number; max: number; cost: number; ok: boolean; why: string; blurb: string }
 
 export interface FrenzyHud {
   hero: {
@@ -81,6 +82,9 @@ export interface FrenzyHud {
   abilities: AbilityInfo[];
   spawn: SpawnInfo[];
   upgrades: UpgradeInfo[];
+  /** How many of your Collectors stand (of two), and the Blocks a second they and the middle bring in. */
+  collectors: number;
+  income: number;
   /** Who holds the Watchtower in the middle: a side, -1 for nobody, -2 when you can't see it. */
   middle: number;
   overtime: boolean;
@@ -149,11 +153,12 @@ export const SPEEDS = [
   { value: 2, label: '2×', name: 'Double speed' },
 ] as const;
 
+/** Frenzy: whether the army goes wherever the hero is sent. Off unless the player has switched it on. */
 function rememberedFollow(): boolean {
   try {
-    return localStorage.getItem('foothold.follow') !== 'off';
+    return localStorage.getItem('foothold.heroFollow') === 'on';
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -188,12 +193,10 @@ export class Match {
 
   readonly sel = signal(-1);
   /**
-   * How each group answers a tap on the map: fighting on the way (Attack) or not stopping (Move). It is the
-   * group's own and it stays as set until the player changes it, or the group empties.
+   * How a tap on the map is answered: fighting on the way (Attack) or not stopping (Move). There is one
+   * setting, for whatever is selected, and it stays as the player set it: nothing else ever changes it.
    */
-  readonly modes = signal<OrderMode[]>([O.Attack, O.Attack, O.Attack, O.Attack]);
-  /** The selected group's mode. */
-  readonly mode = computed<OrderMode>(() => (this.sel.value >= 0 ? this.modes.value[this.sel.value] ?? O.Attack : O.Attack));
+  readonly mode = signal<OrderMode>(O.Attack);
   readonly placing = signal<Placing | null>(null);
   readonly site = signal(0);
   readonly sheet = signal(-1);
@@ -209,6 +212,8 @@ export class Match {
   readonly aim = signal(-1);
   /** Frenzy: whether the group new units join goes wherever the hero is sent. */
   readonly follow = signal(rememberedFollow());
+  /** Frenzy: counts taps on one of your Collectors, each of which asks the panel for the Tech tab. */
+  readonly techAsk = signal(0);
   readonly toasts = signal<Toast[]>([]);
   /** When each piece last fired, by id, in `performance.now()` time: the renderer's recoil and muzzle flashes. */
   readonly fired = new Map<number, number>();
@@ -331,7 +336,7 @@ export class Match {
           const air = ev.kind === K.Gunship || ev.kind === K.Flak || ev.kind === K.Ptero;
           if (seen(ev.x1, ev.y1, air) || seen(ev.x2, ev.y2, air)) {
             const life = ev.kind === K.Mortar ? 620 : ev.kind === K.Volcano ? 420 : ev.kind === K.Bronto ? 380 : ev.kind === K.Lancer || ev.kind === K.Spitter ? 260
-              : ev.kind === K.Tank || ev.kind === K.Jugger || ev.kind === K.Flak ? 300 : ev.kind === K.Rex || ev.kind === K.Horn ? 200 : 130;
+              : ev.kind === K.Tank || ev.kind === K.Jugger || ev.kind === K.Flak ? 300 : ev.kind === K.Rex || ev.kind === K.Horn || ev.kind === K.Bayonet ? 200 : 130;
             this.fx.push({ t: 'shot', x1: ev.x1, y1: ev.y1, x2: ev.x2, y2: ev.y2, kind: ev.kind, owner: ev.owner, born: now, life });
           }
           break;
@@ -342,18 +347,25 @@ export class Match {
             const t = d.building ? 'puff' : d.cls === 0 || d.hero || (ev.kind >= K.Gatherer && ev.kind <= K.Egg) ? 'fall' : 'wreck';
             this.fx.push({ t, x1: ev.x, y1: ev.y, x2: ev.fx, y2: ev.fy, kind: ev.kind, owner: ev.owner, born: now, life: d.building ? 1700 : t === 'wreck' ? 2600 : 1400 });
           }
-          if (ev.owner === this.me && def(ev.kind).building && !pl.out) this.alert('lost', `${def(ev.kind).name} destroyed`, 'warn', ev.x, ev.y, 30);
+          if (ev.owner === this.me && ev.kind === K.Collector && !pl.out) {
+            const left = collectorsOf(g, this.me);
+            this.alert(`collector${left}`, left > 0 ? `A Collector is down: ${income(left, pl.haul)} Blocks a second now` : 'Both Collectors are down: no Blocks coming in, no upgrades', 'warn', ev.x, ev.y, 0);
+          } else if (ev.owner === this.me && def(ev.kind).building && !pl.out) this.alert('lost', `${def(ev.kind).name} destroyed`, 'warn', ev.x, ev.y, 30);
           break;
         case 'hurt':
           if (ev.owner === this.me) {
-            this.alert(isWorker(ev.kind) ? 'workers' : 'base', isWorker(ev.kind) ? `${def(ev.kind).plural} under attack` : 'Base under attack', 'warn', ev.x, ev.y, 120);
+            // A Collector says so by name: it stands behind the base, where the player is not looking.
+            if (ev.kind === K.Collector) this.alert('collectors', 'Collector under attack', 'warn', ev.x, ev.y, 120);
+            else this.alert(isWorker(ev.kind) ? 'workers' : 'base', isWorker(ev.kind) ? `${def(ev.kind).plural} under attack` : 'Base under attack', 'warn', ev.x, ev.y, 120);
           }
           break;
         case 'done':
           if (ev.owner === this.me) {
             const text = ev.kind === K.Muster ? `Muster level ${pl.muster}: the base works faster`
-              : isResearch(ev.kind) ? `${def(ev.kind).name} level ${pl[researchOf(ev.kind)]} ${this.frenzy ? 'bought' : 'researched'}`
-                : this.frenzy ? `${def(ev.kind).plural} unlocked, and in the mix` : `${def(ev.kind).name} ready`;
+              : ev.kind === K.Haul ? `Haul level ${pl.haul}: ${income(collectorsOf(g, this.me), pl.haul)} Blocks a second`
+                : this.frenzy && ev.kind >= K.Weapons ? `${def(ev.kind).name} level ${pl[upgradeKey(ev.kind)]} bought`
+                  : isResearch(ev.kind) ? `${def(ev.kind).name} level ${pl[researchOf(ev.kind)]} researched`
+                    : this.frenzy ? `${def(ev.kind).plural} unlocked, and in the mix` : `${def(ev.kind).name} ready`;
             this.alert(`done${ev.kind}`, text, 'info', ev.x, ev.y, 10);
           }
           break;
@@ -424,8 +436,6 @@ export class Match {
         max += maxHp(u);
         if (!u.arrived) moving = true;
       }
-      // An emptied group forgets Move: whoever fills it next starts out fighting on the way.
-      if (us.length === 0 && this.modes.value[i] !== O.Attack) this.setMode(O.Attack, i);
       if (hp < this.groupHp[i]! - 0) this.hurtUntil[i] = g.tick + 15;
       this.groupHp[i] = hp;
       groups.push({
@@ -528,7 +538,7 @@ export class Match {
       const left = Math.max(0, pl.cds[slot]! - g.tick);
       return {
         name: a.name, short: a.short, blurb: a.blurb, level: a.level, locked: level < a.level,
-        ready: h !== undefined && level >= a.level && left === 0 && h.daze <= g.tick, wait: Math.min(1, left / a.cd), aims: a.range > 0,
+        ready: h !== undefined && level >= a.level && left === 0 && h.daze <= g.tick, wait: Math.min(1, left / abilityCd(a, pl.tempo)), aims: a.range > 0,
       };
     });
     const next = pl.repeat[pl.turn % Math.max(1, pl.repeat.length)];
@@ -541,11 +551,14 @@ export class Match {
       else if (unlocked && on && pl.repeat.length === 1) why = 'The base must make something';
       return { kind, unlocked, on, price, ok: why === '', why, progress: kind === next ? Math.min(1, pl.bank / WORK[kind]!) : -1, seconds: WORK[kind]! / rate / TICKS_PER_SEC };
     });
-    const upgrade = (kind: Kind, lvl: number, costs: readonly number[]): UpgradeInfo => {
+    const standing = collectorsOf(g, this.me);
+    const upgrades: UpgradeInfo[] = frenzyUpgrades(pl.faction).map((kind) => {
+      const costs = upgradeCosts(kind), lvl = pl[upgradeKey(kind)];
       const cost = costs[Math.min(lvl, costs.length - 1)]!;
-      const why = lvl >= costs.length ? `${def(kind).name} is at its top level` : pl.blocks < cost ? 'Not enough Blocks' : '';
-      return { kind, level: lvl, max: costs.length, cost, ok: why === '', why };
-    };
+      const why = lvl >= costs.length ? `${def(kind).name} is at its top level`
+        : standing === 0 ? 'Upgrades are bought at a Collector, and yours are down' : pl.blocks < cost ? 'Not enough Blocks' : '';
+      return { kind, level: lvl, max: costs.length, cost, ok: why === '', why, blurb: upgradeBlurb(kind) };
+    });
     let middle = -2;
     for (const e of g.ents) if (e.kind === K.Tower && onLayer(g, pl.vis, e.x, e.y)) middle = e.busy - 1;
     return {
@@ -555,7 +568,7 @@ export class Match {
         back: pl.heroBack > 0 ? Math.ceil((pl.heroBack - g.tick) / TICKS_PER_SEC) : 0,
       },
       abilities, spawn,
-      upgrades: [upgrade(f.research[0]!, pl.weapons, FRENZY.researchCost), upgrade(f.research[1]!, pl.armour, FRENZY.researchCost), upgrade(K.Muster, pl.muster, FRENZY.musterCost)],
+      upgrades, collectors: standing, income: income(standing, pl.haul) + (middle === this.me ? FRENZY.middle : 0),
       middle, overtime: g.tick >= FRENZY.overtime, hall: hall ? hall.hp / maxHp(hall) : 0,
       sides: g.players.map((q) => ({ id: q.id, faction: q.faction, out: q.out })),
     };
@@ -601,7 +614,7 @@ export class Match {
   setFollow(on: boolean): void {
     this.follow.value = on;
     try {
-      localStorage.setItem('foothold.follow', on ? 'on' : 'off');
+      localStorage.setItem('foothold.heroFollow', on ? 'on' : 'off');
     } catch {
       // Private browsing: the choice still holds for this match.
     }
@@ -674,10 +687,9 @@ export class Match {
     this.sel.value = i;
   }
 
-  /** Sets how a group (the selected one unless named) answers taps on the map from now on. */
-  setMode(mode: OrderMode, group = this.sel.value): void {
-    if (group < 0 || (mode !== O.Attack && mode !== O.Move)) return;
-    this.modes.value = this.modes.value.map((old, i) => (i === group ? mode : old));
+  /** Sets how taps on the map are answered from now on, whatever is selected. */
+  setMode(mode: OrderMode): void {
+    if (mode === O.Attack || mode === O.Move) this.mode.value = mode;
   }
 
   /**
@@ -915,6 +927,17 @@ export class Match {
       }
     }
     this.site.value = 0;
+    // Frenzy: a tap on one of your Collectors opens what it sells.
+    if (this.frenzy) {
+      for (const e of g.ents) {
+        if (e.owner !== this.me || e.kind !== K.Collector) continue;
+        const half = (def(e.kind).size * TILE) / 2;
+        if (Math.abs(x - e.x) <= half && Math.abs(y - e.y) <= half) {
+          this.techAsk.value++;
+          return;
+        }
+      }
+    }
     const reach = Math.max(TILE * 0.9, (26 / this.cam.zoom) * TILE);
     let hit: Entity | undefined, hitD = reach;
     for (const e of g.ents) {
@@ -931,8 +954,12 @@ export class Match {
       this.sel.value = hit.group;
       return;
     }
-    if (this.sel.value >= 0) {
-      if (!this.orderTo(x, y)) this.sel.value = -1;
+    if (this.sel.value >= 0 && !this.orderTo(x, y)) {
+      // A fallen hero stays picked up: it will want its orders the moment it is back.
+      const pl = g.players[this.me]!;
+      if (this.frenzy && this.sel.value === HERO && pl.heroBack > 0) {
+        this.alert('herodown2', `Your ${this.heroName()} is down: back in ${Math.ceil((pl.heroBack - g.tick) / TICKS_PER_SEC)} s`, 'warn', undefined, undefined, 5);
+      } else this.sel.value = -1;
     }
   }
 

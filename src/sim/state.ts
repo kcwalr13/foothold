@@ -73,7 +73,7 @@ export function turned(g: Game, owner: number, x: number, y: number): { x: numbe
 export function maxHp(e: Entity): number {
   const d = def(e.kind);
   if (e.lvl === 0) return d.hp;
-  return d.hero ? heroHp(e.kind, e.lvl) : isHall(e.kind) ? FRENZY.hallHp : FRENZY.turretHp;
+  return d.hero ? heroHp(e.kind, e.lvl, e.grit) : isHall(e.kind) ? FRENZY.hallHp : FRENZY.turretHp;
 }
 
 export function spawn(g: Game, kind: Kind, owner: number, x: number, y: number): Entity {
@@ -86,7 +86,7 @@ export function spawn(g: Game, kind: Kind, owner: number, x: number, y: number):
     ws: W.Idle, carry: 0, cargo: 0, pile: 0, site: 0, timer: 0,
     built: true, progress: 0, queue: [], qprog: 0, builder: 0,
     amount: 0, busy: 0, eggs: 0,
-    lvl: 0, daze: 0, haste: 0, ttl: 0, by: -1,
+    lvl: 0, daze: 0, haste: 0, ttl: 0, by: -1, grit: 0,
   };
   g.ents.push(e);
   g.byId.set(e.id, e);
@@ -112,7 +112,7 @@ function newPlayer(id: number, tiles: number, faction: Faction): Player {
     groups: Array.from({ length: RULES.groups }, () => ({ mode: O.Idle, x: 0, y: 0 })),
     vis: new Uint8Array(tiles), visAir: new Uint8Array(tiles), explored: new Uint8Array(tiles), seen: new Map(),
     stats: { gathered: 0, gathered2: 0, spent: 0, trained: 0, lostUnits: 0, lostBuildings: 0, killedUnits: 0, killedBuildings: 0, firstAttackTick: -1 },
-    unlocked: [], muster: 0, bank: 0, turn: 0, hero: 0, heroLvl: 0, heroXp: 0, heroBack: 0, cds: [0, 0, 0],
+    unlocked: [], muster: 0, haul: 0, might: 0, grit: 0, tempo: 0, bank: 0, turn: 0, hero: 0, heroLvl: 0, heroXp: 0, heroBack: 0, cds: [0, 0, 0],
   };
 }
 
@@ -172,8 +172,8 @@ export function createGame(seed: number, map?: GameMap, factions: readonly Facti
     }
   }
   if (mode === 'frenzy') {
-    // Frenzy: no Workers. Two Turrets guard the way up, the hero stands ready, and the base makes the
-    // faction's first fighter until told otherwise.
+    // Frenzy: no Workers. Two Turrets stand either side of the base and two Collectors behind it, the hero
+    // stands ready, and the base makes the faction's first fighter until told otherwise.
     for (let i = 0; i < 2; i++) {
       for (const pl of g.players) {
         const t = map.posts[pl.id]!.turrets[i]!;
@@ -181,6 +181,13 @@ export function createGame(seed: number, map?: GameMap, factions: readonly Facti
         gun.lvl = 1;
         gun.hp = maxHp(gun);
         g.nav.setRect(t.tx, t.ty, 2, 1);
+      }
+    }
+    for (let i = 0; i < 2; i++) {
+      for (const pl of g.players) {
+        const c = map.posts[pl.id]!.collectors[i]!;
+        spawn(g, K.Collector, pl.id, (c.tx + 1) * TILE, (c.ty + 1) * TILE);
+        g.nav.setRect(c.tx, c.ty, 2, 1);
       }
     }
     for (const pl of g.players) {
@@ -205,6 +212,7 @@ export function placeHero(g: Game, pl: Player, x: number, y: number): Entity {
   pl.heroLvl = Math.max(1, pl.heroLvl);
   const h = spawn(g, FACTIONS[pl.faction].hero, pl.id, x, y);
   h.lvl = pl.heroLvl;
+  h.grit = pl.grit;
   h.hp = maxHp(h);
   h.group = FRENZY.heroGroup;
   h.ax = x;
@@ -372,6 +380,7 @@ export function hash(g: Game): number {
     // Classic matches keep the checksum they have always had; Frenzy adds what only it has.
     for (const p of g.players) {
       mix(p.muster + (p.out ? 8 : 0) + p.heroLvl * 16 + p.turn * 512);
+      mix(p.haul + p.might * 8 + p.grit * 64 + p.tempo * 512);
       mix(p.bank);
       mix(p.heroXp);
       mix(p.heroBack);
@@ -380,7 +389,7 @@ export function hash(g: Game): number {
       for (const k of p.repeat) mix(k + 4096);
     }
     for (const e of g.ents) {
-      mix(e.lvl + e.group * 16);
+      mix(e.lvl + e.group * 16 + e.grit * 256);
       mix(e.daze);
       mix(e.haste);
       mix(e.ttl);

@@ -49,6 +49,14 @@ function report(name: string, rs: FrenzyResult[]): void {
   console.log(`  hero level: median ${median(lvl5)} at 5:00; the winner ends at ${median(lvlEnd)}`);
   const march = rs.flatMap((r) => r.firstMarch.filter((t) => t >= 0));
   console.log(`  first march from home: median ${mmss(median(march))}`);
+  // Collectors: how often a side loses one while its base still stands, and whether the winner kept both.
+  const sidesN = rs.length * 4;
+  const down = rs.flatMap((r) => r.collectorDown.filter((t) => t >= 0)), gone = rs.flatMap((r) => r.collectorsGone.filter((t) => t >= 0));
+  const whole = done.filter((r) => r.collectorDown[r.winner]! < 0).length;
+  console.log(`  Collectors: a side loses one before its base in ${pct(down.length, sidesN)} of seats (median at ${mmss(median(down))}), both in ${pct(gone.length, sidesN)} (median at ${mmss(median(gone))}); the winner still has both in ${pct(whole, done.length)}`);
+  const names = ['Weapons', 'Armour', 'Muster', 'Haul', 'Might', 'Grit', 'Tempo'];
+  const won = done.map((r) => r.bought[r.winner]!);
+  console.log(`  the winner ends with: ${names.map((n, i) => `${n} ${(won.reduce((s, b) => s + b[i]!, 0) / Math.max(1, won.length)).toFixed(1)}`).join(', ')}`);
   for (const f of [G, D]) {
     // What one side of this faction turns out in a round, averaged over every seat the faction took.
     const made: Record<string, number> = {};
@@ -79,7 +87,7 @@ for (const f of [G, D]) {
 }
 
 // One-unit armies: a side that only ever makes one thing, against three ordinary opponents of mixed factions.
-const TRICKS: [Faction, Kind][] = [[G, K.Trooper], [G, K.Lancer], [G, K.Tank], [G, K.Gunship], [D, K.Raptor], [D, K.Spitter], [D, K.Horn], [D, K.Ptero]];
+const TRICKS: [Faction, Kind][] = [[G, K.Bayonet], [G, K.Trooper], [G, K.Lancer], [G, K.Tank], [G, K.Gunship], [D, K.Raptor], [D, K.Spitter], [D, K.Horn], [D, K.Ptero]];
 console.log('\nOne-unit armies against three ordinary opponents (a fair share of wins is 25%)');
 for (const [f, kind] of TRICKS) {
   const trick: FrenzyJob[] = [];

@@ -1089,6 +1089,19 @@ export class Renderer {
     const seed = f.born % 6.28;
     if (f.t === 'shot') {
       const x1 = sx(f.x1), y1 = sy(f.y1), x2 = sx(f.x2), y2 = sy(f.y2);
+      if (f.kind === K.Bayonet) {
+        // A thrust: one bright line into what was hit.
+        const a = Math.atan2(y2 - y1, x2 - x1), r = z * 0.32, from = 0.95 - k * 0.5;
+        for (const [w, colour] of [[Math.max(3, z * 0.12), `rgba(150,30,20,${0.45 * (1 - k)})`], [Math.max(1.5, z * 0.06), `rgba(255,255,255,${0.95 * (1 - k)})`]] as const) {
+          x.strokeStyle = colour;
+          x.lineWidth = w;
+          x.beginPath();
+          x.moveTo(x2 - Math.cos(a) * r * from, y2 - Math.sin(a) * r * from);
+          x.lineTo(x2 + Math.cos(a) * r * 0.3, y2 + Math.sin(a) * r * 0.3);
+          x.stroke();
+        }
+        return;
+      }
       if (drawDinoHit(st, f.kind, x1, y1, x2, y2, k)) return;
       const blast = (def(f.kind).splash / TILE) * z;
       const at = (q: number): [number, number] => [x1 + (x2 - x1) * q, y1 + (y2 - y1) * q];

@@ -52,7 +52,7 @@ function battle(name: string, factions: readonly [Faction, Faction], mixes: read
 function frenzy(name: string, factions: readonly Faction[]): void {
   const g = createGame(5, undefined, factions);
   const FULL: Record<Faction, Mix> = {
-    green: [[K.Trooper, 14], [K.Lancer, 8], [K.Tank, 2], [K.Flak, 1], [K.Gunship, 2], [K.Jugger, 1]],
+    green: [[K.Bayonet, 10], [K.Trooper, 6], [K.Lancer, 6], [K.Tank, 2], [K.Flak, 1], [K.Gunship, 2], [K.Jugger, 1]],
     dino: [[K.Raptor, 22], [K.Spitter, 10], [K.Horn, 2], [K.Ptero, 1], [K.Rex, 1]],
   };
   const mid = (g.map.w * TILE) / 2;

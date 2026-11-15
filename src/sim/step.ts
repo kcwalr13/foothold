@@ -1177,7 +1177,9 @@ function inMap(g: Game, x: number, y: number): boolean {
  */
 function damage(g: Game, by: Entity, d: Def, t: Entity, share: number): number {
   const td = def(t.kind);
-  const hit = Math.max(1, Math.trunc(((d.hero ? heroDmg(by.kind, by.lvl) : d.dmg) * d.vs[td.cls]!) / 100));
+  // A hero hits as its level and its Might make it; a Frenzy base's Turret (marked by `lvl`) harder than a Classic one.
+  const basis = d.hero ? heroDmg(by.kind, by.lvl, g.players[by.owner]!.might) : d.building && by.lvl > 0 ? Math.trunc((d.dmg * FRENZY.turretPower) / 100) : d.dmg;
+  const hit = Math.max(1, Math.trunc((basis * d.vs[td.cls]!) / 100));
   const up = d.building ? 100 : 100 + g.players[by.owner]!.weapons * RULES.weaponStep;
   const down = td.building ? 100 : 100 - g.players[t.owner]!.armour * RULES.armourStep;
   if (up === 100 && down === 100 && share === 100) return hit;

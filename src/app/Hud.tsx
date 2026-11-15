@@ -59,6 +59,18 @@ export function UnitIcon({ kind, size = 22 }: { kind: number; size?: number }) {
       return <svg viewBox="0 0 24 24" {...s}><path d="M5 4 Q9 12 6 20 M11 3 Q15 12 12 21 M17 4 Q21 12 18 20" stroke="#d9463d" stroke-width="2.6" fill="none" stroke-linecap="round" /><path d="M5 4 Q9 12 6 20 M11 3 Q15 12 12 21 M17 4 Q21 12 18 20" stroke={ink} stroke-width="0.6" fill="none" stroke-linecap="round" /></svg>;
     case K.Muster:
       return <svg viewBox="0 0 24 24" {...s}><path d="M4 12 H13 M4 7 H10 M4 17 H10" stroke={ink} stroke-width="2.2" stroke-linecap="round" /><path d="M12 5 L20 12 L12 19 Z" fill="#58c04a" stroke={ink} stroke-linejoin="round" /></svg>;
+    case K.Haul:
+      // A stack of Blocks with more on the way up.
+      return <svg viewBox="0 0 24 24" {...s}><rect x="3" y="13" width="8" height="8" fill="#d9463d" stroke={ink} stroke-width="1.3" /><rect x="11" y="13" width="8" height="8" fill="#3f7fd0" stroke={ink} stroke-width="1.3" /><rect x="7" y="5" width="8" height="8" fill="#f2c230" stroke={ink} stroke-width="1.3" /><path d="M20 10 V3 M17 5.6 L20 2.6 L23 5.6" stroke="#2f8a2a" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>;
+    case K.Might:
+      // The hero's star, with an edge to it.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M12 2 L14.6 8.6 L21.6 9 L16.2 13.5 L18 20.4 L12 16.6 L6 20.4 L7.8 13.5 L2.4 9 L9.4 8.6 Z" fill="#f7c531" stroke={ink} stroke-width="1.4" stroke-linejoin="round" /><path d="M9 13 L15 7" stroke="#d9463d" stroke-width="2.4" stroke-linecap="round" /></svg>;
+    case K.Grit:
+      // A heart behind a shield's rim.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M12 21 C4 15.5 2.5 11 4.2 7.4 C5.8 4.2 10 4 12 7.2 C14 4 18.2 4.2 19.8 7.4 C21.5 11 20 15.5 12 21 Z" fill="#e0564c" stroke={ink} stroke-width="1.5" stroke-linejoin="round" /><path d="M12 9.5 V15.5 M9 12.5 H15" stroke="#fff3e6" stroke-width="2.2" stroke-linecap="round" /></svg>;
+    case K.Tempo:
+      // A stopwatch.
+      return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="13.5" r="8" fill="#f8f1dc" stroke={ink} stroke-width="1.6" /><path d="M10 2.5 H14 M12 2.5 V5.5 M18.6 6.4 L20.2 4.8" stroke={ink} stroke-width="1.8" stroke-linecap="round" /><path d="M12 13.5 V8.6 M12 13.5 L15.6 15.6" stroke="#2f8df0" stroke-width="2.1" stroke-linecap="round" /></svg>;
     case K.Hide:
       return <svg viewBox="0 0 24 24" {...s}><path d="M12 2.5 L20.5 6 V12 C20.5 17 17 20.2 12 21.8 C7 20.2 3.5 17 3.5 12 V6 Z" fill="#8a9a5b" stroke={ink} stroke-linejoin="round" /><path d="M7 9 Q9.5 7 12 9 Q14.5 7 17 9 M7 13 Q9.5 11 12 13 Q14.5 11 17 13 M9 17 Q10.5 15.4 12 17 Q13.5 15.4 15 17" stroke="#dfe7c0" stroke-width="1.4" fill="none" /></svg>;
     default:
@@ -145,15 +157,19 @@ function SpawnButton({ m, info }: { m: Match; info: SpawnInfo }) {
   );
 }
 
+/** An upgrade on Frenzy's Tech tab: its picture, how far it has been taken, and what the next level costs. */
 function UpgradeButton({ m, info }: { m: Match; info: UpgradeInfo }) {
   const d = def(info.kind);
   const done = info.level >= info.max;
   return (
-    <button class={`row ${info.ok ? '' : 'dim'}`} aria-label={`Buy ${d.name}`} data-kind={info.kind}
+    <button class={`tile up ${done ? 'done' : ''} ${info.ok || done ? '' : 'dim'}`} aria-label={`Buy ${d.name}`} data-kind={info.kind} data-level={info.level} title={info.blurb}
       onClick={() => (info.ok ? m.research(info.kind) : m.alert(`why${info.kind}`, info.why, 'warn', undefined, undefined, 5))}>
       <UnitIcon kind={info.kind} size={24} />
-      <span class="name">{d.name} <b class="pips">{'●'.repeat(info.level)}{'○'.repeat(info.max - info.level)}</b></span>
-      {done ? <span class="cost">Top level</span> : <Cost cost={info.cost} gas={0} />}
+      <span class="name">{d.short}</span>
+      <span class="cost">
+        <span class="pips" aria-hidden="true">{Array.from({ length: info.max }, (_, i) => <i key={i} class={i < info.level ? 'on' : ''} />)}</span>
+        <span class="price">{done ? 'top' : info.cost}</span>
+      </span>
     </button>
   );
 }
@@ -262,7 +278,6 @@ function GroupButton({ m, i }: { m: Match; i: number }) {
         </span>
       )}
       {m.hud.value.rally === i && <span class="rally" title="New units join this group">+new</span>}
-      {!empty && m.modes.value[i] === O.Move && <span class="gmode">move</span>}
       {!empty && <span class="bar"><i style={{ width: `${Math.round(gi!.hp * 100)}%` }} class={gi!.hp < 0.35 ? 'low' : ''} /></span>}
     </button>
   );
@@ -373,6 +388,8 @@ function Organiser({ m }: { m: Match }) {
 
 export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { current: HTMLCanvasElement | null }; onQuit: () => void; onAgain: () => void }) {
   const [tab, setTab] = useState<'build' | 'train' | 'tech'>('train');
+  // What the Tech tab last said about an upgrade: the line under the grid.
+  const [told, setTold] = useState(-1);
   const h = m.hud.value;
   const fz = h.frenzy;
   const mine = m.factions[0]!, theirs = m.factions[1]!, dino = mine === 'dino';
@@ -389,13 +406,20 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
   useEffect(() => {
     if (placing) setTab('build');
   }, [placing !== null]);
+  // A tap on one of your Collectors, out on the map, opens what it sells.
+  const asked = m.techAsk.value;
+  useEffect(() => {
+    if (asked > 0) setTab('tech');
+  }, [asked]);
   const capped = h.supply >= h.cap;
   // Shown beside the clock whenever the match is not running at its normal speed.
   const pace = m.speed.value === 1 ? undefined : SPEEDS.find((sp) => sp.value === m.speed.value);
   return (
     <div class="hud">
       <div class="top">
-        <span class="stat"><BlocksIcon /> <b data-stat="blocks">{h.blocks}</b></span>
+        <span class="stat"><BlocksIcon /> <b data-stat="blocks">{h.blocks}</b>
+          {fz && <span class={`gain ${fz.collectors < 2 ? 'bad' : ''}`} data-stat="income" title={`${fz.collectors} of 2 Collectors standing`}>+{fz.income}</span>}
+        </span>
         {!fz && <span class="stat"><BatteryIcon /> <b data-stat="batteries">{h.gas}</b></span>}
         <span class={`stat ${capped ? 'bad' : ''}`}><span class="lbl">Supply</span> <b>{h.supply}/{h.cap}</b></span>
         {!fz && <span class={`stat ${h.workers > h.work ? 'over' : ''}`}><span class="lbl">{def(F.worker).plural}</span> <b data-stat="workers">{h.workers}/{h.work}</b></span>}
@@ -434,9 +458,13 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
             {fz.spawn.map((sp) => <SpawnButton key={sp.kind} m={m} info={sp} />)}
           </div>
         ) : (
-          <div class="list">
+          <div class="grid ups" onPointerDown={(e) => {
+            const k = Number((e.target as HTMLElement).closest('button')?.getAttribute('data-kind') ?? -1);
+            if (k >= 0) setTold(k);
+          }}>
             {fz.upgrades.map((u) => <UpgradeButton key={u.kind} m={m} info={u} />)}
-            <p class="note">Bought on the spot. {dino ? 'Claws' : 'Weapons'}: harder hits. {dino ? 'Hide' : 'Armour'}: less taken. Muster: the base works faster.</p>
+            <p class="note" data-note="tech">{fz.collectors === 0 ? 'Both Collectors are down: nothing can be bought.'
+              : fz.upgrades.find((u) => u.kind === told)?.blurb ?? 'Bought on the spot, at your Collectors.'}</p>
           </div>
         )) : tab === 'train' ? (
           <div class="grid">
@@ -466,8 +494,8 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
         )}
         {(fz ? [0, 1] : [0, 1, 2, 3]).map((i) => <GroupButton key={i} m={m} i={i} />)}
         <div class="orders">
-          <button class={sel >= 0 && m.mode.value === O.Attack ? 'on' : ''} aria-pressed={sel >= 0 && m.mode.value === O.Attack} disabled={sel < 0} onClick={() => m.setMode(O.Attack)}>Attack</button>
-          <button class={sel >= 0 && m.mode.value === O.Move ? 'on' : ''} aria-pressed={sel >= 0 && m.mode.value === O.Move} disabled={sel < 0} onClick={() => m.setMode(O.Move)}>Move</button>
+          <button class={m.mode.value === O.Attack ? 'on' : ''} aria-pressed={m.mode.value === O.Attack} title="Go there, fighting on the way" onClick={() => m.setMode(O.Attack)}>Attack</button>
+          <button class={m.mode.value === O.Move ? 'on' : ''} aria-pressed={m.mode.value === O.Move} title="Go there without stopping to fight" onClick={() => m.setMode(O.Move)}>Move</button>
           <button disabled={sel < 0} onClick={() => m.hold()}>Hold</button>
           {fz
             ? <button class={m.follow.value ? 'on' : ''} aria-pressed={m.follow.value} aria-label="Follow" title="Your first group goes wherever the hero is sent" onClick={() => m.setFollow(!m.follow.value)}>Follow</button>

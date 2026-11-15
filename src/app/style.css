@@ -128,7 +128,6 @@ button:disabled { opacity: 0.45; }
 .group.hurt { border-color: var(--warn); box-shadow: 0 2px 0 var(--warn); animation: flash 0.5s steps(2) infinite; }
 .tile .brood { font-size: 9.5px; color: var(--green); }
 .group .rally { position: absolute; left: 4px; top: 1px; font-size: 9px; font-weight: 900; color: var(--green); }
-.group .gmode { position: absolute; right: 5px; bottom: 6px; font-size: 9.5px; font-weight: 900; color: #2f62a8; }
 @keyframes flash { 50% { background: #f6c3ba; } }
 
 .orders { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
@@ -283,3 +282,15 @@ img.toy { display: inline-block; vertical-align: middle; flex-shrink: 0; -webkit
   .right.frenzy .group { min-height: 44px; }
   .right.frenzy .ability { height: 44px; }
 }
+
+/* ---------- Frenzy: what a Collector sells, and what it brings in ---------- */
+.gain { font-size: 11px; font-weight: 800; color: var(--green); margin-left: -1px; }
+.gain.bad { color: var(--warn); }
+.tile.up .cost { align-items: center; padding: 0 4px; }
+.tile.up .cost > span { margin: 0; }
+.tile.up .pips { display: inline-flex; gap: 1.5px; }
+.tile.up .pips i { width: 4.5px; height: 4.5px; margin: 0; border-radius: 50%; border: 1px solid var(--edge); box-sizing: border-box; }
+.tile.up .pips i.on { background: var(--green); border-color: var(--green); }
+.tile.up.done { border-color: var(--green); box-shadow: 0 2px 0 var(--green); }
+.tile.up.done .price { color: var(--green); font-weight: 800; }
+.grid.ups .note { grid-column: 2 / -1; align-self: center; margin: 0 2px; }

@@ -8,8 +8,9 @@ play them.
 
 - **Classic** is one opponent on Twin Ridges: gather, build, take the map, knock down every last base.
 - **Frenzy** is four corners and every side for itself, after Footman Frenzy. Your base makes its army by
-  itself; you choose what goes into the mix, buy upgrades, and steer a hero with three abilities. Kills pay,
-  the Watchtower in the middle pays, and a side whose base falls is out. Last base standing wins.
+  itself; you choose what goes into the mix, buy upgrades at the Collectors behind it, and steer a hero with
+  three abilities. Collectors pay, kills pay, the Watchtower in the middle pays, and a side whose base falls
+  is out. Last base standing wins.
 
 - **The Green Army** is the plastic army men: ranged, steady, strongest dug in. It trains in queues at its
   buildings and builds anywhere on open ground. Eight buildings, eight fighting units from Troopers to
@@ -33,7 +34,8 @@ Classic:
 - **Left thumb, the base.** Train (or Hatch): tap a unit to make one, press and hold to keep them coming.
   Build: pick a building, drag its outline onto the map, then Build.
 - **Right thumb, the armies.** Tap a group, then tap the map or the minimap to send it. Attack fights what it
-  meets, Move goes without fighting, and a group keeps whichever you set; Hold digs in. Tap Groups, or any
+  meets, Move goes without fighting, and whichever you press stays lit for every group until you press the
+  other; Hold digs in. Tap Groups, or any
   empty group, to organise the army: tap the units you want, then the group they should join. Double-tap a
   group to jump to it.
 - **Speed.** Pause, top right, also sets the speed: half or three-quarter to take your time, normal, or
@@ -47,14 +49,19 @@ Classic:
 
 Frenzy:
 
-- **Left thumb, the base.** It makes units by itself while there is supply. Spawn: unlock a unit with Blocks,
-  then tap it into or out of the mix. Tech: Weapons, Armour and Muster (a faster base), bought on the spot.
-- **Right thumb, the hero.** Tap your hero, then the map. With Follow on, your first group goes wherever the
-  hero is sent. Abilities open at levels 1, 3 and 6: tap one, then the map if a ring appears. A fallen hero
-  comes back at the base after a wait, and mends there.
+- **Left thumb, the base.** It makes units by itself while there is supply: Bayonets or Raptors to begin
+  with, who fight hand to hand. Spawn: unlock a unit with Blocks, then tap it into or out of the mix.
+- **Collectors.** The two behind your base bring in your Blocks and sell everything on the Tech tab, on the
+  spot: Weapons and Armour for the army, Muster for a faster base, Haul for more Blocks, and Might, Grit and
+  Tempo for your hero. Lose one and half your Blocks stop; lose both and nothing can be bought.
+- **Right thumb, the hero.** Tap your hero, then the map. It goes on its own; switch Follow on and your first
+  group goes wherever it is sent. Abilities open at levels 1, 3 and 6: tap one, then the map if a ring
+  appears. A fallen hero comes back at the base after a wait, and mends there.
+- **Attack and Move.** One setting for the hero and every group: whichever you press stays lit until you
+  press the other.
 - **Groups.** New units join Group 1. Press and hold a group to split some off into Group 2.
-- **Blocks.** A trickle, a share of everything your side brings down, and more for holding the Watchtower in
-  the middle alone. A hero learns from every enemy that falls near it.
+- **Blocks.** What the Collectors bring in, a share of everything your side brings down, and more for holding
+  the Watchtower in the middle alone. A hero learns from every enemy that falls near it.
 - **Overtime.** From 10:00 every base crumbles except the base of the side that holds the middle.
 
 ## Develop

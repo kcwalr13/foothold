@@ -4,7 +4,8 @@ Foothold is Kyle's phone real-time strategy game: toy soldiers on a paper map, l
 15 to 20 minute matches against a computer opponent, with player versus player left open for later.
 It has two modes. Classic is the game the design doc was written for: one opponent, an economy, bases to
 build. Frenzy (milestone MF) is a four-corner free-for-all in the spirit of Footman Frenzy: bases that make
-their own armies, a hero a side that you steer yourself, last base standing.
+their own armies, Collectors behind each base that bring in the Blocks and sell the upgrades, a hero a side
+that you steer yourself, last base standing.
 
 Kyle is the visionary; Claude builds. The design doc is the source of truth:
 https://claude.ai/artifact/MSPJQ9Ur2J2PK3sCuKWHcF. Read it (docs tools) before changing gameplay, keep it true
@@ -67,12 +68,16 @@ most three taste questions.
   outlives it. High ground is `map.high`: it sees down, outranges low ground and is not seen from below;
   flyers see and are seen regardless (`vis` and `visAir`).
 - The app never decides a rule; it asks `src/sim` (`canPlace`, `hasBuilt`, ...).
-- Frenzy in the app: `Match.frenzy` (not `Match.mode`, which is the selected group's Attack or Move),
-  `Match.rivals` (the three `FrenzyBot`s), `hud.frenzy` for the panels. The hero is steered like a group;
-  with Follow on (`Match.follow`, remembered) an order to the hero is also an order to the group new units
-  join, and while the hero is down that group still answers. An ability that needs a place is aimed:
-  `Match.aim` holds its slot until the next tap on the map (`castAt`). A round is over for the player when
-  it is won or when their own base falls (`Match.over`, `Match.outcome`).
+- Attack or Move is one setting for the whole army, in both modes: `Match.mode` belongs to no group, stays
+  as pressed until the other is pressed (whatever is selected, falls or comes back), and its two buttons are
+  never disabled. Kyle asked for exactly this, twice: do not make it per group or reset it anywhere.
+- Frenzy in the app: `Match.frenzy`, `Match.rivals` (the three `FrenzyBot`s), `hud.frenzy` for the panels
+  (`collectors`, `income`, `upgrades`). The hero is steered like a group and goes on its own. Follow
+  (`Match.follow`, remembered, off unless the player switches it on: Kyle's call) makes an order to the hero
+  also an order to the group new units join, and while the hero is down that group still answers. A fallen
+  hero stays selected. A tap on one of your own Collectors opens the Tech tab (`Match.techAsk`). An ability
+  that needs a place is aimed: `Match.aim` holds its slot until the next tap on the map (`castAt`). A round
+  is over for the player when it is won or when their own base falls (`Match.over`, `Match.outcome`).
 - Match speed is the app's alone: `Match.speed` (one of `SPEEDS`, set from the pause sheet and remembered)
   scales how long a tick waits in `frame()`. The sim never sees it, so it cannot change a match; like pausing,
   it exists only against the computer.
@@ -114,14 +119,25 @@ most three taste questions.
   closing; `raider` units go for Workers first. Claws and Hide are Weapons and Armour by another name
   (`researchOf`).
 - Frenzy's rules, all in `src/sim` (`frenzy.ts`, numbers in `FRENZY`, `UNLOCK`, `WORK` and `ABILITIES` in
-  `data.ts`): `createGame` with four factions makes a Frenzy round on `fourCorners()`. No Workers, no
-  building, no Batteries: `build`, `train` and `cancel` are ignored. A base (the hall, `lvl = 1`) does
-  `musterRate[muster]` work a tick against `WORK[kind]` and turns out the mix (`pl.repeat`) in turn, waiting
-  when supply (`FRENZY.supply`) is full; `unlock` buys a unit for the mix, `repeat` takes it in or out (never
-  the last one), `research` buys Weapons, Armour and Muster on the spot. Blocks come as a trickle, for
-  holding the middle Watchtower alone (`middleHolder`), and as bounties. A hero has a level (`pl.heroLvl`,
-  `e.lvl`; `heroHp`, `heroDmg`, `maxHp(e)`), learns from enemies that fall within `xpReach`, comes back at
-  its base after `respawnTicks`, and mends there. Called-up units have `ttl` and take no supply. A side whose
+  `data.ts`): `createGame` with four factions makes a Frenzy round on `fourCorners()`. The ground is level
+  (nothing in `map.high`, Kyle's call); each base has a Turret in line on either side of it and two
+  Collectors (`K.Collector`) behind it, in the corner (`map.posts`). No Workers, no building, no Batteries:
+  `build`, `train` and `cancel` are ignored. A base (the hall, `lvl = 1`) does `musterRate[muster]` work a
+  tick against `WORK[kind]` and turns out the mix (`pl.repeat`) in turn, waiting when supply
+  (`FRENZY.supply`) is full. `FACTIONS[f].frenzy` lists what a base can make: the first is free and fights
+  hand to hand (Kyle's call: Bayonets, `K.Bayonet`, a unit only Frenzy has, and Raptors), `unlock` buys
+  another for the mix (Troopers included), `repeat` takes it in or out (never the last one). Blocks come
+  from the Collectors (`income(collectors, haul)`: nothing with none standing, and they are not rebuilt),
+  from holding the middle Watchtower alone (`middleHolder`, `FRENZY.middle`), and as bounties. `research`
+  buys an upgrade on the spot, and only while a Collector stands: `frenzyUpgrades(f)` lists them (Weapons
+  and Armour or Claws and Hide, Muster, Haul for the Collectors, and Might, Grit and Tempo for the hero),
+  `upgradeKey`, `upgradeCosts` and `upgradeBlurb` say where a level lives, what it costs and what it does.
+  To an attacker a Collector is a building like any other: no unit prefers it, and `FrenzyBot` marches on
+  the base, so in the lab no Collector is ever hit while its base stands (whether opponents should raid them
+  is Kyle's to say). A base's Turrets (a Turret with `lvl > 0`) hit
+  `FRENZY.turretPower` percent as hard as Classic ones. A hero has a level (`pl.heroLvl`, `e.lvl`;
+  `heroHp(kind, lvl, grit)`, `heroDmg(kind, lvl, might)`, `abilityPower`, `abilityCd`, `maxHp(e)`), learns
+  from enemies that fall within `xpReach`, comes back at its base after `respawnTicks`, and mends there. Called-up units have `ttl` and take no supply. A side whose
   base falls is out (`pl.out`) and its army with it; the last side in wins, and `winner` is -2 if the last
   fall together. From `FRENZY.overtime` every base loses `crumble` a second except the middle-holder's. A
   group that has been sent somewhere is still headed there when its last unit falls, so what the base
@@ -131,8 +147,9 @@ most three taste questions.
   Tanks, Mortars, Flak Tracks, Gunships, Juggernauts. For the Dino Pack: Gatherers, eggs, Nest, Dig, Den,
   Wallow, Roost, Bone Pit, Great Cave, Volcano, nesting ground; Raptors, Spitters, Horns, Pteros, Brontos,
   Rexes; Claws and Hide; the tab is Hatch, not Train. Panel buttons use each `Def`'s `short` name. In Frenzy:
-  Classic and Frenzy; the base, the Spawn tab, the mix, Muster; the Captain (Grenade, Rally, Air strike) and
-  the Alpha (Pounce, Roar, Call the Pack); Follow; the middle; Overtime; the sides are Green (you), Tan, Blue
+  Classic and Frenzy; the base, the Spawn tab, the mix; Bayonets; Collectors; Muster, Haul, Might, Grit and
+  Tempo; the Captain (Grenade, Rally, Air strike) and the Alpha (Pounce, Roar, Call the Pack); Follow; the
+  middle; Overtime; the sides are Green (you), Tan, Blue
   and Red.
 - The opponent's openings are `rush`, `standard` (safe expansion) and `greedy` (fast expansion); its tech paths
   are `infantry`, `armour` and `air`, for both factions (`PATHS` and `DINO_PATHS`). One `Bot` class plays both;
@@ -141,9 +158,10 @@ most three taste questions.
 - Frenzy's opponent is `FrenzyBot` (`src/ai/frenzy.ts`), under the same rule: a `View` in, commands out. Its
   bents are `swarm`, `heavy` and `air`; it counter-picks its mix from what it has seen, keeps new units at
   home as a reserve while its army is out, and picks whom to go for by who is hurt and who is near, not by
-  who looks weakest, so three sides do not pile on one. On Easy it stays home longer, marches with less,
-  takes no notice of what the others make and stops its upgrades early (`EASY_MUSTER`, `EASY_RESEARCH`): in
-  a four-way fight hanging back pays, so it is the missing upgrades that make Easy easy.
+  who looks weakest, so three sides do not pile on one. It buys Haul early and the hero's upgrades
+  late (`SHOPPING`, `AFTER`), and nothing while no Collector of its own stands. On Easy it stays home
+  longer, marches with less, takes no notice of what the others make and stops its upgrades early (`EASY`,
+  a cap on each): in a four-way fight hanging back pays, so it is the missing upgrades that make Easy easy.
 
 ## Checks before a build goes to Kyle
 
