@@ -231,7 +231,8 @@ export class Match {
 
   /** `factions` is what you play and then what each opponent plays: one opponent is Classic, three is Frenzy. */
   constructor(seed: number, readonly level: number, readonly factions: readonly Faction[] = ['green', 'green']) {
-    this.g = createGame(seed, undefined, factions);
+    // Brutal is the one level given anything: its opponent earns more on every load (Classic only, where there are loads).
+    this.g = createGame(seed, undefined, factions, factions.map((_, i) => (i !== this.me && level === 3 && factions.length === 2 ? RULES.brutalBonus : 0)));
     this.frenzy = this.g.mode === 'frenzy';
     const hq = this.g.ents.find((e) => e.owner === this.me && isHall(e.kind))!;
     if (this.frenzy) {

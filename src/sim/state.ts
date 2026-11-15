@@ -108,7 +108,7 @@ export function footprintTiles(g: Game, e: Entity): number[] {
 
 function newPlayer(id: number, tiles: number, faction: Faction): Player {
   return {
-    id, faction, out: false, blocks: RULES.startBlocks, gas: 0, weapons: 0, armour: 0, supply: 0, cap: 0, rally: 0, repeat: [],
+    id, faction, out: false, blocks: RULES.startBlocks, gas: 0, bonus: 0, bonusLeft: [0, 0], weapons: 0, armour: 0, supply: 0, cap: 0, rally: 0, repeat: [],
     groups: Array.from({ length: RULES.groups }, () => ({ mode: O.Idle, x: 0, y: 0 })),
     vis: new Uint8Array(tiles), visAir: new Uint8Array(tiles), explored: new Uint8Array(tiles), seen: new Map(),
     stats: { gathered: 0, gathered2: 0, spent: 0, trained: 0, lostUnits: 0, lostBuildings: 0, killedUnits: 0, killedBuildings: 0, firstAttackTick: -1 },
@@ -120,7 +120,7 @@ function newPlayer(id: number, tiles: number, faction: Faction): Player {
  * A new match. `factions` says what each side plays, and how many there are says which game it is: two sides
  * play Classic on Twin Ridges, four play Frenzy on Four Corners.
  */
-export function createGame(seed: number, map?: GameMap, factions: readonly Faction[] = ['green', 'green']): Game {
+export function createGame(seed: number, map?: GameMap, factions: readonly Faction[] = ['green', 'green'], bonus: readonly number[] = []): Game {
   const mode: Mode = factions.length === 4 ? 'frenzy' : 'classic';
   map ??= mode === 'frenzy' ? fourCorners() : twinRidges();
   if (factions.length !== map.seats) throw new Error(`${map.name} seats ${map.seats} sides, not ${factions.length}`);
@@ -130,7 +130,9 @@ export function createGame(seed: number, map?: GameMap, factions: readonly Facti
     ents: [], byId: new Map(), nextId: 1,
     players: factions.map((f, i) => newPlayer(i, map!.w * map!.h, f)),
     pending: [], casts: [], log: [], events: [], winner: -1, rebalance: 0,
-  };
+  };  // A Brutal opponent's extra income, fixed before the first tick and validated like a command would be.
+  g.players.forEach((pl, i) => { pl.bonus = Math.max(0, Math.min(100, Math.trunc(bonus[i] ?? 0))); });
+
   for (const b of map.bases) {
     for (const p of b.piles) {
       const e = spawn(g, K.Pile, -1, p.tx * TILE + TILE / 2, p.ty * TILE + TILE / 2);
@@ -364,6 +366,8 @@ export function hash(g: Game): number {
     mix(p.gas);
     mix(p.rally + p.weapons * 8 + p.armour * 64 + (p.faction === 'dino' ? 512 : 0));
   }
+  // A match without a Brutal side keeps the checksum it has always had.
+  if (g.players.some((p) => p.bonus > 0)) for (const p of g.players) mix(p.bonus + p.bonusLeft[0] * 128 + p.bonusLeft[1] * 16384);
   for (const e of g.ents) {
     mix(e.id);
     mix(e.kind);

@@ -25,7 +25,7 @@ export const TRICKS: Record<Faction, Trick[]> = {
 export interface BotOptions {
   plan?: Plan;
   tech?: Tech;
-  /** 0 Easy, 1 Normal, 2 Hard. */
+  /** -1 idle (for the lab), 0 Easy, 1 Normal, 2 Hard, 3 Brutal. Brutal plays as Hard; its extra income is the rules' (`Player.bonus`). */
   level?: number;
   trick?: Trick;
   /** For the lab's fairness check: a seed for this bot's dice, so that both sides can be made to roll the same. */
@@ -162,7 +162,7 @@ export class Bot {
 
   constructor(readonly p: number, seed: number, opts: BotOptions = {}) {
     this.rnd = rng(opts.dice ?? seed * 7919 + p * 104729 + 13);
-    this.level = opts.level ?? 1;
+    this.level = Math.min(2, opts.level ?? 1);
     this.trick = opts.trick;
     // Easy never rushes: a newcomer gets a few minutes to find the controls.
     // Otherwise the safe expansion is the most common opening, the rush the rarest.
@@ -370,7 +370,7 @@ export class Bot {
     const afford = (k: number, keep = 0, keepGas = 0) => blocks - keep >= def(k).cost && gas - keepGas >= def(k).gas;
 
     // ---------------------------------------------------------------- economy
-    const workerCap = this.level === 0 ? 18 : this.level === 2 ? 54 : 46;
+    const workerCap = this.level === 0 ? 18 : 46;
     let workerTarget = Math.min(workerCap, 14 * builtHQ.length + 6 * (hqs.length - builtHQ.length) + 3 * builtRef);
     // How many of its first army building each opening wants before it does anything else: the Green Army
     // trains at its Barracks and needs several; the Dino Pack hatches at its Nests and needs one Den.

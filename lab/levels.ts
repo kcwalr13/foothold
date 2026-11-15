@@ -7,7 +7,9 @@ import { mmss } from './match';
 import { playAll, type Job } from './pool';
 
 const seeds = Number(process.argv[2] ?? 8);
-const NAMES = ['Easy', 'Normal'];
+const NAMES = ['Easy', 'Normal', 'Hard', 'Brutal'];
+/** Each level against the one below it. */
+const LADDER: [number, number][] = [[1, 0], [2, 1], [3, 2]];
 const FACTIONS: Faction[] = ['green', 'dino'];
 const LABEL = { green: 'Green Army', dino: 'Dino Pack' } as const;
 const pct = (n: number, d: number) => `${Math.round((100 * n) / d)}%`.padStart(4);
@@ -21,15 +23,15 @@ const slice = (make: () => void): [number, number] => {
   return [from, jobs.length];
 };
 
-const levelRows = FACTIONS.flatMap((fn) => FACTIONS.map((fe) => ({
-  fn, fe,
+const levelRows = LADDER.flatMap(([hi, lo]) => FACTIONS.flatMap((fn) => FACTIONS.map((fe) => ({
+  hi, lo, fn, fe,
   at: slice(() => {
     for (let s = 1; s <= seeds; s++) {
-      jobs.push({ seed: s * 31 + 5, a: { level: 1 }, b: { level: 0 }, factions: [fn, fe] });
-      jobs.push({ seed: s * 31 + 6, a: { level: 0 }, b: { level: 1 }, factions: [fe, fn] });
+      jobs.push({ seed: s * 31 + 5, a: { level: hi }, b: { level: lo }, factions: [fn, fe] });
+      jobs.push({ seed: s * 31 + 6, a: { level: lo }, b: { level: hi }, factions: [fe, fn] });
     }
   }),
-})));
+}))));
 const idleRows = FACTIONS.flatMap((me) => FACTIONS.flatMap((foe) => NAMES.map((_, level) => ({
   me, foe, level,
   at: slice(() => {
@@ -53,9 +55,9 @@ const wins = ([from, to]: [number, number]) => {
   return w;
 };
 
-console.log('Win rate of Normal against Easy (random openings), by who plays what:');
+console.log('Win rate of each level against the one below it (random openings), by who plays what:');
 for (const row of levelRows) {
-  console.log(`  Normal ${LABEL[row.fn].padEnd(10)} against Easy ${LABEL[row.fe].padEnd(10)} ${pct(wins(row.at), row.at[1] - row.at[0])}`);
+  console.log(`  ${NAMES[row.hi]!.padEnd(6)} ${LABEL[row.fn].padEnd(10)} against ${NAMES[row.lo]!.padEnd(6)} ${LABEL[row.fe].padEnd(10)} ${pct(wins(row.at), row.at[1] - row.at[0])}`);
 }
 console.log('\nA player who does nothing at all: when the opponent first hits them, and when the match ends.');
 for (const row of idleRows) {

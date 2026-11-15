@@ -13,7 +13,9 @@ declare const __BUILD__: { commit: string; date: string };
 export const updateReady = signal<(() => void) | null>(null);
 
 // Hard and Brutal arrive with the full opponent in M4.
-const LEVELS = ['Easy', 'Normal'];
+const LEVELS = ['Easy', 'Normal', 'Hard', 'Brutal'];
+/** Frenzy's opponents come in two levels so far. */
+const FRENZY_LEVELS = 2;
 const NAMES: Record<Faction, string> = { green: 'Green Army', dino: 'Dino Pack' };
 
 interface Choice { mode: Mode; me: Faction; foe: Faction | 'any' }
@@ -112,8 +114,9 @@ function Menu({ onPlay }: { onPlay: (level: number, choice: Choice) => void }) {
               ))}
             </div>
             <div class="levels">
-              {LEVELS.map((name, i) => <button key={name} class="chip big" onClick={() => onPlay(i, sides)}>{name}</button>)}
+              {LEVELS.slice(0, frenzy ? FRENZY_LEVELS : LEVELS.length).map((name, i) => <button key={name} class="chip big" onClick={() => onPlay(i, sides)}>{name}</button>)}
             </div>
+            {!frenzy && <p class="lvlnote">Easy to Hard: the same rules for both sides, a sharper opponent each step. Brutal plays as Hard and collects a quarter more Blocks and Batteries.</p>}
             <button class="chip wide" onClick={() => setHelp(true)}>How to play</button>
             {update && <button class="chip wide" onClick={update}>New version ready: tap to load it</button>}
           </>

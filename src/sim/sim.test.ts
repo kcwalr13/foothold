@@ -8,7 +8,7 @@ import { twinRidges } from './map';
 import { canPlace, createGame, hash, schedule, spawn, tileIndex, visibleTo } from './state';
 import { step } from './step';
 import { makeView } from './view';
-import { K, O, TILE, type Kind } from './types';
+import { K, O, TILE, type Kind, type Player } from './types';
 
 const run = (g: ReturnType<typeof createGame>, n: number) => { for (let i = 0; i < n; i++) step(g); };
 
@@ -83,6 +83,28 @@ describe('economy', () => {
     }
     expect(g.players[0]!.supply).toBe(g.players[0]!.cap);
     expect(g.players[0]!.cap).toBe(def(K.HQ).provides);
+  });
+});
+
+describe('a Brutal opponent', () => {
+  it('earns a quarter more on every load, in whole numbers with the hundredths kept, and nobody else anything', () => {
+    const g = createGame(1, undefined, ['green', 'green'], [0, RULES.brutalBonus]);
+    run(g, 1800);
+    const [a, b] = g.players as [Player, Player];
+    // Both sides hauled the same (the map and the rules are fair); only the Brutal side was paid more for it.
+    expect(b.stats.gathered).toBe(a.stats.gathered);
+    expect(a.stats.gathered).toBeGreaterThan(300);
+    expect(a.blocks).toBe(RULES.startBlocks + a.stats.gathered);
+    expect(a.bonusLeft).toEqual([0, 0]);
+    const extra = (b.stats.gathered * RULES.brutalBonus - b.bonusLeft[0]) / 100;
+    expect(Number.isInteger(extra)).toBe(true);
+    expect(b.blocks).toBe(RULES.startBlocks + b.stats.gathered + extra);
+    expect(b.bonusLeft[0]).toBeLessThan(100);
+  });
+  it('takes the bonus as a command would be taken: clamped to whole percents from 0 to 100', () => {
+    const g = createGame(1, undefined, ['green', 'green'], [-5, 250.7]);
+    expect(g.players.map((p) => p.bonus)).toEqual([0, 100]);
+    expect(createGame(1).players.map((p) => p.bonus)).toEqual([0, 0]);
   });
 });
 

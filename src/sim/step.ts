@@ -905,11 +905,18 @@ function workers(g: Game): void {
         if (!hq) break;
         if (nearFootprint(e, hq, Math.trunc(TILE * 0.7))) {
           const pl = g.players[e.owner]!;
+          // A Brutal opponent earns more on every load: whole Blocks now, the hundredths kept for the next.
+          let more = 0;
+          if (pl.bonus > 0) {
+            const owed = e.carry * pl.bonus + pl.bonusLeft[e.cargo === 1 ? 1 : 0];
+            more = Math.trunc(owed / 100);
+            pl.bonusLeft[e.cargo === 1 ? 1 : 0] = owed % 100;
+          }
           if (e.cargo === 1) {
-            pl.gas += e.carry;
+            pl.gas += e.carry + more;
             pl.stats.gathered2 += e.carry;
           } else {
-            pl.blocks += e.carry;
+            pl.blocks += e.carry + more;
             pl.stats.gathered += e.carry;
           }
           e.carry = 0;

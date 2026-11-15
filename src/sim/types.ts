@@ -221,6 +221,13 @@ export interface Player {
   blocks: number;
   /** Batteries. */
   gas: number;
+  /**
+   * Percent more Blocks and Batteries on every load its Workers bring in: 0, except for a Brutal opponent
+   * (`RULES.brutalBonus`). What a load earns past whole numbers is kept, in hundredths, in `bonusLeft`
+   * (Blocks, then Batteries), so nothing is lost to rounding and nothing is a fraction.
+   */
+  bonus: number;
+  bonusLeft: [number, number];
   /** Research levels: weapons and armour, 0 to 2. */
   weapons: number;
   armour: number;

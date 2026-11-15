@@ -3,7 +3,7 @@ import { Bot, type BotOptions } from '../src/ai/bot';
 import { createGame, hash, schedule, type Game } from '../src/sim/state';
 import { step } from '../src/sim/step';
 import { makeView } from '../src/sim/view';
-import { def, isHall, isWorker } from '../src/sim/data';
+import { RULES, def, isHall, isWorker } from '../src/sim/data';
 import { K, type Faction } from '../src/sim/types';
 
 export interface Result {
@@ -32,7 +32,8 @@ export function playMatch(
   seed: number, a: BotOptions = {}, b: BotOptions = {}, maxTicks = 15000, watch?: (g: Game) => void,
   factions: readonly [Faction, Faction] = ['green', 'green'],
 ): Result {
-  const g = createGame(seed, undefined, factions);
+  // A Brutal bot's side earns more on every load, as it does against a player.
+  const g = createGame(seed, undefined, factions, [a, b].map((o) => (o.level === 3 ? RULES.brutalBonus : 0)));
   const bots = [new Bot(0, seed, { ...a, faction: factions[0], foe: factions[1] }), new Bot(1, seed + 1, { ...b, faction: factions[1], foe: factions[0] })];
   const peak: [number, number] = [0, 0];
   const made: [Record<string, number>, Record<string, number>] = [{}, {}];

@@ -197,6 +197,7 @@ button:disabled { opacity: 0.45; }
 .uline { font-size: 12.5px; line-height: 1.3; font-weight: 500; }
 .uline b { font-weight: 800; }
 .ustats { margin-top: 2px; font-size: 11px; line-height: 1.3; opacity: 0.75; }
+.lvlnote { margin: -2px 0 0; font-size: 11.5px; opacity: 0.75; text-align: center; }
 .menu .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
 /* The army organiser: four groups side by side, units picked up from one and set down in another. */

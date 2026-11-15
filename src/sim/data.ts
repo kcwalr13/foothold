@@ -290,6 +290,8 @@ export const RULES = {
   startWorkers: 8,
   /** Blocks a Worker carries per trip. */
   carry: 5,
+  /** Percent more on every load a Brutal opponent's Workers bring in. The only level that is given anything. */
+  brutalBonus: 25,
   /** Batteries a Worker carries per trip. */
   gasCarry: 3,
   /** Ticks a Worker spends at a pile or Refinery per trip. */
