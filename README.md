@@ -62,7 +62,10 @@ Set `CHROME=/path/to/chrome` to run the touch tests and `npm run icons` with a b
   two-player possible. The touch tests replay a Node match in the browser and check the result is identical.
 - `src/ai` is the computer opponent. It sees the match only through `View` (its own units, what they can see,
   what it remembers) and acts only through commands.
-- `src/app` is the phone interface: the canvas renderer, touch input and the panels.
+- `src/app` is the phone interface: the canvas renderer, touch input and the panels. There are no art files:
+  `toys.ts` paints every unit and building once as a sprite (flat colours in, moulded plastic with an ink
+  outline out), `army.ts` and `dinos.ts` hold the two factions' pieces and their animation, and the panel
+  buttons show the same toys.
 - `lab` plays whole matches with no screen attached, on every processor core, for balance and for the report
   in `docs/BALANCE.md`.
 - `e2e` drives the built app at phone sizes with touch.

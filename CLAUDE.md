@@ -50,7 +50,22 @@ most three taste questions.
 - Match speed is the app's alone: `Match.speed` (one of `SPEEDS`, set from the pause sheet and remembered)
   scales how long a tick waits in `frame()`. The sim never sees it, so it cannot change a match; like pausing,
   it exists only against the computer.
-- Nothing is fetched at runtime and there are no art files: `src/app/render.ts` draws everything.
+- Nothing is fetched at runtime and there are no art files: everything is drawn in code. The toys are
+  sprites the game paints for itself (`src/app/toys.ts`): a piece is painted once in flat colours, in tiles
+  about its own middle, by a `paint...` function in `army.ts` or `dinos.ts`, and `ToyBox` finishes every one
+  the same way (light from the top left, an ink outline, a shadow shape), crops it and keeps it. A frame
+  stamps sprites and draws only what moves by hand (tails, feet, flags, smoke, flashes). To keep it so:
+  - a piece's colours come from its side's `Team` (`TEAM` in `toys.ts`: you green, the opponent tan) plus the
+    few fixed ones (`PENCIL`, `STEEL`, `IVORY`); never a colour chosen by faction;
+  - a part that turns or moves on its own (turret, head, the figure on its base) is its own sprite; a new
+    look for a state is a new key, not a repaint of an old one;
+  - animation is the renderer's alone: `Anim` per entity (walk, heading, aim, pop-in, hit flash) and
+    `Match.fired` (who shot, from the sim's `shot` events). The sim never knows a frame was drawn;
+  - `ToyBox.begin(z)` opens each frame. Pieces are repainted for a new zoom a few a frame (`REPAINT_MS`),
+    never all at once: a pinch must not stutter;
+  - the panel buttons show the same toys (`icons.ts`, `paintArmyPiece` and `paintDinoPiece`); only research
+    has drawings of its own in `Hud.tsx`. A new unit or building needs its `reach` and its piece there too;
+  - the minimap keeps enemies red, not tan: tan there is a battery pack.
 - Every control is at least 44 px; the e2e suite checks it on three screen sizes (the shortest is 340 px
   tall, where the three-by-three panel grids have 47 px a row). Panels are sized by `INSET` in
   `src/app/match.ts` and the matching CSS variables in `style.css`: change them together.

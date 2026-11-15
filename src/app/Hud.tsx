@@ -4,7 +4,7 @@ import type { TargetedPointerEvent } from 'preact';
 import { FACTIONS, def, isRefinery } from '../sim/data';
 import { K, O, TILE, type Kind } from '../sim/types';
 import { SPEEDS, type Match } from './match';
-import { TEAM } from './render';
+import { toyIcon } from './icons';
 
 const clock = (ticks: number) => `${Math.floor(ticks / 600)}:${String(Math.floor((ticks % 600) / 10)).padStart(2, '0')}`;
 
@@ -43,79 +43,15 @@ function usePress(onTap: () => void, onHold?: () => void) {
 }
 
 export function UnitIcon({ kind, size = 22 }: { kind: number; size?: number }) {
-  const t = TEAM[0]!;
+  // Units and buildings show the toy itself; only research has a drawing of its own.
+  if (kind < 100) return <img class="toy" src={toyIcon(kind)} width={size} height={size} alt="" draggable={false} />;
   const s = { width: size, height: size };
   const ink = '#3a2d20', steel = '#2c2c2c';
   switch (kind) {
-    case K.Worker:
-      return <svg viewBox="0 0 24 24" {...s}><circle cx="11" cy="12" r="7" fill={t.dark} /><circle cx="11" cy="12" r="3.4" fill="#f2c230" /><rect x="15" y="8" width="7" height="7" fill="#d9463d" stroke={ink} /></svg>;
-    case K.Trooper:
-      return <svg viewBox="0 0 24 24" {...s}><circle cx="11" cy="12" r="9" fill={t.dark} /><circle cx="11" cy="12" r="5" fill={t.fill} /><circle cx="12" cy="12" r="3" fill={t.light} /><path d="M12 16 L23 15" stroke="#2b2b2b" stroke-width="2" stroke-linecap="round" /></svg>;
-    case K.Lancer:
-      return <svg viewBox="0 0 24 24" {...s}><rect x="2.5" y="3.5" width="17" height="17" rx="4" fill={t.dark} /><circle cx="11" cy="12" r="5" fill={t.fill} /><circle cx="12" cy="12" r="3" fill={t.light} /><path d="M4 7 L21 7" stroke="#3a3a3a" stroke-width="3.6" stroke-linecap="round" /><path d="M20 7 L23 7" stroke="#c2462f" stroke-width="4" stroke-linecap="round" /></svg>;
-    case K.Runner:
-      return <svg viewBox="0 0 24 24" {...s}><path d="M23 12 L3 21 L7 12 L3 3 Z" fill={t.dark} /><circle cx="11" cy="12" r="3.6" fill={t.light} /></svg>;
-    case K.Tank:
-      return <svg viewBox="0 0 24 24" {...s}><rect x="1.5" y="5" width="18" height="14" rx="3" fill={t.dark} /><rect x="3.5" y="7.5" width="14" height="9" rx="2" fill={t.fill} /><path d="M11 12 H23" stroke={steel} stroke-width="3" stroke-linecap="round" /><circle cx="10" cy="12" r="4.2" fill={t.light} stroke={t.dark} /></svg>;
-    case K.Mortar:
-      return <svg viewBox="0 0 24 24" {...s}><circle cx="9" cy="14" r="7.5" fill={t.dark} /><circle cx="9" cy="14" r="4" fill={t.fill} /><path d="M9 14 L20 4" stroke={steel} stroke-width="4.2" stroke-linecap="round" /><circle cx="20" cy="4" r="1.6" fill="#e9b730" /></svg>;
-    case K.Flak:
-      return <svg viewBox="0 0 24 24" {...s}><rect x="1.5" y="6" width="16" height="12" rx="2.5" fill={t.dark} /><rect x="4" y="8.5" width="9" height="7" rx="1.5" fill={t.fill} /><path d="M10 10 H23 M10 14 H23" stroke={steel} stroke-width="2.2" stroke-linecap="round" /></svg>;
-    case K.Gunship:
-      return <svg viewBox="0 0 24 24" {...s}><path d="M3 12 H12" stroke={t.dark} stroke-width="3" stroke-linecap="round" /><path d="M3 9 V15" stroke={t.dark} stroke-width="2.4" stroke-linecap="round" /><ellipse cx="15" cy="12" rx="6.5" ry="4.6" fill={t.dark} /><ellipse cx="17" cy="12" rx="2.6" ry="2.4" fill={t.light} /><path d="M7 4 L23 20 M23 4 L7 20" stroke={steel} stroke-width="1.6" stroke-linecap="round" opacity="0.75" /></svg>;
-    case K.Jugger:
-      return <svg viewBox="0 0 24 24" {...s}><rect x="1" y="2.5" width="19" height="19" rx="3" fill={steel} /><rect x="2.5" y="5.5" width="16" height="13" rx="2" fill={t.dark} /><path d="M11 10 H23 M11 14 H23" stroke={steel} stroke-width="2.6" stroke-linecap="round" /><rect x="5" y="7.5" width="9" height="9" rx="2" fill={t.fill} stroke={t.light} /></svg>;
-    case K.HQ:
-      return <svg viewBox="0 0 24 24" {...s}><rect x="2" y="2" width="20" height="20" rx="3" fill={t.dark} /><rect x="6" y="6" width="12" height="12" rx="2" fill={t.fill} /><path d="M12 14 V7 L17 9 L12 11" fill={t.flag} stroke={ink} stroke-width="1" /></svg>;
-    case K.Barracks:
-      return <svg viewBox="0 0 24 24" {...s}><rect x="2" y="5" width="20" height="14" rx="3" fill={t.fill} stroke={t.dark} /><path d="M2 5 L8 12 L2 19 Z M22 5 L16 12 L22 19 Z" fill={t.light} /><path d="M8 12 H16" stroke={t.dark} stroke-width="2" /></svg>;
-    case K.Turret:
-      return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="12" r="10" fill="#d6c59c" stroke="#8f7d55" /><circle cx="12" cy="12" r="6" fill={t.dark} /><path d="M12 12 L22 6" stroke={steel} stroke-width="3.4" stroke-linecap="round" /></svg>;
-    case K.Refinery:
-      return <svg viewBox="0 0 24 24" {...s}><rect x="2" y="2" width="20" height="20" rx="4" fill={t.dark} /><circle cx="9.5" cy="9.5" r="5" fill={t.light} stroke={t.fill} /><rect x="13" y="13" width="7" height="7" rx="1.5" fill="#e9b730" stroke={ink} /><path d="M17.2 14 L15.4 16.8 H17.4 L16 19.4" stroke={ink} stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>;
-    case K.Factory:
-      return <svg viewBox="0 0 24 24" {...s}><rect x="2" y="3" width="20" height="18" rx="2.5" fill={t.dark} /><path d="M4 9 L10 5 V9 L16 5 V9 L20 6.4 V9 Z" fill={t.light} /><rect x="4" y="10" width="16" height="9" fill={t.fill} /><rect x="9" y="13" width="6" height="6" fill={steel} /></svg>;
-    case K.Airfield:
-      return <svg viewBox="0 0 24 24" {...s}><rect x="2" y="2" width="20" height="20" rx="3" fill="#8f8a7a" stroke={t.dark} stroke-width="1.6" /><circle cx="12" cy="12" r="6.5" fill="none" stroke="#f4ecd4" stroke-width="1.6" /><path d="M9.5 8.5 V15.5 M14.5 8.5 V15.5 M9.5 12 H14.5" stroke="#f4ecd4" stroke-width="1.8" stroke-linecap="round" /></svg>;
-    case K.Armory:
-      return <svg viewBox="0 0 24 24" {...s}><rect x="2" y="2" width="20" height="20" rx="3" fill={t.dark} /><path d="M12 5 L18 7.5 V12.5 C18 16 15.5 18.4 12 19.6 C8.5 18.4 6 16 6 12.5 V7.5 Z" fill={t.light} stroke={t.fill} /><path d="M12 8.5 V16 M9 12 H15" stroke={t.dark} stroke-width="2" stroke-linecap="round" /></svg>;
-    case K.Heavy:
-      return <svg viewBox="0 0 24 24" {...s}><rect x="2" y="2" width="20" height="20" rx="3" fill={steel} /><rect x="4.5" y="4.5" width="15" height="9" rx="1.5" fill={t.dark} /><path d="M4 16 H20 V20 H4 Z" fill="#e9b730" /><path d="M6 20 L9 16 M11 20 L14 16 M16 20 L19 16" stroke={steel} stroke-width="1.8" /><path d="M7 9 H17" stroke={t.light} stroke-width="2.4" stroke-linecap="round" /></svg>;
     case K.Weapons:
       return <svg viewBox="0 0 24 24" {...s}><path d="M4 20 L15 9" stroke={steel} stroke-width="3.4" stroke-linecap="round" /><path d="M13 4 H20 V11 Z" fill="#d9463d" stroke={ink} stroke-linejoin="round" /><path d="M4 12 L8 16" stroke={ink} stroke-width="2" stroke-linecap="round" /></svg>;
     case K.Armour:
       return <svg viewBox="0 0 24 24" {...s}><path d="M12 2.5 L20.5 6 V12 C20.5 17 17 20.2 12 21.8 C7 20.2 3.5 17 3.5 12 V6 Z" fill="#8fa3b5" stroke={ink} stroke-linejoin="round" /><path d="M12 5.5 V18.6" stroke="#dfe7ee" stroke-width="2" /></svg>;
-    // ---- the Dino Pack
-    case K.Gatherer:
-      return <svg viewBox="0 0 24 24" {...s}><path d="M2 12 L8 9 V15 Z" fill={t.dark} /><ellipse cx="11" cy="12" rx="6" ry="4.5" fill={t.fill} /><ellipse cx="18" cy="12" rx="3.2" ry="2.6" fill={t.dark} /><rect x="8" y="9" width="6" height="6" fill="#e9b730" stroke={ink} /></svg>;
-    case K.Raptor:
-      return <svg viewBox="0 0 24 24" {...s}><path d="M1 12 L9 10 V14 Z" fill={t.dark} /><ellipse cx="11" cy="12" rx="5.5" ry="3.2" fill={t.fill} /><path d="M14 9 L23 10.6 L19 12 L23 13.4 L14 15 Z" fill={t.dark} /><path d="M8 9 L7.5 15 M11 9 L10.5 15" stroke={t.dark} stroke-width="1.4" /><ellipse cx="9" cy="6.5" rx="2.4" ry="1.5" fill={t.dark} /><ellipse cx="9" cy="17.5" rx="2.4" ry="1.5" fill={t.dark} /></svg>;
-    case K.Spitter:
-      return <svg viewBox="0 0 24 24" {...s}><path d="M1 12 L8 9.5 V14.5 Z" fill={t.dark} /><ellipse cx="9.5" cy="12" rx="5" ry="3.8" fill={t.fill} /><path d="M13 12 L15 4.5 A8 8 0 0 1 15 19.5 Z" fill={t.light} stroke={t.dark} stroke-width="1" /><ellipse cx="17.5" cy="12" rx="3" ry="2.2" fill={t.dark} /><circle cx="21.5" cy="12" r="1.5" fill="#7fd04a" /></svg>;
-    case K.Horn:
-      return <svg viewBox="0 0 24 24" {...s}><ellipse cx="9" cy="12" rx="7.5" ry="6" fill={t.fill} /><ellipse cx="14.5" cy="12" rx="3" ry="6.8" fill={t.dark} /><ellipse cx="14.5" cy="12" rx="1.6" ry="5" fill={t.light} /><ellipse cx="18" cy="12" rx="3" ry="2.8" fill={t.fill} /><path d="M17 9.5 L23.5 8 M17 14.5 L23.5 16 M20.5 12 H23.5" stroke="#f6efd9" stroke-width="2" stroke-linecap="round" /><path d="M17 9.5 L23.5 8 M17 14.5 L23.5 16 M20.5 12 H23.5" stroke={ink} stroke-width="0.5" stroke-linecap="round" fill="none" /></svg>;
-    case K.Ptero:
-      return <svg viewBox="0 0 24 24" {...s}><path d="M14 11 Q15 4 9 1 Q8 7 6 11 Z M14 13 Q15 20 9 23 Q8 17 6 13 Z" fill={t.fill} stroke={t.dark} stroke-width="1" /><ellipse cx="10.5" cy="12" rx="5.5" ry="2" fill={t.dark} /><path d="M15 10.4 L23.5 12 L15 13.6 Z" fill={t.dark} /></svg>;
-    case K.Bronto:
-      return <svg viewBox="0 0 24 24" {...s}><path d="M7 12 Q3 11 1 7" stroke={t.dark} stroke-width="2.6" fill="none" stroke-linecap="round" /><ellipse cx="10.5" cy="12" rx="6.5" ry="5.2" fill={t.fill} /><ellipse cx="10" cy="12" rx="4" ry="1.5" fill={t.dark} /><path d="M15.5 12 Q19 12.5 21.5 15.5" stroke={t.fill} stroke-width="3" fill="none" stroke-linecap="round" /><ellipse cx="22" cy="16" rx="1.9" ry="1.5" fill={t.dark} /></svg>;
-    case K.Rex:
-      return <svg viewBox="0 0 24 24" {...s}><path d="M1 12 L7 8.5 V15.5 Z" fill={t.dark} /><ellipse cx="9" cy="12" rx="6" ry="5" fill={t.fill} /><path d="M6 8 V16 M9 7.4 V16.6" stroke={t.dark} stroke-width="1.6" /><path d="M12 7 L20 7.6 Q23.5 12 20 16.4 L12 17 Z" fill={t.dark} /><path d="M16.5 8.2 H21 M16.5 15.8 H21" stroke="#f6efd9" stroke-width="1.6" stroke-dasharray="1.2 1.1" /></svg>;
-    case K.Nest:
-      return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="12" r="10.5" fill="#8a6a43" stroke="#5d452b" /><circle cx="12" cy="12" r="7" fill="#e6d39c" /><ellipse cx="12" cy="9" rx="2" ry="2.6" fill="#f6efd9" stroke={t.dark} /><ellipse cx="9" cy="14" rx="2" ry="2.6" fill="#f6efd9" stroke={t.dark} /><ellipse cx="15" cy="14" rx="2" ry="2.6" fill="#f6efd9" stroke={t.dark} /></svg>;
-    case K.Dig:
-      return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="12" r="10" fill="#b08a5a" stroke="#5d452b" /><ellipse cx="12" cy="12" rx="5.5" ry="4.6" fill="#3a2d20" /><rect x="11" y="9.5" width="5" height="5" rx="1" fill="#e08a1e" stroke={ink} /><circle cx="5" cy="6" r="1.8" fill={t.fill} stroke={t.dark} /></svg>;
-    case K.Den:
-      return <svg viewBox="0 0 24 24" {...s}><path d="M2 14 Q2 3 12 3 Q22 3 22 14 Q22 21 12 21 Q2 21 2 14 Z" fill="#9a8f7c" stroke="#6a6052" /><path d="M7.5 21 A4.5 5 0 0 1 16.5 21 Z" fill="#2a211a" /><path d="M6 20 A6 6.6 0 0 1 18 20" stroke={t.fill} stroke-width="2" fill="none" /></svg>;
-    case K.Wallow:
-      return <svg viewBox="0 0 24 24" {...s}><ellipse cx="12" cy="12" rx="10.5" ry="9.5" fill="#8a6a43" stroke="#5d452b" /><ellipse cx="12" cy="12.5" rx="7" ry="6" fill="#5f4a35" /><path d="M10.5 13.5 L8.5 8 M13.5 13.5 L15.5 8" stroke="#f6efd9" stroke-width="2" stroke-linecap="round" /><circle cx="4" cy="7" r="1.6" fill={t.fill} stroke={t.dark} /><circle cx="20" cy="7" r="1.6" fill={t.fill} stroke={t.dark} /></svg>;
-    case K.Roost:
-      return <svg viewBox="0 0 24 24" {...s}><path d="M12 1.5 L22 8 L20 21 L5 22 L1.5 9.5 Z" fill="#6a6052" /><path d="M12 5 L18.5 9 L17 17.5 L7.5 18 L5.5 10.5 Z" fill="#9a8f7c" /><circle cx="12" cy="12" r="3.4" fill="#e6d39c" stroke="#5d452b" stroke-width="1.6" /><path d="M14.5 10 L20 5 M9.5 14.5 L4.5 19" stroke={t.fill} stroke-width="2.2" stroke-linecap="round" /></svg>;
-    case K.BonePit:
-      return <svg viewBox="0 0 24 24" {...s}><ellipse cx="12" cy="12" rx="10.5" ry="9.5" fill="#b9a67a" /><ellipse cx="12" cy="12" rx="8" ry="7" fill="#eadfb8" /><path d="M6 12 H16 M8.5 8.5 Q10 12 8.5 15.5 M11 8.5 Q12.5 12 11 15.5 M13.5 8.5 Q15 12 13.5 15.5" stroke={ink} stroke-width="1.3" fill="none" stroke-linecap="round" /><circle cx="17.8" cy="12" r="2" fill="#f6efd9" stroke={ink} /><circle cx="4.5" cy="6" r="1.6" fill={t.fill} stroke={t.dark} /></svg>;
-    case K.Cave:
-      return <svg viewBox="0 0 24 24" {...s}><path d="M1.5 14 Q1.5 2.5 12 2.5 Q22.5 2.5 22.5 14 Q22.5 21.5 12 21.5 Q1.5 21.5 1.5 14 Z" fill="#6f675c" stroke="#463f36" /><path d="M5.5 21 A6.5 7.5 0 0 1 18.5 21 Z" fill="#1d1712" /><path d="M7 16.5 L8.5 19.5 L10 15 L12 18.5 L14 15 L15.5 19.5 L17 16.5" fill="none" stroke="#f6efd9" stroke-width="1.5" stroke-linejoin="round" /><path d="M4 20 A8 9 0 0 1 20 20" stroke={t.fill} stroke-width="2" fill="none" /></svg>;
-    case K.Volcano:
-      return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="12" r="10.5" fill="#7a5a3c" stroke={t.fill} stroke-width="1.8" /><circle cx="12" cy="12" r="7" fill="#5e4530" /><circle cx="12" cy="12" r="4.2" fill="#3a2418" /><circle cx="12" cy="12" r="3" fill="#ff8a2a" /><circle cx="11.3" cy="11.3" r="1.2" fill="#ffe07a" /></svg>;
     case K.Claws:
       return <svg viewBox="0 0 24 24" {...s}><path d="M5 4 Q9 12 6 20 M11 3 Q15 12 12 21 M17 4 Q21 12 18 20" stroke="#d9463d" stroke-width="2.6" fill="none" stroke-linecap="round" /><path d="M5 4 Q9 12 6 20 M11 3 Q15 12 12 21 M17 4 Q21 12 18 20" stroke={ink} stroke-width="0.6" fill="none" stroke-linecap="round" /></svg>;
     case K.Hide:
@@ -127,7 +63,7 @@ export function UnitIcon({ kind, size = 22 }: { kind: number; size?: number }) {
 
 /** An egg, for the count of those waiting. */
 function EggIcon() {
-  return <svg viewBox="0 0 24 24" width="17" height="17"><ellipse cx="12" cy="13" rx="7.5" ry="9.5" fill="#f6efd9" stroke="#3a2d20" stroke-width="1.6" /><circle cx="9.5" cy="9.5" r="1.7" fill="#4f9440" /><circle cx="14.5" cy="15" r="2.1" fill="#4f9440" /></svg>;
+  return <svg viewBox="0 0 24 24" width="17" height="17"><ellipse cx="12" cy="13" rx="7.5" ry="9.5" fill="#f6efd9" stroke="#3a2d20" stroke-width="1.6" /><circle cx="9.5" cy="9.5" r="1.7" fill="#3fa23a" /><circle cx="14.5" cy="15" r="2.1" fill="#3fa23a" /></svg>;
 }
 
 function BlocksIcon() {
@@ -149,7 +85,7 @@ function TrainButton({ m, kind }: { m: Match; kind: Kind }) {
   const press = usePress(() => (info.ok ? m.train(kind) : m.alert(`why${kind}`, info.why, 'warn', undefined, undefined, 5)), () => m.toggleRepeat(kind));
   return (
     <button class={`tile ${info.ok ? '' : 'dim'} ${info.repeat ? 'rep' : ''}`} aria-label={`${d.madeAt === K.Nest ? 'Hatch' : 'Train'} ${d.name}`} data-kind={kind} {...press}>
-      <UnitIcon kind={kind} size={20} />
+      <UnitIcon kind={kind} size={28} />
       <span class="name">{d.short}{d.brood > 1 && <b class="brood"> ×{d.brood}</b>}</span>
       <Cost cost={d.cost} gas={d.gas} />
       {info.queued > 0 && <span class="badge">{info.queued}</span>}
@@ -166,7 +102,7 @@ function BuildButton({ m, kind }: { m: Match; kind: Kind }) {
   return (
     <button class={`tile ${info.ok ? '' : 'dim'} ${active ? 'on' : ''}`} aria-label={`Build ${d.name}`} data-kind={kind}
       onClick={() => (info.ok ? m.beginPlace(kind) : m.alert(`why${kind}`, info.why, 'warn', undefined, undefined, 5))}>
-      <UnitIcon kind={kind} size={20} />
+      <UnitIcon kind={kind} size={28} />
       <span class="name">{d.short}</span>
       <Cost cost={d.cost} gas={d.gas} />
     </button>
@@ -239,7 +175,7 @@ function GroupButton({ m, i }: { m: Match; i: number }) {
       <span class="num">{i + 1}</span>
       {empty ? <span class="none">empty: tap to fill</span> : (
         <span class="mix">
-          {gi!.kinds.map((k) => <span class="k" key={k.kind}><UnitIcon kind={k.kind} size={15} />{k.n}</span>)}
+          {gi!.kinds.map((k) => <span class="k" key={k.kind}><UnitIcon kind={k.kind} size={18} />{k.n}</span>)}
         </span>
       )}
       {m.hud.value.rally === i && <span class="rally" title="New units join this group">+new</span>}
@@ -315,7 +251,7 @@ function Organiser({ m }: { m: Match }) {
                     <button key={k.kind} class={`gk ${live && picked!.from === i && (picked!.kind === k.kind || picked!.kind === 0) ? 'on' : ''}`}
                       aria-label={`${k.n} ${k.n === 1 ? def(k.kind).name : def(k.kind).plural} in Group ${i + 1}`}
                       onClick={(e) => { if (!target) { e.stopPropagation(); pick(i, k.kind); } }}>
-                      <UnitIcon kind={k.kind} size={19} />
+                      <UnitIcon kind={k.kind} size={24} />
                       <span>{k.n}</span>
                     </button>
                   ))}

@@ -347,6 +347,33 @@ test('every unit and building of the full arsenal is drawn, near and far, with n
   expect(errors).toEqual([]);
 });
 
+test('the buttons show the toys themselves: every unit and building has its own picture', async ({ page: p }) => {
+  const errors: string[] = [];
+  p.on('pageerror', (e) => errors.push(e.message));
+  // Eight buildings and nine units for the Green Army; eight and seven for the Dino Pack.
+  for (const [query, tabs, count] of [['play=1&seed=7', ['Build', 'Train'], 17], ['play=1&seed=7&me=dino', ['Build', 'Hatch'], 15]] as const) {
+    await start(p, query);
+    const seen = new Set<string>();
+    for (const tab of tabs) {
+      await p.getByRole('button', { name: tab, exact: true }).tap();
+      await expect(p.locator('.grid img.toy').first()).toBeVisible();
+      const toys = await p.locator('.grid img.toy').evaluateAll((els) => els.map((el) => {
+        const img = el as HTMLImageElement, r = img.getBoundingClientRect();
+        return { src: img.src, drawn: img.complete && img.naturalWidth > 0, w: r.width, h: r.height };
+      }));
+      for (const t of toys) {
+        expect(t.drawn).toBe(true);
+        // Big enough to tell a Tank from a Flak Track, and never squashed.
+        expect(t.w).toBeGreaterThanOrEqual(16);
+        expect(Math.abs(t.w - t.h)).toBeLessThan(1);
+        seen.add(t.src);
+      }
+    }
+    expect(seen.size).toBe(count);
+  }
+  expect(errors).toEqual([]);
+});
+
 // ---------------------------------------------------------------- the Dino Pack
 
 const DINO = 'play=1&seed=7&me=dino';

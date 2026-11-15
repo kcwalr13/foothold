@@ -118,6 +118,8 @@ export class Match {
   readonly speed = signal(rememberedSpeed());
   readonly over = signal(-1);
   readonly toasts = signal<Toast[]>([]);
+  /** When each piece last fired, by id, in `performance.now()` time: the renderer's recoil and muzzle flashes. */
+  readonly fired = new Map<number, number>();
   readonly hud = signal<Hud>({ tick: 0, blocks: 0, gas: 0, supply: 0, cap: 0, groups: [], rally: 0, train: [], build: [], research: [], workers: 0, work: 0, idleBarracks: 0, eggs: 0, eggMax: 0 });
 
   private acc = 0;
@@ -201,6 +203,9 @@ export class Match {
       this.refresh();
     }
     if (g.winner >= 0 && this.over.value < 0) this.over.value = g.winner;
+    if (g.tick % 600 === 0) {
+      for (const id of this.fired.keys()) if (!g.byId.has(id)) this.fired.delete(id);
+    }
   }
 
   private absorb(): void {
@@ -211,6 +216,7 @@ export class Match {
     for (const ev of g.events) {
       switch (ev.t) {
         case 'shot': {
+          this.fired.set(ev.from, now);
           const air = ev.kind === K.Gunship || ev.kind === K.Flak || ev.kind === K.Ptero;
           if (seen(ev.x1, ev.y1, air) || seen(ev.x2, ev.y2, air)) {
             const life = ev.kind === K.Mortar ? 620 : ev.kind === K.Volcano ? 420 : ev.kind === K.Bronto ? 380 : ev.kind === K.Lancer || ev.kind === K.Spitter ? 260
@@ -223,7 +229,7 @@ export class Match {
           if (seen(ev.x, ev.y, def(ev.kind).air)) {
             const d = def(ev.kind);
             const t = d.building ? 'puff' : d.cls === 0 || (ev.kind >= K.Gatherer && ev.kind <= K.Egg) ? 'fall' : 'wreck';
-            this.fx.push({ t, x1: ev.x, y1: ev.y, x2: ev.fx, y2: ev.fy, kind: ev.kind, owner: ev.owner, born: now, life: d.building ? 700 : t === 'wreck' ? 2600 : 1400 });
+            this.fx.push({ t, x1: ev.x, y1: ev.y, x2: ev.fx, y2: ev.fy, kind: ev.kind, owner: ev.owner, born: now, life: d.building ? 1700 : t === 'wreck' ? 2600 : 1400 });
           }
           if (ev.owner === this.me && def(ev.kind).building) this.alert('lost', `${def(ev.kind).name} destroyed`, 'warn', ev.x, ev.y, 30);
           break;

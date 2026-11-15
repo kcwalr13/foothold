@@ -1,20 +1,18 @@
 // Draws the match: a hand-drawn paper map with toy soldiers on it. No art files; everything is drawn here.
 import { RULES, def, isRefinery, isWorker } from '../sim/data';
 import { centroid, groupUnits, visibleTo, type Game } from '../sim/state';
-import { drawDino, drawDinoBuilding, drawDinoHit, drawDinoMarker, drawPtero, isDinoBuilding, isDinoUnit } from './dinos';
-import { C, K, O, TILE, W, type Entity, type GameMap, type Ghost } from '../sim/types';
+import { drawArmyBuilding, drawArmyFallen, drawArmyMarker, drawArmyUnit, drawGunship } from './army';
+import { drawDinoBuilding, drawDinoFallen, drawDinoHit, drawDinoMarker, drawDinoUnit, drawPtero, isDinoBuilding, isDinoUnit } from './dinos';
+import { K, O, TILE, type Entity, type GameMap } from '../sim/types';
 import { INSET, type Fx, type Match } from './match';
+import { BLOCK_COLOURS, PENCIL, Pen, STEEL, TEAM, ToyBox, brush, fire, home, pop, shadow, smoke, stamp, turn, type Anim, type BuildingLook, type Stage } from './toys';
+
+export { TEAM } from './toys';
 
 const PX = 16; // pixels per tile in the pre-drawn map sheet
 
-export const TEAM = [
-  { fill: '#4f9440', dark: '#2f6327', light: '#86c672', flag: '#2f8f2f' },
-  { fill: '#cfa262', dark: '#8c6730', light: '#ecd3a0', flag: '#c8742b' },
-];
 const PAPER = '#f1e6c9';
 const INK = 'rgba(74,58,40,';
-const BLOCK_COLOURS = ['#d9463d', '#3b78c9', '#e9b730', '#3f9b57'];
-const STEEL = '#2c2c2c';
 
 function seeded(seed: number): () => number {
   let s = seed >>> 0;
@@ -207,9 +205,16 @@ export class Renderer {
   private fogImg: ImageData;
   private fogStamp = -1;
   private dpr = 1;
+  private toys = new ToyBox();
+  private pen: Pen;
+  /** What each piece was doing last frame, so it can walk, turn and recoil with some weight. */
+  private anim = new Map<number, Anim>();
+  private frameNo = 0;
+  private lastNow = 0;
 
   constructor(private canvas: HTMLCanvasElement, private m: Match) {
     this.ctx = canvas.getContext('2d')!;
+    this.pen = new Pen(this.ctx);
     this.sheet = drawSheet(m.g.map);
     this.fog = document.createElement('canvas');
     this.fog.width = m.g.map.w;
@@ -231,6 +236,7 @@ export class Renderer {
   resize(): void {
     const w = this.canvas.clientWidth || window.innerWidth, h = this.canvas.clientHeight || window.innerHeight;
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.toys.dpr = this.dpr;
     this.canvas.width = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);
     this.m.viewW = w;
@@ -260,6 +266,13 @@ export class Renderer {
     const m = this.m, g = m.g, x = this.ctx, z = m.cam.zoom;
     const now = performance.now();
     x.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.toys.begin(z);
+    const st: Stage = { x, toys: this.toys, z, now, fired: m.fired, pen: this.pen };
+    const dt = Math.min(100, now - this.lastNow);
+    this.lastNow = now;
+    this.frameNo++;
+    x.lineCap = 'round';
+    x.lineJoin = 'round';
     // The table under the map.
     x.fillStyle = '#4b3a2b';
     x.fillRect(0, 0, m.viewW, m.viewH);
@@ -272,7 +285,6 @@ export class Renderer {
 
     const me = m.me, vis = g.players[me]!.vis;
     const seen = (e: { x: number; y: number }) => vis[Math.floor(e.y / TILE) * g.map.w + Math.floor(e.x / TILE)] === 1;
-    const air: Entity[] = [];
     const sx = (wx: number) => o.x + (wx / TILE) * z, sy = (wy: number) => o.y + (wy / TILE) * z;
     const onScreen = (px: number, py: number, pad: number) => px > -pad && py > -pad && px < m.viewW + pad && py < m.viewH + pad;
     const detail = z >= 11;
@@ -282,9 +294,9 @@ export class Renderer {
       if (e.owner >= 0) continue;
       const px = sx(e.x), py = sy(e.y);
       if (!onScreen(px, py, z * 2)) continue;
-      if (e.kind === K.Pile) this.pile(px, py, z, e);
-      else if (e.kind === K.Cell) this.pack(px, py, z, e);
-      else if (e.kind === K.Tower) this.tower(px, py, z, e.busy === me + 1 || seen(e) ? e.busy - 1 : -1);
+      if (e.kind === K.Pile) this.pile(st, px, py, e);
+      else if (e.kind === K.Cell) this.pack(st, px, py, e);
+      else if (e.kind === K.Tower) this.tower(st, px, py, e.busy === me + 1 || seen(e) ? e.busy - 1 : -1, e.id);
     }
 
     // Fog of war: bare sketch where never seen, faded where not seen now.
@@ -325,8 +337,8 @@ export class Renderer {
       if (seen(gh)) continue;
       const px = sx(gh.x), py = sy(gh.y);
       if (!onScreen(px, py, z * 4)) continue;
-      x.globalAlpha = 0.42;
-      this.building(px, py, z, gh, true, 1, 0, 0);
+      x.globalAlpha = 0.45;
+      this.building(st, px, py, gh.kind, gh.owner, null, dt);
       x.globalAlpha = 1;
     }
 
@@ -336,7 +348,7 @@ export class Renderer {
       if (e.owner !== me && !seen(e)) continue;
       const px = sx(e.x), py = sy(e.y);
       if (!onScreen(px, py, z * 4)) continue;
-      this.building(px, py, z, e, e.built, e.built ? 1 : e.progress / def(e.kind).time, e.fx, e.fy);
+      this.building(st, px, py, e.kind, e.owner, e, dt);
       if (e.id === m.site.value) {
         const s = def(e.kind).size * z;
         x.strokeStyle = '#fff';
@@ -359,8 +371,8 @@ export class Renderer {
     const sel = m.sel.value;
     const pos = (e: Entity) => {
       const p = m.prev.get(e.id);
-      if (!p) return { x: sx(e.x), y: sy(e.y) };
-      return { x: sx(p.x + (e.x - p.x) * m.alpha), y: sy(p.y + (e.y - p.y) * m.alpha) };
+      const wx = p ? p.x + (e.x - p.x) * m.alpha : e.x, wy = p ? p.y + (e.y - p.y) * m.alpha : e.y;
+      return { x: sx(wx), y: sy(wy), wx: wx / TILE, wy: wy / TILE };
     };
     if (sel >= 0) {
       const us = groupUnits(g, me, sel);
@@ -378,45 +390,48 @@ export class Renderer {
           x.setLineDash([]);
           this.cross(sx(gs.x), sy(gs.y), 7, x.strokeStyle as string);
         }
-        x.strokeStyle = 'rgba(255,255,255,0.95)';
-        x.lineWidth = detail ? 2 : 1.5;
-        for (const u of us) {
-          const p = pos(u);
+        // A ring that breathes a little, so the group you hold stands out from the one beside it.
+        const swell = 1 + 0.06 * Math.sin(now / 260);
+        for (const [w, colour] of [[detail ? 3.4 : 2.6, 'rgba(30,40,20,0.5)'], [detail ? 1.8 : 1.4, '#ffffff']] as const) {
+          x.strokeStyle = colour;
+          x.lineWidth = w;
           x.beginPath();
-          x.arc(p.x, p.y, Math.max(4.5, z * (def(u.kind).radius / TILE + 0.15)), 0, Math.PI * 2);
+          for (const u of us) {
+            const p = pos(u), r = Math.max(4.5, z * (def(u.kind).radius / TILE + 0.17)) * swell;
+            x.moveTo(p.x + r, p.y);
+            x.arc(p.x, p.y, r, 0, Math.PI * 2);
+          }
           x.stroke();
         }
       }
     }
 
     // Units: Workers first, fighters on top, flyers above everything.
+    const air: { e: Entity; p: ReturnType<typeof pos> }[] = [];
     for (let pass = 0; pass < 2; pass++) {
       for (const e of g.ents) {
         if (e.owner < 0 || def(e.kind).building) continue;
         if ((isWorker(e.kind) || e.kind === K.Egg) !== (pass === 0)) continue;
         if (e.owner !== me && !visibleTo(g, me, e)) continue;
+        const p = pos(e);
         if (def(e.kind).air) {
-          air.push(e);
+          air.push({ e, p });
           continue;
         }
-        const p = pos(e);
-        if (!onScreen(p.x, p.y, z)) continue;
-        if (detail) this.figure(p.x, p.y, z, e);
-        else this.marker(p.x, p.y, z, e);
+        if (!onScreen(p.x, p.y, z * 1.5)) continue;
+        this.unit(st, e, p, dt, detail);
         const r = def(e.kind).radius / TILE;
-        if (e.hp < def(e.kind).hp && detail) this.hpBar(p.x, p.y - z * (r + 0.24), z * Math.max(0.7, r * 2), e.hp / def(e.kind).hp);
+        if (e.hp < def(e.kind).hp && detail) this.hpBar(p.x, p.y - z * (r + 0.3), z * Math.max(0.7, r * 2), e.hp / def(e.kind).hp);
       }
     }
 
     // Shots, falls and taps.
-    for (const f of m.fx) this.effect(f, now, sx, sy, z);
+    for (const f of m.fx) this.effect(st, f, sx, sy);
 
-    for (const e of air) {
-      const p = pos(e);
+    for (const { e, p } of air) {
       if (!onScreen(p.x, p.y, z * 2)) continue;
-      if (detail) this.flyer(p.x, p.y, z, e, now);
-      else this.marker(p.x, p.y, z, e);
-      if (e.hp < def(e.kind).hp && detail) this.hpBar(p.x, p.y - z * 0.95, z * 0.9, e.hp / def(e.kind).hp);
+      this.unit(st, e, p, dt, detail);
+      if (e.hp < def(e.kind).hp && detail) this.hpBar(p.x, p.y - z * 1.0, z * 0.9, e.hp / def(e.kind).hp);
     }
 
     // Flags over your groups.
@@ -441,8 +456,8 @@ export class Renderer {
       const px = o.x + pl.tx * z, py = o.y + pl.ty * z;
       x.fillStyle = pl.ok ? 'rgba(70,170,80,0.32)' : 'rgba(210,60,50,0.38)';
       x.fillRect(px, py, s, s);
-      x.globalAlpha = 0.6;
-      this.building(px + s / 2, py + s / 2, z, { kind: pl.kind, owner: me } as Ghost, true, 1, 1, 0);
+      x.globalAlpha = 0.65;
+      this.building(st, px + s / 2, py + s / 2, pl.kind, me, null, dt);
       x.globalAlpha = 1;
       x.strokeStyle = pl.ok ? '#2f8f3a' : '#c0392b';
       x.lineWidth = 2.5;
@@ -456,6 +471,180 @@ export class Renderer {
         x.stroke();
         x.setLineDash([]);
       }
+    }
+
+    // Forget pieces that have left the table.
+    if (this.frameNo % 240 === 0) {
+      for (const id of this.anim.keys()) if (!g.byId.has(id)) this.anim.delete(id);
+    }
+  }
+
+  /** What a piece was doing last frame, brought up to date: how far it has walked, which way it faces and aims. */
+  private animOf(e: Entity, wx: number, wy: number, now: number, dt: number): Anim {
+    const g = this.m.g, d = def(e.kind);
+    const facing = Math.atan2(e.fy, e.fx || 0.0001);
+    let a = this.anim.get(e.id);
+    if (!a) {
+      // Made in sight just now: it pops onto the table. Anything older simply walked into view.
+      const fresh = !d.building && g.tick > 3 && e.id >= g.nextId - 24;
+      const start = d.building ? (e.owner === 1 ? Math.PI : 0) : facing;
+      a = { stamp: this.frameNo - 1, born: fresh ? now : -1e9, x: wx, y: wy, step: (e.id * 0.37) % 1, go: 0, head: start, aim: start, hp: e.hp, hurt: -1e9, done: -1e9, built: e.built };
+      this.anim.set(e.id, a);
+    }
+    if (a.stamp !== this.frameNo - 1) {
+      a.x = wx;
+      a.y = wy;
+    }
+    a.stamp = this.frameNo;
+    const dx = wx - a.x, dy = wy - a.y, dist = Math.hypot(dx, dy);
+    const moving = dist > 0.0035 && dist < 1.5;
+    if (moving) {
+      a.step += dist;
+      a.head = turn(a.head, Math.atan2(dy, dx), dt / 130);
+    }
+    a.go += ((moving ? 1 : 0) - a.go) * Math.min(1, dt / 120);
+    a.x = wx;
+    a.y = wy;
+    const tgt = e.tgt ? g.byId.get(e.tgt) : undefined;
+    const armoured = e.kind === K.Tank || e.kind === K.Flak || e.kind === K.Jugger;
+    let want = d.building ? a.aim : facing;
+    if (tgt) want = Math.atan2(tgt.y - e.y, tgt.x - e.x);
+    else if (d.building && (e.fx !== 0 || e.fy !== 0) && d.range > 0) want = facing;
+    else if (armoured && a.go > 0.3) want = a.head;
+    a.aim = turn(a.aim, want, dt / (armoured || d.building ? 170 : 90));
+    if (e.hp < a.hp) a.hurt = now;
+    a.hp = e.hp;
+    return a;
+  }
+
+  /** One unit: a toy up close, a marker from far off. */
+  private unit(st: Stage, e: Entity, p: { x: number; y: number; wx: number; wy: number }, dt: number, detail: boolean): void {
+    const { x, z, now } = st, t = TEAM[e.owner]!;
+    const a = this.animOf(e, p.wx, p.wy, now, dt);
+    if (!detail) {
+      if (isDinoUnit(e.kind)) drawDinoMarker(st, e, p.x, p.y, t, a.aim);
+      else drawArmyMarker(st, e, p.x, p.y, t, a.aim);
+      return;
+    }
+    const size = pop((now - a.born) / 300);
+    if (e.kind === K.Ptero) drawPtero(st, e, p.x, p.y, a, t, size);
+    else if (isDinoUnit(e.kind)) drawDinoUnit(st, e, p.x, p.y, a, t, size);
+    else if (e.kind === K.Gunship) drawGunship(st, e, p.x, p.y, a, t, size);
+    else drawArmyUnit(st, e, p.x, p.y, a, t, size);
+    const hurt = now - a.hurt;
+    if (hurt < 120) {
+      // Struck: a blink of white.
+      const r = z * Math.min(0.42, def(e.kind).radius / TILE) * 0.9;
+      x.globalAlpha = 0.5 * (1 - hurt / 120);
+      x.fillStyle = '#fff';
+      x.beginPath();
+      x.arc(p.x, p.y - (def(e.kind).air ? z * 0.2 : 0), r, 0, Math.PI * 2);
+      x.fill();
+      x.globalAlpha = 1;
+    }
+  }
+
+  /**
+   * One building. With an entity it is the real thing: turning its gun, flying its flag, half-built or on
+   * fire. Without one it is only the piece: a plan being placed, or an enemy building as it was last seen.
+   */
+  private building(st: Stage, px: number, py: number, kind: number, owner: number, e: Entity | null, dt: number): void {
+    const { x, z, now } = st;
+    const t = TEAM[owner] ?? TEAM[0]!, d = def(kind), s = d.size * z, h = s / 2;
+    const look: BuildingLook = { kind, owner, aim: owner === 1 ? Math.PI : 0, since: 1e9, busy: false, seed: 0, eggs: 0, plain: true };
+    let done = 1e9, hurt = 1e9;
+    if (e) {
+      const a = this.animOf(e, e.x / TILE, e.y / TILE, now, dt);
+      if (e.built && !a.built) a.done = now;
+      a.built = e.built;
+      look.aim = a.aim;
+      look.since = now - (st.fired.get(e.id) ?? -1e9);
+      look.busy = e.built && e.queue.length > 0;
+      look.seed = e.id;
+      look.eggs = e.eggs;
+      look.plain = !e.built;
+      done = now - a.done;
+      hurt = now - a.hurt;
+    }
+    const paint = () => (isDinoBuilding(kind) ? drawDinoBuilding(st, look, px, py, t) : drawArmyBuilding(st, look, px, py, t));
+    if (!e || e.built) {
+      paint();
+    } else {
+      // Work in progress: the plan faint on the paper, and the piece itself filling in behind a working edge.
+      const k = Math.max(0, Math.min(1, e.progress / d.time)), alpha = x.globalAlpha;
+      x.globalAlpha = alpha * 0.28;
+      paint();
+      x.globalAlpha = alpha;
+      const edge = px - h + s * k, grown = isDinoBuilding(kind);
+      x.save();
+      x.beginPath();
+      // A Dino building grows out from its middle; a Green Army one is put together from one side.
+      if (grown) x.arc(px, py, h * 1.5 * k, 0, Math.PI * 2);
+      else x.rect(px - h - 6, py - h - 6, s * k + 6, s + 12);
+      x.clip();
+      paint();
+      x.restore();
+      x.strokeStyle = 'rgba(58,45,32,0.8)';
+      x.lineWidth = 1.5;
+      x.setLineDash([5, 4]);
+      x.strokeRect(px - h, py - h, s, s);
+      x.setLineDash([]);
+      if (grown && k > 0.01 && k < 1) {
+        x.strokeStyle = '#fff6c4';
+        x.lineWidth = 2;
+        x.beginPath();
+        x.arc(px, py, h * 1.5 * k, 0, Math.PI * 2);
+        x.stroke();
+      } else if (k > 0.01 && k < 1) {
+        x.strokeStyle = '#fff6c4';
+        x.lineWidth = 2;
+        x.beginPath();
+        x.moveTo(edge, py - h);
+        x.lineTo(edge, py + h);
+        x.stroke();
+        // Sparks along the edge where the work is.
+        x.fillStyle = '#ffd24a';
+        for (let i = 0; i < 3; i++) {
+          const f = (now / 240 + i * 0.37 + e.id * 0.11) % 1;
+          x.globalAlpha = 1 - f;
+          x.beginPath();
+          x.arc(edge + Math.sin(i * 9 + e.id) * 3, py - h + s * ((i * 0.31 + e.id * 0.17 + Math.floor(now / 240 + i * 0.37) * 0.23) % 1), 1.2 + 2.2 * f, 0, Math.PI * 2);
+          x.fill();
+        }
+        x.globalAlpha = 1;
+      }
+      x.fillStyle = 'rgba(40,30,20,0.6)';
+      x.fillRect(px - h, py + h + 3, s, 4);
+      x.fillStyle = '#7fd0ff';
+      x.fillRect(px - h, py + h + 3, s * k, 4);
+    }
+    if (!e || !e.built) return;
+    if (done < 520) {
+      // Finished: a ring runs out from it.
+      const k = done / 520;
+      x.strokeStyle = `rgba(255,255,255,${0.9 * (1 - k)})`;
+      x.lineWidth = 3 * (1 - k) + 1;
+      x.beginPath();
+      x.arc(px, py, h * (0.7 + 0.7 * k), 0, Math.PI * 2);
+      x.stroke();
+    }
+    const hp = e.hp / d.hp;
+    if (hp < 0.66 && z >= 11) {
+      // Hurt: smoke, and below a third, fire.
+      const ox = Math.sin(e.id * 1.7) * h * 0.4, oy = Math.cos(e.id * 2.3) * h * 0.35;
+      smoke(st, px + ox, py + oy, d.size * 0.36, e.id, '#3f3a33');
+      if (hp < 0.33) {
+        fire(st, px + ox, py + oy + z * 0.1, d.size * 0.4, e.id);
+        fire(st, px - ox * 0.8, py - oy * 0.6 + z * 0.1, d.size * 0.32, e.id + 3);
+        smoke(st, px - ox * 0.8, py - oy * 0.6, d.size * 0.3, e.id + 5, '#2f2b26');
+      }
+      home(st);
+    }
+    if (hurt < 140) {
+      x.globalAlpha = 0.4 * (1 - hurt / 140);
+      x.fillStyle = '#fff';
+      x.fillRect(px - h, py - h, s, s);
+      x.globalAlpha = 1;
     }
   }
 
@@ -500,355 +689,66 @@ export class Renderer {
     x.fillRect(px - w / 2, py, w * Math.max(0, f), 3);
   }
 
-  private pile(px: number, py: number, z: number, e: Entity): void {
-    const x = this.ctx;
+  /** A pile of wooden blocks, studs up; it shrinks as Workers carry it off. */
+  private pile(st: Stage, px: number, py: number, e: Entity): void {
     const n = e.amount > 1100 ? 4 : e.amount > 600 ? 3 : e.amount > 200 ? 2 : 1;
-    const s = z * 0.4;
-    const spots = [[-0.42, 0.12], [0.2, 0.2], [-0.1, -0.38], [0.36, -0.3]];
-    for (let i = 0; i < n; i++) {
-      const bx = px + spots[i]![0]! * z * 0.62 - s / 2, by = py + spots[i]![1]! * z * 0.62 - s / 2;
-      x.fillStyle = 'rgba(0,0,0,0.2)';
-      x.fillRect(bx + 1.5, by + 2, s, s);
-      x.fillStyle = BLOCK_COLOURS[(e.id + i) % 4]!;
-      x.fillRect(bx, by, s, s);
-      if (z >= 11) {
-        x.strokeStyle = 'rgba(40,30,20,0.6)';
-        x.lineWidth = 1;
-        x.strokeRect(bx + 0.5, by + 0.5, s - 1, s - 1);
-        x.fillStyle = 'rgba(255,255,255,0.28)';
-        x.fillRect(bx + 1.5, by + 1.5, s * 0.5, s * 0.22);
+    const s = st.toys.get(`pile${n}${e.id % 4}`, st.z, 0.62, (p) => {
+      const spots = [[-0.26, 0.08, -0.12], [0.13, 0.13, 0.1], [-0.06, -0.24, 0.06], [0.23, -0.19, -0.16]] as const;
+      for (let i = 0; i < n; i++) {
+        const [bx, by, rot] = spots[i]!, c = BLOCK_COLOURS[(e.id + i) % 4]!;
+        p.b(c, bx, by, 0.4, 0.4, 0.05, rot).k(PENCIL, 0.045);
+        p.o('rgba(255,255,255,0.3)', bx - 0.02, by - 0.02, 0.1).k('rgba(58,45,32,0.5)', 0.025);
       }
-    }
+    }, PENCIL, 'top');
+    shadow(st, s, px, py, 0, 1, 0.06, 0.22);
+    stamp(st, s, px, py);
+    home(st);
   }
 
-  /** Four fat batteries standing on end, fewer as the pack runs down. */
-  private pack(px: number, py: number, z: number, e: Entity): void {
-    const x = this.ctx;
+  /** Four fat batteries standing on end in their tray, fewer as the pack runs down. */
+  private pack(st: Stage, px: number, py: number, e: Entity): void {
     const n = e.amount > 1800 ? 4 : e.amount > 1100 ? 3 : e.amount > 450 ? 2 : e.amount > 0 ? 1 : 0;
-    const r = z * 0.4;
-    x.fillStyle = 'rgba(0,0,0,0.2)';
-    this.rr(px - z + 3, py - z + 4, z * 2 - 2, z * 2 - 2, z * 0.3);
-    x.fill();
-    x.fillStyle = '#b9ad8e';
-    this.rr(px - z + 1, py - z + 1, z * 2 - 2, z * 2 - 2, z * 0.3);
-    x.fill();
-    x.strokeStyle = 'rgba(74,58,40,0.55)';
-    x.lineWidth = 1;
-    x.stroke();
-    const spots = [[-1, -1], [1, 1], [1, -1], [-1, 1]] as const;
-    for (let i = 0; i < 4; i++) {
-      const cx = px + spots[i]![0] * z * 0.47, cy = py + spots[i]![1] * z * 0.47;
-      if (i >= n) {
-        // An empty socket.
-        x.fillStyle = 'rgba(60,45,30,0.28)';
-        x.beginPath();
-        x.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
-        x.fill();
-        continue;
+    const s = st.toys.get(`pack${n}`, st.z, 1.06, (p) => {
+      p.b('#c2b596', 0, 0, 1.92, 1.92, 0.3).b('#a99c7c', 0, 0, 1.66, 1.66, 0.22);
+      const spots = [[-1, -1], [1, 1], [1, -1], [-1, 1]] as const;
+      for (let i = 0; i < 4; i++) {
+        const cx = spots[i]![0] * 0.47, cy = spots[i]![1] * 0.47;
+        if (i >= n) {
+          p.o('#7d7059', cx, cy, 0.32).k(PENCIL, 0.035);
+          continue;
+        }
+        p.o(STEEL, cx, cy, 0.4).o('#ee8f22', cx, cy, 0.31).o('#ffc163', cx - 0.06, cy - 0.06, 0.13).o('#e2e2e2', cx, cy, 0.12).k(PENCIL, 0.03);
       }
-      x.fillStyle = STEEL;
-      x.beginPath();
-      x.arc(cx, cy, r, 0, Math.PI * 2);
-      x.fill();
-      x.fillStyle = '#e08a1e';
-      x.beginPath();
-      x.arc(cx, cy, r * 0.74, 0, Math.PI * 2);
-      x.fill();
-      x.fillStyle = '#d7d7d7';
-      x.beginPath();
-      x.arc(cx, cy, r * 0.3, 0, Math.PI * 2);
-      x.fill();
-    }
+    }, PENCIL, 'top');
+    shadow(st, s, px, py, 0, 1, 0.06, 0.2);
+    stamp(st, s, px, py);
+    home(st);
   }
 
-  /** A watchtower from above: a block platform with a pennant in its holder's colour. */
-  private tower(px: number, py: number, z: number, holder: number): void {
-    const x = this.ctx, s = z * 0.92, h = s / 2;
-    x.fillStyle = 'rgba(0,0,0,0.25)';
-    x.fillRect(px - h + 2.5, py - h + 3.5, s, s);
-    x.fillStyle = '#9a6a3c';
-    x.fillRect(px - h, py - h, s, s);
-    x.fillStyle = '#c99a62';
-    x.fillRect(px - h * 0.62, py - h * 0.62, s * 0.62, s * 0.62);
-    x.strokeStyle = '#5a3c1e';
-    x.lineWidth = Math.max(1, z * 0.06);
-    x.strokeRect(px - h, py - h, s, s);
-    x.beginPath();
-    x.moveTo(px - h, py - h);
-    x.lineTo(px + h, py + h);
-    x.moveTo(px + h, py - h);
-    x.lineTo(px - h, py + h);
-    x.stroke();
-    // Pole and pennant.
-    x.strokeStyle = '#3a2d20';
-    x.lineWidth = Math.max(1.2, z * 0.07);
-    x.beginPath();
-    x.moveTo(px, py);
-    x.lineTo(px, py - z * 0.95);
-    x.stroke();
-    x.fillStyle = holder >= 0 ? TEAM[holder]!.fill : '#fbf6e6';
-    x.strokeStyle = holder >= 0 ? TEAM[holder]!.dark : 'rgba(74,58,40,0.7)';
-    x.lineWidth = 1;
-    x.beginPath();
-    x.moveTo(px, py - z * 0.95);
-    x.lineTo(px + z * 0.62, py - z * 0.75);
-    x.lineTo(px, py - z * 0.52);
-    x.closePath();
-    x.fill();
-    x.stroke();
+  /** A watchtower from above: a plank platform on four posts, flying the colour of whoever holds it. */
+  private tower(st: Stage, px: number, py: number, holder: number, id: number): void {
+    const { z, now } = st;
+    const s = st.toys.get('tower', z, 0.62, (p) => {
+      for (const [cx, cy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) p.l(PENCIL, 0.13, [cx * 0.3, cy * 0.3, cx * 0.5, cy * 0.5]).l('#8d6336', 0.07, [cx * 0.3, cy * 0.3, cx * 0.5, cy * 0.5]);
+      p.b('#b98a52', 0, 0, 0.84, 0.84, 0.05).k(PENCIL, 0.05);
+      for (const dy of [-0.21, 0, 0.21]) p.l('#8d6336', 0.025, [-0.4, dy, 0.4, dy]);
+      p.b('#d2a56c', 0, 0, 0.5, 0.5, 0.04).k(PENCIL, 0.035);
+      p.l(PENCIL, 0.03, [-0.25, -0.25, 0.25, 0.25]).l(PENCIL, 0.03, [0.25, -0.25, -0.25, 0.25]);
+    }, PENCIL, 'top');
+    shadow(st, s, px, py, 0, 1, 0.1, 0.26);
+    stamp(st, s, px, py);
+    // Pole and pennant: white while no one holds it.
+    const p = brush(st, px, py), t = holder >= 0 ? TEAM[holder]! : null, w = now / 240 + id;
+    p.l(PENCIL, 0.06, [0, 0.04, 0, -0.98]);
+    const pts: number[] = [0, -0.98];
+    for (let i = 1; i <= 3; i++) pts.push(i * 0.22, -0.98 + i * 0.07 + Math.sin(w + i) * 0.035 * i);
+    for (let i = 2; i >= 0; i--) pts.push(i * 0.22, -0.5 - i * 0.08 + Math.sin(w + i) * 0.035 * i);
+    p.p(t ? t.flag : '#fbf6e6', pts).k(t ? t.ink : PENCIL, 0.045);
+    p.o('#f7c531', 0, -1.0, 0.05);
+    home(st);
   }
 
   /** A playset piece, drawn from above. */
-  private building(px: number, py: number, z: number, e: { kind: number; owner: number }, built: boolean, progress: number, fx: number, fy: number): void {
-    const x = this.ctx, t = TEAM[e.owner] ?? TEAM[0]!, d = def(e.kind), s = d.size * z, h = s / 2;
-    const r = Math.max(2, z * 0.18);
-    const alpha = x.globalAlpha;
-    if (!built) x.globalAlpha = alpha * 0.55;
-    x.fillStyle = 'rgba(0,0,0,0.22)';
-    if (isDinoBuilding(e.kind)) {
-      x.beginPath();
-      x.ellipse(px + 3, py + 4, h * 0.96, h * 0.96, 0, 0, Math.PI * 2);
-    } else {
-      this.rr(px - h + 3, py - h + 4, s, s, r);
-    }
-    x.fill();
-    if (isDinoBuilding(e.kind)) {
-      drawDinoBuilding(x, px, py, z, e.kind, t, (e as Entity).eggs ?? 0, performance.now());
-    } else if (e.kind === K.HQ) {
-      x.fillStyle = t.dark;
-      this.rr(px - h + 1, py - h + 1, s - 2, s - 2, r);
-      x.fill();
-      x.fillStyle = t.fill;
-      this.rr(px - h * 0.68, py - h * 0.68, s * 0.68, s * 0.68, r * 0.7);
-      x.fill();
-      x.fillStyle = t.light;
-      const q = s * 0.2;
-      for (const [cx, cy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-        this.rr(px + cx * (h - q * 0.62) - q / 2, py + cy * (h - q * 0.62) - q / 2, q, q, r * 0.5);
-        x.fill();
-      }
-      // Flagpole and pennant.
-      x.strokeStyle = '#3a2d20';
-      x.lineWidth = Math.max(1.2, z * 0.07);
-      x.beginPath();
-      x.moveTo(px, py + s * 0.12);
-      x.lineTo(px, py - s * 0.24);
-      x.stroke();
-      x.fillStyle = t.flag;
-      x.beginPath();
-      x.moveTo(px, py - s * 0.24);
-      x.lineTo(px + s * 0.22, py - s * 0.16);
-      x.lineTo(px, py - s * 0.08);
-      x.closePath();
-      x.fill();
-    } else if (e.kind === K.Barracks) {
-      x.fillStyle = t.fill;
-      this.rr(px - h + 1, py - h * 0.78, s - 2, s * 0.78, r);
-      x.fill();
-      x.fillStyle = t.light;
-      x.beginPath();
-      x.moveTo(px - h + 2, py - h * 0.78 + 2);
-      x.lineTo(px - h * 0.45, py);
-      x.lineTo(px - h + 2, py + h * 0.78 - 2);
-      x.closePath();
-      x.fill();
-      x.beginPath();
-      x.moveTo(px + h - 2, py - h * 0.78 + 2);
-      x.lineTo(px + h * 0.45, py);
-      x.lineTo(px + h - 2, py + h * 0.78 - 2);
-      x.closePath();
-      x.fill();
-      x.strokeStyle = t.dark;
-      x.lineWidth = Math.max(1.5, z * 0.1);
-      x.beginPath();
-      x.moveTo(px - h * 0.45, py);
-      x.lineTo(px + h * 0.45, py);
-      x.stroke();
-      x.lineWidth = Math.max(1, z * 0.05);
-      this.rr(px - h + 1, py - h * 0.78, s - 2, s * 0.78, r);
-      x.stroke();
-    } else if (e.kind === K.Turret) {
-      x.fillStyle = '#d6c59c';
-      x.beginPath();
-      x.arc(px, py, h * 0.92, 0, Math.PI * 2);
-      x.fill();
-      x.strokeStyle = '#8f7d55';
-      x.lineWidth = Math.max(1, z * 0.07);
-      x.stroke();
-      if (z >= 11) {
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2;
-          x.beginPath();
-          x.moveTo(px + Math.cos(a) * h * 0.62, py + Math.sin(a) * h * 0.62);
-          x.lineTo(px + Math.cos(a) * h * 0.92, py + Math.sin(a) * h * 0.92);
-          x.stroke();
-        }
-      }
-      x.fillStyle = t.dark;
-      x.beginPath();
-      x.arc(px, py, h * 0.56, 0, Math.PI * 2);
-      x.fill();
-      const a = Math.atan2(fy, fx || (e.owner === 1 ? -1 : 1));
-      x.strokeStyle = '#2c2c2c';
-      x.lineWidth = Math.max(2, z * 0.2);
-      x.lineCap = 'round';
-      x.beginPath();
-      x.moveTo(px, py);
-      x.lineTo(px + Math.cos(a) * h * 1.05, py + Math.sin(a) * h * 1.05);
-      x.stroke();
-      x.fillStyle = t.fill;
-      x.beginPath();
-      x.arc(px, py, h * 0.3, 0, Math.PI * 2);
-      x.fill();
-    } else if (e.kind === K.Refinery) {
-      x.fillStyle = t.dark;
-      this.rr(px - h + 1, py - h + 1, s - 2, s - 2, r * 1.6);
-      x.fill();
-      // The tank, and the charging box with its bolt.
-      x.fillStyle = t.light;
-      x.beginPath();
-      x.arc(px - h * 0.26, py - h * 0.26, h * 0.5, 0, Math.PI * 2);
-      x.fill();
-      x.strokeStyle = t.fill;
-      x.lineWidth = Math.max(1.5, z * 0.1);
-      x.stroke();
-      x.fillStyle = '#e9b730';
-      this.rr(px + h * 0.08, py + h * 0.08, h * 0.74, h * 0.74, r * 0.6);
-      x.fill();
-      x.strokeStyle = '#3a2d20';
-      x.lineWidth = Math.max(1, z * 0.07);
-      x.stroke();
-      x.beginPath();
-      x.moveTo(px + h * 0.52, py + h * 0.16);
-      x.lineTo(px + h * 0.34, py + h * 0.46);
-      x.lineTo(px + h * 0.56, py + h * 0.46);
-      x.lineTo(px + h * 0.4, py + h * 0.74);
-      x.stroke();
-    } else if (e.kind === K.Factory) {
-      x.fillStyle = t.dark;
-      this.rr(px - h + 1, py - h + 1, s - 2, s - 2, r);
-      x.fill();
-      // A saw-tooth roof in three bays, and a wide door at the front.
-      for (let i = 0; i < 3; i++) {
-        const y0 = py - h + s * 0.08 + i * s * 0.2;
-        x.fillStyle = t.light;
-        x.beginPath();
-        x.moveTo(px - h * 0.84, y0 + s * 0.17);
-        x.lineTo(px + h * 0.84, y0);
-        x.lineTo(px + h * 0.84, y0 + s * 0.17);
-        x.closePath();
-        x.fill();
-        x.fillStyle = t.fill;
-        x.beginPath();
-        x.moveTo(px - h * 0.84, y0 + s * 0.17);
-        x.lineTo(px - h * 0.84, y0);
-        x.lineTo(px + h * 0.84, y0);
-        x.closePath();
-        x.fill();
-      }
-      x.fillStyle = STEEL;
-      this.rr(px - h * 0.42, py + h * 0.42, h * 0.84, h * 0.5, r * 0.4);
-      x.fill();
-      x.fillStyle = '#6b6b6b';
-      x.beginPath();
-      x.arc(px + h * 0.62, py + h * 0.66, h * 0.13, 0, Math.PI * 2);
-      x.fill();
-    } else if (e.kind === K.Airfield) {
-      x.fillStyle = '#8f8a7a';
-      this.rr(px - h + 1, py - h + 1, s - 2, s - 2, r);
-      x.fill();
-      x.strokeStyle = t.dark;
-      x.lineWidth = Math.max(2, z * 0.16);
-      this.rr(px - h + 2, py - h + 2, s - 4, s - 4, r);
-      x.stroke();
-      // The pad, and a hangar strip along the back.
-      x.fillStyle = t.fill;
-      this.rr(px - h * 0.8, py - h * 0.84, s * 0.8, s * 0.17, r * 0.4);
-      x.fill();
-      x.strokeStyle = '#f4ecd4';
-      x.lineWidth = Math.max(1.5, z * 0.1);
-      x.beginPath();
-      x.arc(px, py + h * 0.14, h * 0.52, 0, Math.PI * 2);
-      x.stroke();
-      x.beginPath();
-      x.moveTo(px - h * 0.2, py - h * 0.14);
-      x.lineTo(px - h * 0.2, py + h * 0.42);
-      x.moveTo(px + h * 0.2, py - h * 0.14);
-      x.lineTo(px + h * 0.2, py + h * 0.42);
-      x.moveTo(px - h * 0.2, py + h * 0.14);
-      x.lineTo(px + h * 0.2, py + h * 0.14);
-      x.stroke();
-    } else if (e.kind === K.Armory) {
-      x.fillStyle = t.dark;
-      this.rr(px - h + 1, py - h + 1, s - 2, s - 2, r);
-      x.fill();
-      x.fillStyle = t.fill;
-      this.rr(px - h * 0.74, py - h * 0.74, s * 0.74, s * 0.74, r * 0.7);
-      x.fill();
-      // A shield on the roof.
-      x.fillStyle = t.light;
-      x.beginPath();
-      x.moveTo(px, py - h * 0.52);
-      x.lineTo(px + h * 0.42, py - h * 0.34);
-      x.lineTo(px + h * 0.42, py + h * 0.06);
-      x.quadraticCurveTo(px + h * 0.36, py + h * 0.4, px, py + h * 0.56);
-      x.quadraticCurveTo(px - h * 0.36, py + h * 0.4, px - h * 0.42, py + h * 0.06);
-      x.lineTo(px - h * 0.42, py - h * 0.34);
-      x.closePath();
-      x.fill();
-      x.strokeStyle = t.dark;
-      x.lineWidth = Math.max(1.5, z * 0.12);
-      x.beginPath();
-      x.moveTo(px, py - h * 0.3);
-      x.lineTo(px, py + h * 0.3);
-      x.moveTo(px - h * 0.22, py);
-      x.lineTo(px + h * 0.22, py);
-      x.stroke();
-    } else if (e.kind === K.Heavy) {
-      x.fillStyle = STEEL;
-      this.rr(px - h + 1, py - h + 1, s - 2, s - 2, r);
-      x.fill();
-      x.fillStyle = t.dark;
-      this.rr(px - h * 0.8, py - h * 0.8, s * 0.8, s * 0.5, r * 0.6);
-      x.fill();
-      x.strokeStyle = t.light;
-      x.lineWidth = Math.max(2, z * 0.16);
-      x.lineCap = 'round';
-      x.beginPath();
-      x.moveTo(px - h * 0.5, py - h * 0.3);
-      x.lineTo(px + h * 0.5, py - h * 0.3);
-      x.stroke();
-      // Hazard stripes along the front.
-      x.save();
-      x.beginPath();
-      x.rect(px - h * 0.84, py + h * 0.42, s * 0.84, s * 0.2);
-      x.clip();
-      x.fillStyle = '#e9b730';
-      x.fillRect(px - h, py + h * 0.4, s, s * 0.25);
-      x.strokeStyle = STEEL;
-      x.lineWidth = Math.max(2, z * 0.2);
-      for (let i = -3; i <= 4; i++) {
-        x.beginPath();
-        x.moveTo(px + i * h * 0.42, py + h * 0.9);
-        x.lineTo(px + i * h * 0.42 + h * 0.4, py + h * 0.38);
-        x.stroke();
-      }
-      x.restore();
-    }
-    x.globalAlpha = alpha;
-    if (!built) {
-      x.strokeStyle = 'rgba(60,45,30,0.8)';
-      x.lineWidth = 1.5;
-      x.setLineDash([5, 4]);
-      x.strokeRect(px - h, py - h, s, s);
-      x.setLineDash([]);
-      x.fillStyle = 'rgba(40,30,20,0.6)';
-      x.fillRect(px - h, py + h + 3, s, 4);
-      x.fillStyle = '#7fd0ff';
-      x.fillRect(px - h, py + h + 3, s * Math.max(0, progress), 4);
-    }
-  }
-
   private rr(px: number, py: number, w: number, h: number, r: number): void {
     const x = this.ctx;
     x.beginPath();
@@ -860,340 +760,34 @@ export class Renderer {
     x.closePath();
   }
 
-  /**
-   * A simple marker when zoomed out. Infantry: circle Trooper, square Lancer, triangle Runner, diamond Mortar.
-   * Vehicles are wide dark-edged slabs, the Juggernaut the biggest; a Gunship is a cross. A dot is a Worker.
-   */
-  private marker(px: number, py: number, z: number, e: Entity): void {
-    const x = this.ctx, t = TEAM[e.owner]!;
-    if (isDinoUnit(e.kind)) {
-      drawDinoMarker(x, px, py, z, e, t);
-      return;
-    }
-    const r = e.kind === K.Worker ? Math.max(1.6, z * 0.22) : Math.max(3, z * 0.4);
-    x.fillStyle = t.fill;
-    x.strokeStyle = t.dark;
-    x.lineWidth = 1;
-    x.beginPath();
-    if (e.kind === K.Lancer) x.rect(px - r * 0.85, py - r * 0.85, r * 1.7, r * 1.7);
-    else if (e.kind === K.Runner) {
-      x.moveTo(px, py - r * 1.15);
-      x.lineTo(px + r, py + r * 0.8);
-      x.lineTo(px - r, py + r * 0.8);
-      x.closePath();
-    } else if (e.kind === K.Mortar) {
-      x.moveTo(px, py - r * 1.2);
-      x.lineTo(px + r * 1.2, py);
-      x.lineTo(px, py + r * 1.2);
-      x.lineTo(px - r * 1.2, py);
-      x.closePath();
-    } else if (e.kind === K.Tank || e.kind === K.Flak || e.kind === K.Jugger) {
-      const k = e.kind === K.Jugger ? 1.55 : e.kind === K.Tank ? 1.15 : 0.95;
-      x.rect(px - r * 1.25 * k, py - r * 0.85 * k, r * 2.5 * k, r * 1.7 * k);
-      x.fillStyle = e.kind === K.Flak ? t.light : t.fill;
-      x.strokeStyle = STEEL;
-      x.lineWidth = e.kind === K.Jugger ? 2.4 : 1.6;
-    } else if (e.kind === K.Gunship) {
-      x.fillStyle = 'rgba(0,0,0,0.2)';
-      x.arc(px + 3, py + 4, r * 0.9, 0, Math.PI * 2);
-      x.fill();
-      x.beginPath();
-      x.strokeStyle = t.dark;
-      x.lineWidth = Math.max(2.4, r * 0.7);
-      x.moveTo(px - r * 1.3, py);
-      x.lineTo(px + r * 1.3, py);
-      x.moveTo(px, py - r * 1.3);
-      x.lineTo(px, py + r * 1.3);
-      x.stroke();
-      x.beginPath();
-      x.fillStyle = t.light;
-      x.arc(px, py, r * 0.55, 0, Math.PI * 2);
-      x.fill();
-      return;
-    } else x.arc(px, py, r, 0, Math.PI * 2);
-    x.fill();
-    if (e.kind !== K.Worker) x.stroke();
-  }
-
-  /** A die-cast vehicle, seen from above: treads, hull, turret and gun. */
-  private vehicle(px: number, py: number, z: number, e: Entity): void {
-    const x = this.ctx, t = TEAM[e.owner]!;
-    const r = (def(e.kind).radius / TILE) * z;
-    const big = e.kind === K.Jugger;
-    const len = r * (big ? 1.12 : 1.1), wid = r * (big ? 0.92 : 0.78);
-    x.save();
-    x.translate(px, py);
-    x.fillStyle = 'rgba(0,0,0,0.24)';
-    this.rr(-len + 2, -wid + 3, len * 2, wid * 2, r * 0.25);
-    x.fill();
-    x.rotate(Math.atan2(e.fy, e.fx || 0.0001));
-    // Treads.
-    x.fillStyle = STEEL;
-    this.rr(-len, -wid, len * 2, wid * 2, r * 0.22);
-    x.fill();
-    // Hull.
-    x.fillStyle = t.dark;
-    this.rr(-len * 0.92, -wid * 0.68, len * 1.84, wid * 1.36, r * 0.18);
-    x.fill();
-    x.lineCap = 'round';
-    if (e.kind === K.Flak) {
-      // An open box on the back and two thin barrels.
-      x.fillStyle = t.light;
-      this.rr(-len * 0.7, -wid * 0.46, len * 0.9, wid * 0.92, r * 0.12);
-      x.fill();
-      x.strokeStyle = STEEL;
-      x.lineWidth = Math.max(1.4, z * 0.07);
-      for (const side of [-1, 1]) {
-        x.beginPath();
-        x.moveTo(-len * 0.1, side * wid * 0.24);
-        x.lineTo(len * 1.25, side * wid * 0.24);
-        x.stroke();
-      }
-    } else {
-      // Gun first, so the turret sits over its root.
-      x.strokeStyle = STEEL;
-      x.lineWidth = Math.max(2, z * (big ? 0.13 : 0.12));
-      for (const side of big ? [-1, 1] : [0]) {
-        x.beginPath();
-        x.moveTo(0, side * wid * 0.26);
-        x.lineTo(len * (big ? 1.3 : 1.42), side * wid * 0.26);
-        x.stroke();
-      }
-      x.fillStyle = t.fill;
-      if (big) this.rr(-len * 0.52, -wid * 0.5, len * 0.92, wid, r * 0.16);
-      else {
-        x.beginPath();
-        x.arc(-len * 0.08, 0, wid * 0.56, 0, Math.PI * 2);
-      }
-      x.fill();
-      x.strokeStyle = t.light;
-      x.lineWidth = Math.max(1, z * 0.05);
-      x.stroke();
-      x.fillStyle = t.light;
-      x.beginPath();
-      x.arc(-len * 0.14, 0, wid * 0.2, 0, Math.PI * 2);
-      x.fill();
-    }
-    x.restore();
-  }
-
-  /** A Gunship: its shadow on the paper, then the machine itself above it, rotor turning. */
-  private flyer(px: number, py: number, z: number, e: Entity, now: number): void {
-    const x = this.ctx, t = TEAM[e.owner]!;
-    if (e.kind === K.Ptero) {
-      drawPtero(x, px, py, z, e, t, now);
-      return;
-    }
-    const r = z * 0.46, a = Math.atan2(e.fy, e.fx || 0.0001);
-    x.fillStyle = 'rgba(0,0,0,0.2)';
-    x.beginPath();
-    x.ellipse(px + z * 0.28, py + z * 0.42, r * 0.95, r * 0.6, a, 0, Math.PI * 2);
-    x.fill();
-    x.save();
-    x.translate(px, py - z * 0.12);
-    x.rotate(a);
-    x.lineCap = 'round';
-    // Tail boom and tail fin.
-    x.strokeStyle = t.dark;
-    x.lineWidth = Math.max(2, z * 0.13);
-    x.beginPath();
-    x.moveTo(-r * 0.2, 0);
-    x.lineTo(-r * 1.35, 0);
-    x.stroke();
-    x.lineWidth = Math.max(1.6, z * 0.1);
-    x.beginPath();
-    x.moveTo(-r * 1.35, -r * 0.36);
-    x.lineTo(-r * 1.35, r * 0.36);
-    x.stroke();
-    // Stub wings, body and canopy.
-    x.strokeStyle = STEEL;
-    x.lineWidth = Math.max(1.6, z * 0.09);
-    x.beginPath();
-    x.moveTo(r * 0.05, -r * 0.72);
-    x.lineTo(r * 0.05, r * 0.72);
-    x.stroke();
-    x.fillStyle = t.dark;
-    x.beginPath();
-    x.ellipse(r * 0.1, 0, r * 0.82, r * 0.48, 0, 0, Math.PI * 2);
-    x.fill();
-    x.fillStyle = t.fill;
-    x.beginPath();
-    x.ellipse(r * 0.05, 0, r * 0.5, r * 0.3, 0, 0, Math.PI * 2);
-    x.fill();
-    x.fillStyle = t.light;
-    x.beginPath();
-    x.ellipse(r * 0.55, 0, r * 0.24, r * 0.22, 0, 0, Math.PI * 2);
-    x.fill();
-    x.restore();
-    // The rotor: a faint disc and two blades.
-    const spin = now / 45 + e.id;
-    x.fillStyle = 'rgba(40,40,40,0.1)';
-    x.beginPath();
-    x.arc(px, py - z * 0.12, r * 1.25, 0, Math.PI * 2);
-    x.fill();
-    x.strokeStyle = 'rgba(30,30,30,0.6)';
-    x.lineWidth = Math.max(1.4, z * 0.07);
-    x.beginPath();
-    for (const k of [0, Math.PI / 2]) {
-      x.moveTo(px - Math.cos(spin + k) * r * 1.25, py - z * 0.12 - Math.sin(spin + k) * r * 1.25);
-      x.lineTo(px + Math.cos(spin + k) * r * 1.25, py - z * 0.12 + Math.sin(spin + k) * r * 1.25);
-    }
-    x.stroke();
-  }
-
-  /** A plastic figure on its base, seen from above. */
-  private figure(px: number, py: number, z: number, e: Entity): void {
-    if (isDinoUnit(e.kind)) {
-      drawDino(this.ctx, px, py, z, e, TEAM[e.owner]!, performance.now());
-      return;
-    }
-    if (def(e.kind).cls === C.Armoured) {
-      this.vehicle(px, py, z, e);
-      return;
-    }
-    const x = this.ctx, t = TEAM[e.owner]!;
-    const r = z * (e.kind === K.Worker ? 0.26 : e.kind === K.Mortar ? 0.36 : 0.31);
-    const a = Math.atan2(e.fy, e.fx || 0.0001);
-    x.save();
-    x.translate(px, py);
-    // Base, with its shadow on the paper.
-    x.fillStyle = 'rgba(0,0,0,0.22)';
-    x.beginPath();
-    x.ellipse(1.5, 2.5, r * 1.02, r * 0.96, 0, 0, Math.PI * 2);
-    x.fill();
-    x.rotate(a);
-    x.fillStyle = t.dark;
-    x.beginPath();
-    if (e.kind === K.Lancer) {
-      const q = r * 0.92;
-      x.moveTo(-q + r * 0.3, -q);
-      x.arcTo(q, -q, q, q, r * 0.3);
-      x.arcTo(q, q, -q, q, r * 0.3);
-      x.arcTo(-q, q, -q, -q, r * 0.3);
-      x.arcTo(-q, -q, q, -q, r * 0.3);
-    } else if (e.kind === K.Runner) {
-      x.moveTo(r * 1.25, 0);
-      x.lineTo(-r * 0.75, r * 0.95);
-      x.lineTo(-r * 0.4, 0);
-      x.lineTo(-r * 0.75, -r * 0.95);
-    } else {
-      x.arc(0, 0, r, 0, Math.PI * 2);
-    }
-    x.closePath();
-    x.fill();
-    // Body and helmet.
-    x.fillStyle = t.fill;
-    x.beginPath();
-    x.ellipse(-r * 0.05, 0, r * 0.5, r * 0.62, 0, 0, Math.PI * 2);
-    x.fill();
-    x.lineCap = 'round';
-    if (e.kind === K.Trooper) {
-      x.strokeStyle = '#2b2b2b';
-      x.lineWidth = Math.max(1.3, z * 0.07);
-      x.beginPath();
-      x.moveTo(r * 0.05, r * 0.36);
-      x.lineTo(r * 1.3, r * 0.3);
-      x.stroke();
-    } else if (e.kind === K.Lancer) {
-      x.strokeStyle = '#3a3a3a';
-      x.lineWidth = Math.max(2.2, z * 0.15);
-      x.beginPath();
-      x.moveTo(-r * 0.7, -r * 0.42);
-      x.lineTo(r * 1.15, -r * 0.42);
-      x.stroke();
-      x.strokeStyle = '#c2462f';
-      x.lineWidth = Math.max(2.2, z * 0.17);
-      x.beginPath();
-      x.moveTo(r * 1.1, -r * 0.42);
-      x.lineTo(r * 1.3, -r * 0.42);
-      x.stroke();
-    } else if (e.kind === K.Runner) {
-      x.strokeStyle = '#2b2b2b';
-      x.lineWidth = Math.max(1.3, z * 0.08);
-      x.beginPath();
-      x.moveTo(r * 0.1, r * 0.3);
-      x.lineTo(r * 0.85, r * 0.3);
-      x.stroke();
-    } else if (e.kind === K.Mortar) {
-      // The tube; once the crew has stood still long enough, its legs are out and it is ready to fire.
-      const ready = e.still >= def(K.Mortar).setup;
-      if (ready) {
-        x.strokeStyle = '#5a4a36';
-        x.lineWidth = Math.max(1.2, z * 0.06);
-        x.beginPath();
-        x.moveTo(r * 0.95, 0);
-        x.lineTo(r * 0.45, -r * 0.8);
-        x.moveTo(r * 0.95, 0);
-        x.lineTo(r * 0.45, r * 0.8);
-        x.stroke();
-      }
-      x.strokeStyle = STEEL;
-      x.lineWidth = Math.max(2.6, z * 0.2);
-      x.beginPath();
-      x.moveTo(r * 0.2, -r * 0.34);
-      x.lineTo(r * (ready ? 1.35 : 1.0), -r * 0.34);
-      x.stroke();
-      if (ready) {
-        x.fillStyle = '#e9b730';
-        x.beginPath();
-        x.arc(r * 1.35, -r * 0.34, Math.max(1.2, z * 0.07), 0, Math.PI * 2);
-        x.fill();
-      }
-    } else if (e.kind === K.Worker) {
-      if (e.carry > 0 && e.cargo === 1) {
-        // A battery under one arm.
-        x.fillStyle = STEEL;
-        x.beginPath();
-        x.arc(r * 0.8, 0, r * 0.5, 0, Math.PI * 2);
-        x.fill();
-        x.fillStyle = '#e08a1e';
-        x.beginPath();
-        x.arc(r * 0.8, 0, r * 0.34, 0, Math.PI * 2);
-        x.fill();
-      } else if (e.carry > 0) {
-        const s = r * 0.85;
-        x.fillStyle = BLOCK_COLOURS[e.id % 4]!;
-        x.fillRect(r * 0.35, -s / 2, s, s);
-        x.strokeStyle = 'rgba(40,30,20,0.7)';
-        x.lineWidth = 1;
-        x.strokeRect(r * 0.35, -s / 2, s, s);
-      } else if (e.ws === W.Build) {
-        x.strokeStyle = '#6b4a2b';
-        x.lineWidth = Math.max(1.3, z * 0.08);
-        x.beginPath();
-        x.moveTo(r * 0.2, r * 0.3);
-        x.lineTo(r * 1.1, r * 0.1);
-        x.stroke();
-      }
-    }
-    x.fillStyle = t.light;
-    x.beginPath();
-    x.arc(r * 0.08, 0, r * (e.kind === K.Worker ? 0.36 : 0.34), 0, Math.PI * 2);
-    x.fill();
-    if (e.kind === K.Worker) {
-      x.fillStyle = '#f2c230';
-      x.beginPath();
-      x.arc(r * 0.08, 0, r * 0.22, 0, Math.PI * 2);
-      x.fill();
-    }
-    x.restore();
-  }
-
-  /** A shell going off: a bright ring that opens to the edge of its blast, and smoke after it. */
-  private burst(px: number, py: number, r: number, k: number): void {
+  /** A shell going off: a flash, a ball of fire opening to the edge of its blast, bits thrown clear, smoke after. */
+  private burst(px: number, py: number, r: number, k: number, seed = 0): void {
     const x = this.ctx;
     const kk = Math.max(0, Math.min(1, k));
-    x.fillStyle = `rgba(255,170,60,${0.55 * (1 - kk)})`;
+    x.fillStyle = `rgba(255,150,50,${0.6 * (1 - kk)})`;
     x.beginPath();
     x.arc(px, py, Math.max(3, r * (0.35 + 0.65 * kk)), 0, Math.PI * 2);
     x.fill();
-    x.strokeStyle = `rgba(120,70,30,${0.7 * (1 - kk)})`;
+    x.strokeStyle = `rgba(110,60,25,${0.75 * (1 - kk)})`;
     x.lineWidth = 2;
     x.stroke();
-    if (kk < 0.35) {
-      x.fillStyle = `rgba(255,244,200,${1 - kk * 2.8})`;
+    if (kk > 0.3) {
+      x.fillStyle = `rgba(70,62,54,${0.34 * (1 - kk)})`;
       x.beginPath();
-      x.arc(px, py, Math.max(2, r * 0.3), 0, Math.PI * 2);
+      x.arc(px + r * 0.1, py - r * 0.25 * kk, r * (0.3 + 0.35 * kk), 0, Math.PI * 2);
+      x.fill();
+    }
+    x.fillStyle = `rgba(50,40,30,${0.9 * (1 - kk)})`;
+    for (let i = 0; i < 5; i++) {
+      const a = seed + i * 1.26, d = r * (0.3 + 0.9 * kk) * (0.8 + 0.3 * Math.sin(seed * 3 + i));
+      x.beginPath();
+      x.arc(px + Math.cos(a) * d, py + Math.sin(a) * d - Math.sin(kk * Math.PI) * r * 0.25, Math.max(1, r * 0.07), 0, Math.PI * 2);
+      x.fill();
+    }
+    if (kk < 0.35) {
+      x.fillStyle = `rgba(255,246,205,${1 - kk * 2.8})`;
+      x.beginPath();
+      x.arc(px, py, Math.max(2, r * (0.25 + 0.5 * kk)), 0, Math.PI * 2);
       x.fill();
     }
   }
@@ -1221,18 +815,31 @@ export class Renderer {
     x.fillRect(px - w / 2, py + 1.5, w * hp, 3);
   }
 
-  private effect(f: Fx, now: number, sx: (n: number) => number, sy: (n: number) => number, z: number): void {
-    const x = this.ctx;
+  private effect(st: Stage, f: Fx, sx: (n: number) => number, sy: (n: number) => number): void {
+    const { x, z, now } = st;
     const k = Math.min(1, (now - f.born) / f.life);
+    const seed = f.born % 6.28;
     if (f.t === 'shot') {
       const x1 = sx(f.x1), y1 = sy(f.y1), x2 = sx(f.x2), y2 = sy(f.y2);
-      if (drawDinoHit(x, f.kind, x1, y1, x2, y2, z, k)) return;
+      if (drawDinoHit(st, f.kind, x1, y1, x2, y2, k)) return;
       const blast = (def(f.kind).splash / TILE) * z;
+      const at = (q: number): [number, number] => [x1 + (x2 - x1) * q, y1 + (y2 - y1) * q];
+      const streak = (from: number, to: number, w: number, core: string, glow: string) => {
+        const [ax, ay] = at(from), [bx, by] = at(to);
+        for (const [lw, colour] of [[w + 2, glow], [w, core]] as const) {
+          x.strokeStyle = colour;
+          x.lineWidth = lw;
+          x.beginPath();
+          x.moveTo(ax, ay);
+          x.lineTo(bx, by);
+          x.stroke();
+        }
+      };
       if (f.kind === K.Mortar) {
         // A shell lobbed high: it climbs, hangs and drops, its shadow running along the ground under it.
         const fly = Math.min(1, k / 0.72);
         if (fly < 1) {
-          const gx = x1 + (x2 - x1) * fly, gy = y1 + (y2 - y1) * fly;
+          const [gx, gy] = at(fly);
           const up = Math.sin(fly * Math.PI) * Math.min(z * 3.2, Math.hypot(x2 - x1, y2 - y1) * 0.35);
           x.fillStyle = 'rgba(0,0,0,0.22)';
           x.beginPath();
@@ -1240,37 +847,27 @@ export class Renderer {
           x.fill();
           x.fillStyle = STEEL;
           x.beginPath();
-          x.arc(gx, gy - up, Math.max(2, z * 0.13), 0, Math.PI * 2);
+          x.arc(gx, gy - up, Math.max(2, z * (0.11 + 0.05 * Math.sin(fly * Math.PI))), 0, Math.PI * 2);
+          x.fill();
+          x.fillStyle = 'rgba(255,255,255,0.5)';
+          x.beginPath();
+          x.arc(gx - 1, gy - up - 1, Math.max(0.8, z * 0.04), 0, Math.PI * 2);
           x.fill();
         } else {
-          this.burst(x2, y2, blast, (k - 0.72) / 0.28);
+          this.burst(x2, y2, blast, (k - 0.72) / 0.28, seed);
         }
       } else if (f.kind === K.Tank || f.kind === K.Jugger) {
         const fly = Math.min(1, k / 0.3);
-        if (fly < 1) {
-          x.strokeStyle = 'rgba(255,214,120,0.95)';
-          x.lineWidth = Math.max(2.4, z * (f.kind === K.Jugger ? 0.16 : 0.12));
-          x.lineCap = 'round';
-          x.beginPath();
-          x.moveTo(x1 + (x2 - x1) * Math.max(0, fly - 0.3), y1 + (y2 - y1) * Math.max(0, fly - 0.3));
-          x.lineTo(x1 + (x2 - x1) * fly, y1 + (y2 - y1) * fly);
-          x.stroke();
-          if (k < 0.12) {
-            x.fillStyle = `rgba(255,236,150,${1 - k * 8})`;
-            x.beginPath();
-            x.arc(x1 + (x2 - x1) * 0.1, y1 + (y2 - y1) * 0.1, z * 0.28, 0, Math.PI * 2);
-            x.fill();
-          }
-        } else {
-          this.burst(x2, y2, blast, (k - 0.3) / 0.7);
-        }
+        if (fly < 1) streak(Math.max(0.08, fly - 0.25), Math.max(0.1, fly), Math.max(2.4, z * (f.kind === K.Jugger ? 0.15 : 0.11)), '#fff0b0', 'rgba(230,120,30,0.6)');
+        else this.burst(x2, y2, Math.max(blast, z * 0.5), (k - 0.3) / 0.7, seed);
       } else if (f.kind === K.Flak) {
-        // Black puffs in the air round the target.
+        // Twin tracers going up, then black puffs in the air round the target.
+        if (k < 0.4) streak(Math.max(0.1, k * 2.5 - 0.3), Math.min(1, k * 2.5), Math.max(1.4, z * 0.06), '#fff3b0', 'rgba(230,120,30,0.45)');
         for (let i = 0; i < 3; i++) {
-          const a = (f.born % 7) + i * 2.1, d = blast * (0.25 + 0.3 * i);
+          const a = seed + i * 2.1, d = blast * (0.25 + 0.3 * i);
           const kk = Math.max(0, Math.min(1, k * 1.5 - i * 0.2));
           if (kk <= 0) continue;
-          x.fillStyle = `rgba(40,40,40,${0.55 * (1 - kk)})`;
+          x.fillStyle = `rgba(40,40,40,${0.6 * (1 - kk)})`;
           x.beginPath();
           x.arc(x2 + Math.cos(a) * d, y2 - z * 0.12 + Math.sin(a) * d, z * (0.14 + 0.22 * kk), 0, Math.PI * 2);
           x.fill();
@@ -1282,86 +879,123 @@ export class Renderer {
           }
         }
       } else if (f.kind === K.Lancer) {
-        const hx = x1 + (x2 - x1) * Math.min(1, k * 1.6), hy = y1 + (y2 - y1) * Math.min(1, k * 1.6);
-        x.strokeStyle = `rgba(250,250,250,${0.7 * (1 - k)})`;
-        x.lineWidth = Math.max(1.5, z * 0.09);
-        x.beginPath();
-        x.moveTo(x1, y1);
-        x.lineTo(hx, hy);
-        x.stroke();
-        if (k > 0.6) {
-          x.fillStyle = `rgba(245,150,40,${1 - k})`;
+        // A rocket on a trail of smoke, and a punch of fire where it lands.
+        const fly = Math.min(1, k / 0.62);
+        for (let i = 0; i < 5; i++) {
+          const q = fly - i * 0.11;
+          if (q <= 0.05) continue;
+          const [tx, ty] = at(q);
+          x.fillStyle = `rgba(235,232,224,${Math.max(0, 0.6 - i * 0.1) * (1 - k)})`;
           x.beginPath();
-          x.arc(x2, y2, z * 0.45 * (k - 0.4) * 2, 0, Math.PI * 2);
+          x.arc(tx + Math.sin(i * 3 + seed) * 1.5, ty + Math.cos(i * 2 + seed) * 1.5, Math.max(1.5, z * (0.05 + i * 0.022)), 0, Math.PI * 2);
           x.fill();
+        }
+        if (fly < 1) {
+          const [hx, hy] = at(fly), a = Math.atan2(y2 - y1, x2 - x1);
+          const p = brush(st, hx, hy, a);
+          p.o('#ffb52e', -0.14, 0, 0.1, 0.05).b(PENCIL, 0, 0, 0.2, 0.09, 0.03).o('#d9463d', 0.1, 0, 0.06, 0.045);
+          home(st);
+        } else {
+          this.burst(x2, y2, z * 0.42, (k - 0.62) / 0.38, seed);
         }
       } else {
-        const a = 0.12 + k * 0.5, b = Math.min(1, a + 0.38);
-        const wide = f.kind === K.Turret ? Math.max(2.4, z * 0.13) : Math.max(1.6, z * 0.08);
-        for (const [w, colour] of [[wide + 1.6, `rgba(120,60,20,${0.45 * (1 - k)})`], [wide, f.kind === K.Turret ? `rgba(255,150,40,${1 - k})` : `rgba(255,224,90,${1 - k})`]] as [number, string][]) {
-          x.strokeStyle = colour;
-          x.lineWidth = w;
+        // Small arms: a short bright streak, and a spark where it strikes.
+        const big = f.kind === K.Turret;
+        const head = Math.min(1, 0.15 + k * 1.5);
+        if (head < 1 || k < 0.6) streak(Math.max(0.12, head - (big ? 0.34 : 0.26)), head, big ? Math.max(2.2, z * 0.11) : Math.max(1.3, z * 0.055), '#fff6c4', big ? 'rgba(240,120,30,0.6)' : 'rgba(210,130,30,0.45)');
+        if (k > 0.5) {
+          const q = (k - 0.5) / 0.5, r = z * (big ? 0.26 : 0.16);
+          x.strokeStyle = `rgba(255,236,160,${1 - q})`;
+          x.lineWidth = Math.max(1.2, z * 0.05);
           x.beginPath();
-          x.moveTo(x1 + (x2 - x1) * a, y1 + (y2 - y1) * a);
-          x.lineTo(x1 + (x2 - x1) * b, y1 + (y2 - y1) * b);
+          for (let i = 0; i < 4; i++) {
+            const a = seed + i * 1.57;
+            x.moveTo(x2 + Math.cos(a) * r * 0.3 * q, y2 + Math.sin(a) * r * 0.3 * q);
+            x.lineTo(x2 + Math.cos(a) * r * (0.4 + 0.6 * q), y2 + Math.sin(a) * r * (0.4 + 0.6 * q));
+          }
           x.stroke();
-        }
-        if (k < 0.35 && z >= 11) {
-          // Muzzle flash.
-          x.fillStyle = `rgba(255,236,150,${1 - k * 2.8})`;
-          x.beginPath();
-          x.arc(x1 + (x2 - x1) * 0.06, y1 + (y2 - y1) * 0.06, z * 0.16, 0, Math.PI * 2);
-          x.fill();
         }
       }
     } else if (f.t === 'fall') {
-      // A toy soldier tipped over on the paper.
+      // Knocked flat on the paper: the piece itself, on its side, fading.
       const px = sx(f.x1), py = sy(f.y1), t = TEAM[f.owner] ?? TEAM[0]!;
-      // A fallen dinosaur is as big as it was standing.
-      const r = Math.max(z * 0.34, isDinoUnit(f.kind) ? (def(f.kind).radius / TILE) * z * 0.85 : 0), a = Math.atan2(f.y2, f.x2 || 0.0001) + 1.2;
-      x.save();
-      x.translate(px, py);
-      x.rotate(a);
-      x.globalAlpha = 0.85 * (1 - k * k);
-      x.fillStyle = t.dark;
-      x.beginPath();
-      x.ellipse(0, 0, r * 1.25, r * 0.5, 0, 0, Math.PI * 2);
-      x.fill();
-      x.fillStyle = t.light;
-      x.beginPath();
-      x.arc(r * 0.8, 0, r * 0.3, 0, Math.PI * 2);
-      x.fill();
-      x.restore();
-      x.globalAlpha = 1;
+      const r = Math.max(z * 0.34, (def(f.kind).radius / TILE) * z);
       if (k < 0.25) {
         x.strokeStyle = `rgba(255,255,255,${1 - k * 4})`;
         x.lineWidth = 2;
         x.beginPath();
-        x.arc(px, py, r * (1 + k * 5), 0, Math.PI * 2);
+        x.arc(px, py, r * (1 + k * 4), 0, Math.PI * 2);
         x.stroke();
       }
+      if (z < 11) {
+        x.globalAlpha = 0.8 * (1 - k * k);
+        x.fillStyle = t.dark;
+        x.beginPath();
+        x.ellipse(px, py, r * 1.1, r * 0.5, 0.6, 0, Math.PI * 2);
+        x.fill();
+        x.globalAlpha = 1;
+      } else if (isDinoUnit(f.kind)) drawDinoFallen(st, f.kind, f.owner, px, py, Math.atan2(f.y2, f.x2 || 0.0001), t, k);
+      else drawArmyFallen(st, f.kind, f.owner, px, py, Math.atan2(f.y2, f.x2 || 0.0001), t, k);
     } else if (f.t === 'wreck') {
-      // A burnt mark on the paper and a few bits of plastic.
+      // A vehicle blown apart: a scorch on the paper, plates of its plastic thrown clear, smoke for a while after.
       const px = sx(f.x1), py = sy(f.y1), t = TEAM[f.owner] ?? TEAM[0]!;
-      const r = (def(f.kind).radius / TILE) * z;
-      if (k < 0.2) this.burst(px, py, r * 2.2, k / 0.2);
-      x.globalAlpha = 0.75 * (1 - k * k);
-      x.fillStyle = 'rgba(40,32,24,0.55)';
+      const r = (def(f.kind).radius / TILE) * z, fade = 1 - k * k;
+      x.fillStyle = `rgba(36,28,22,${0.5 * fade})`;
       x.beginPath();
-      x.ellipse(px, py, r * 1.15, r * 0.9, 0.4, 0, Math.PI * 2);
+      x.ellipse(px, py, r * 1.2, r * 0.95, 0.4, 0, Math.PI * 2);
       x.fill();
-      x.fillStyle = t.dark;
-      for (let i = 0; i < 4; i++) {
-        const a = i * 1.7 + (f.born % 5), d = r * (0.3 + 0.25 * i) * Math.min(1, k * 6 + 0.3);
-        x.fillRect(px + Math.cos(a) * d - r * 0.16, py + Math.sin(a) * d - r * 0.12, r * 0.34, r * 0.24);
+      const out = 1 - Math.pow(1 - Math.min(1, k * 5), 3);
+      x.globalAlpha = fade;
+      x.lineWidth = 1.2;
+      for (let i = 0; i < 6; i++) {
+        const a = i * 1.05 + seed, d = r * (0.25 + 0.3 * (i % 3)) * (0.3 + out), w = r * (0.5 - (i % 3) * 0.1), h = r * 0.3;
+        x.save();
+        x.translate(px + Math.cos(a) * d, py + Math.sin(a) * d - Math.sin(Math.min(1, k * 5) * Math.PI) * r * 0.3);
+        x.rotate(a * 2.3 + out * 2);
+        x.fillStyle = i % 2 ? t.fill : t.dark;
+        x.strokeStyle = t.ink;
+        x.fillRect(-w / 2, -h / 2, w, h);
+        x.strokeRect(-w / 2, -h / 2, w, h);
+        x.restore();
       }
       x.globalAlpha = 1;
+      if (k < 0.16) this.burst(px, py, r * 2.4, k / 0.16, seed);
+      else if (k < 0.85 && z >= 11) {
+        smoke(st, px, py, (r / z) * 1.5, seed, '#3a3530');
+        home(st);
+      }
     } else if (f.t === 'puff') {
-      const px = sx(f.x1), py = sy(f.y1), s = def(f.kind).size * z;
-      x.fillStyle = `rgba(90,70,50,${0.5 * (1 - k)})`;
+      // A building coming down: a blast, a ring of dust, rubble in its colour, and a mark where it stood.
+      const px = sx(f.x1), py = sy(f.y1), s = def(f.kind).size * z, t = TEAM[f.owner] ?? TEAM[0]!;
+      const fade = 1 - k * k, out = 1 - Math.pow(1 - Math.min(1, k * 3), 3);
+      x.fillStyle = `rgba(36,28,22,${0.42 * fade})`;
       x.beginPath();
-      x.arc(px, py, (s / 2) * (0.6 + k), 0, Math.PI * 2);
+      x.ellipse(px, py, s * 0.48, s * 0.44, 0, 0, Math.PI * 2);
       x.fill();
+      x.strokeStyle = `rgba(150,125,90,${0.7 * (1 - out)})`;
+      x.lineWidth = Math.max(3, s * 0.12 * (1 - out));
+      x.beginPath();
+      x.arc(px, py, s * (0.3 + 0.6 * out), 0, Math.PI * 2);
+      x.stroke();
+      x.globalAlpha = fade;
+      x.lineWidth = 1.2;
+      for (let i = 0; i < 9; i++) {
+        const a = i * 0.7 + seed, d = s * (0.12 + 0.11 * (i % 4)) * (0.4 + out), w = s * (0.16 - (i % 3) * 0.03);
+        x.save();
+        x.translate(px + Math.cos(a) * d, py + Math.sin(a) * d - Math.sin(Math.min(1, k * 3) * Math.PI) * s * 0.12);
+        x.rotate(a * 1.9 + out * 1.5);
+        x.fillStyle = i % 3 === 0 ? t.light : i % 3 === 1 ? t.fill : t.dark;
+        x.strokeStyle = t.ink;
+        x.fillRect(-w / 2, -w * 0.35, w, w * 0.7);
+        x.strokeRect(-w / 2, -w * 0.35, w, w * 0.7);
+        x.restore();
+      }
+      x.globalAlpha = 1;
+      if (k < 0.3) this.burst(px, py, s * 0.62, k / 0.3, seed);
+      else if (k < 0.8 && z >= 11) {
+        smoke(st, px, py, def(f.kind).size * 0.42, seed, '#4a443c');
+        home(st);
+      }
     } else if (f.t === 'ripple') {
       const px = sx(f.x1), py = sy(f.y1);
       const colour = f.mode === O.Move ? `rgba(60,150,70,${1 - k})` : `rgba(205,55,40,${1 - k})`;
@@ -1403,7 +1037,9 @@ export function drawMini(c: HTMLCanvasElement, r: Renderer, m: Match): void {
     }
     if (e.owner !== m.me && !visibleTo(g, m.me, e)) continue;
     const b = def(e.kind).building;
-    x.fillStyle = e.owner === m.me ? (b ? '#1f5a1a' : '#2f9a2f') : (b ? '#8a2a12' : '#e0452b');
+    // Yours in your green. Theirs stay red here, not their tan: on a map this small tan is a battery pack,
+    // and the one thing the minimap must do is show an attack coming at a glance.
+    x.fillStyle = e.owner === m.me ? (b ? TEAM[0]!.ink : TEAM[0]!.fill) : (b ? '#8a2a12' : '#e0452b');
     const s = b ? 4 : isWorker(e.kind) || e.kind === K.Egg ? 1.5 : def(e.kind).supply >= 3 ? 3.5 : 2.5;
     x.fillRect(e.x * kx - s / 2, e.y * ky - s / 2, s, s);
   }
