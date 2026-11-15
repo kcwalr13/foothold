@@ -19,11 +19,19 @@ export interface Team {
   pale: string;
 }
 
-/** You are green and the opponent is tan, whichever faction each plays. */
+/**
+ * You are green and the opponent is tan, whichever faction each plays. Frenzy seats two more: blue and red,
+ * which with green and tan are the four colours of a board game.
+ */
 export const TEAM: readonly Team[] = [
   { fill: '#3fa23a', dark: '#2a7a2c', light: '#8fdc76', ink: '#143d18', flag: '#35c23b', pale: 'rgba(63,162,58,0.3)' },
   { fill: '#dc9638', dark: '#ab6a1f', light: '#f9d48d', ink: '#4f2c0a', flag: '#f08a1d', pale: 'rgba(220,150,56,0.34)' },
+  { fill: '#4a8fe0', dark: '#2b65b0', light: '#a9d2fa', ink: '#102c57', flag: '#2f8df0', pale: 'rgba(74,143,224,0.3)' },
+  { fill: '#dd5a50', dark: '#aa352e', light: '#f8b0a6', ink: '#551611', flag: '#ee3b30', pale: 'rgba(221,90,80,0.3)' },
 ];
+
+/** Gold marks a hero, whichever side it is on: the rim of its base, the crest down its back. */
+export const GOLD = '#f7c531';
 
 export const PENCIL = '#3a2d20';
 export const STEEL = '#2b2b2b';

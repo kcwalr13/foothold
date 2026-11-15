@@ -1,5 +1,6 @@
-// Maps. Every map is symmetric: the far side is the near side turned half a circle.
-import type { BaseSite, GameMap } from './types';
+// Maps. Every map is symmetric: a two-sided map is its near side turned half a circle, a four-cornered one
+// its first corner turned a quarter circle three times over.
+import { TILE, type BaseSite, type GameMap } from './types';
 
 const HQ_SIZE = 4;
 
@@ -77,5 +78,65 @@ export function twinRidges(): GameMap {
     { text: 'Watchtower', x: 47.6, y: 7.6, rot: 0.03, small: true },
     { text: 'Watchtower', x: 48.4, y: 40.4, rot: 0.03, small: true },
   ];
-  return { name: 'Twin Ridges', w, h, rock, high, bases, towers, roads, labels };
+  return { name: 'Twin Ridges', seats: 2, w, h, rock, high, bases, towers, posts: [], roads, labels };
+}
+
+/**
+ * Four Corners, Frenzy's map: a square, the same seen from every corner. Side 0 starts bottom-left and the
+ * others follow a quarter turn at a time: top-left, top-right, bottom-right. Each base sits on a corner
+ * plateau with one wide way down, facing the middle; a Watchtower stands on the middle tile.
+ */
+export function fourCorners(): GameMap {
+  const n = 63, s = n * TILE;
+  const rock = new Uint8Array(n * n);
+  const high = new Uint8Array(n * n);
+  /** One quarter turn: a tile, the top-left tile of a square footprint, and a point in any unit that spans `span`. */
+  const turnTile = (x: number, y: number, size = 1) => ({ x: n - size - y, y: x });
+  const turnPoint = (x: number, y: number, span: number) => ({ x: span - y, y: x });
+  /** Sets a tile and the three it turns into. */
+  const set = (a: Uint8Array, x: number, y: number, v: number) => {
+    for (let k = 0; k < 4; k++) {
+      a[y * n + x] = v;
+      ({ x, y } = turnTile(x, y));
+    }
+  };
+  const block = (x0: number, y0: number, x1: number, y1: number) => {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(rock, x, y, 1);
+  };
+  // Side 0's plateau fills the bottom-left corner. Cliffs run along its top and right edges and stop short
+  // of where they would meet: that gap, six tiles of each, is the way down.
+  for (let y = 47; y <= 62; y++) for (let x = 0; x <= 15; x++) set(high, x, y, 1);
+  block(0, 46, 10, 46);
+  block(16, 52, 16, 62);
+  // A pillar on the way from each base to the middle splits the approach in two.
+  block(22, 38, 24, 40);
+  // An outcrop half-way along each edge, between neighbours: a narrow way along the edge, a wide one inside.
+  block(28, 51, 34, 56);
+
+  // Everything else is laid out for side 0 and turned for the rest.
+  const hall = { tx: 6, ty: 53 };
+  const turrets = [{ tx: 9, ty: 48 }, { tx: 13, ty: 52 }];
+  const hero = { x: 11 * TILE, y: 52 * TILE };
+  const bases: BaseSite[] = [];
+  const posts: GameMap['posts'] = [];
+  let h = { x: hall.tx, y: hall.ty }, ts = turrets.map((q) => ({ x: q.tx, y: q.ty })), at = hero;
+  for (let side = 0; side < 4; side++) {
+    bases.push({ id: side, name: 'Corner', side, tier: 0, hx: h.x, hy: h.y, piles: [], cells: [] });
+    posts.push({ side, turrets: ts.map((q) => ({ tx: q.x, ty: q.y })), hero: at });
+    h = turnTile(h.x, h.y, HQ_SIZE);
+    ts = ts.map((q) => turnTile(q.x, q.y, 2));
+    at = turnPoint(at.x, at.y, s);
+  }
+  const towers = [{ tx: 31, ty: 31 }];
+
+  let road = [{ x: 16.5, y: 46.5 }, { x: 21, y: 42 }, { x: 25.5, y: 41.5 }, { x: 29, y: 34 }];
+  let edge = [{ x: 17, y: 56 }, { x: 25, y: 59 }, { x: 31.5, y: 59.5 }, { x: 38, y: 59 }, { x: 46, y: 56 }];
+  const roads: { x: number; y: number }[][] = [];
+  const labels: GameMap['labels'] = [{ text: 'The Middle', x: 31.5, y: 28.4, rot: 0 }, { text: 'Watchtower', x: 31.5, y: 33.6, rot: 0, small: true }];
+  for (let k = 0; k < 4; k++) {
+    roads.push(road, edge);
+    road = road.map((q) => turnPoint(q.x, q.y, n));
+    edge = edge.map((q) => turnPoint(q.x, q.y, n));
+  }
+  return { name: 'Four Corners', seats: 4, w: n, h: n, rock, high, bases, towers, posts, roads, labels };
 }

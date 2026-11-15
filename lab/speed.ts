@@ -1,7 +1,10 @@
 // How long one tick of the rules takes when the map is full: both sides at full supply, fighting. Once with two
 // Green Armies, and once with a Green Army against a Dino Pack swarm, which puts more bodies on the field.
+// Then Frenzy: four sides at full supply meeting in the middle, heroes and all, four opponents thinking.
 // Run: npx tsx lab/speed.ts
 import { Bot } from '../src/ai/bot';
+import { FrenzyBot } from '../src/ai/frenzy';
+import { heroOf } from '../src/sim/frenzy';
 import { def } from '../src/sim/data';
 import { createGame, schedule, spawn } from '../src/sim/state';
 import { step } from '../src/sim/step';
@@ -45,7 +48,52 @@ function battle(name: string, factions: readonly [Faction, Faction], mixes: read
   console.log(`  the two opponents' thinking, per tick: mean ${(thinks.reduce((s, x) => s + x, 0) / thinks.length).toFixed(2)} ms`);
 }
 
+/** Frenzy at its fullest: every side's forty supply and its hero in one fight around the Watchtower. */
+function frenzy(name: string, factions: readonly Faction[]): void {
+  const g = createGame(5, undefined, factions);
+  const FULL: Record<Faction, Mix> = {
+    green: [[K.Trooper, 14], [K.Lancer, 8], [K.Tank, 2], [K.Flak, 1], [K.Gunship, 2], [K.Jugger, 1]],
+    dino: [[K.Raptor, 22], [K.Spitter, 10], [K.Horn, 2], [K.Ptero, 1], [K.Rex, 1]],
+  };
+  const mid = (g.map.w * TILE) / 2;
+  let n = 0;
+  for (const pl of g.players) {
+    const cx = 31.5 + [-6, -6, 6, 6][pl.id]!, cy = 31.5 + [6, -6, -6, 6][pl.id]!;
+    let i = 0;
+    for (const [kind, count] of FULL[pl.faction]) for (let k = 0; k < count; k++) {
+      const u = spawn(g, kind, pl.id, Math.round((cx + (i % 7) * 0.8 - 2.4) * TILE), Math.round((cy + Math.floor(i / 7) * 0.8 - 2.4) * TILE));
+      u.group = 0;
+      i++;
+      n++;
+    }
+    const h = heroOf(g, pl)!;
+    h.x = h.px = h.ax = h.dx = Math.round(cx * TILE);
+    h.y = h.py = h.ay = h.dy = Math.round(cy * TILE);
+    pl.heroLvl = h.lvl = 6;
+    for (const group of [0, 3]) schedule(g, { t: 'order', p: pl.id, group, mode: O.Attack, x: mid, y: mid });
+  }
+  const bots = g.players.map((pl) => new FrenzyBot(pl.id, 5 + pl.id));
+  const times: number[] = [], thinks: number[] = [];
+  for (let t = 0; t < 300; t++) {
+    const a = performance.now();
+    // The opponents use their heroes and run their bases; the armies are left to the fight they were sent to.
+    for (const b of bots) for (const c of b.think(makeView(g, b.p))) if (c.t !== 'order' && c.t !== 'assign' && c.t !== 'rally') schedule(g, c);
+    const m = performance.now();
+    step(g);
+    const z = performance.now();
+    thinks.push(m - a);
+    times.push(z - m);
+  }
+  times.sort((x, y) => x - y);
+  const left = g.players.map((pl) => g.ents.filter((e) => e.owner === pl.id && !def(e.kind).building && e.hp > 0).length);
+  console.log(`${name}: ${n} fighting units and four heroes at the start; units left at the end: ${left.join(', ')}`);
+  console.log(`  one tick of the rules: median ${times[150]!.toFixed(2)} ms, worst in twenty ${times[285]!.toFixed(2)} ms, worst ${times[299]!.toFixed(2)} ms`);
+  console.log(`  the four opponents' thinking, per tick: mean ${(thinks.reduce((s, x) => s + x, 0) / thinks.length).toFixed(2)} ms`);
+}
+
 battle('Green Army against Green Army', ['green', 'green'], [GREEN, GREEN]);
 battle('Green Army against Dino Pack', ['green', 'dino'], [GREEN, DINO]);
 battle('Dino Pack against Dino Pack', ['dino', 'dino'], [DINO, DINO]);
+frenzy('Frenzy, two Green Armies and two Dino Packs', ['green', 'dino', 'green', 'dino']);
+frenzy('Frenzy, four Dino Packs', ['dino', 'dino', 'dino', 'dino']);
 console.log('A tick comes every 100 ms, so the budget is 100 ms on the slowest phone the game is meant for.');

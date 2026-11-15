@@ -74,8 +74,10 @@ export function updateFog(g: Game): void {
   }
   for (const e of g.ents) {
     if (e.owner < 0 || e.hp <= 0 || !def(e.kind).building) continue;
-    const pl = g.players[1 - e.owner]!;
-    if (onLayer(g, pl.vis, e.x, e.y)) pl.seen.set(e.id, { id: e.id, kind: e.kind, owner: e.owner, x: e.x, y: e.y });
+    for (const pl of g.players) {
+      if (pl.id === e.owner) continue;
+      if (onLayer(g, pl.vis, e.x, e.y)) pl.seen.set(e.id, { id: e.id, kind: e.kind, owner: e.owner, x: e.x, y: e.y });
+    }
   }
   for (const pl of g.players) {
     for (const [id, gh] of pl.seen) {

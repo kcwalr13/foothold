@@ -1,10 +1,11 @@
 // What one player is allowed to know. The computer opponent reads the match only through this,
 // so it plays under the same fog of war as a person.
 import { def, isWorker, worth } from './data';
-import { canPlace, visibleTo, type Game } from './state';
-import { K, type Entity, type Faction, type GameMap, type Ghost, type GroupState, type Kind } from './types';
+import { canPlace, onLayer, visibleTo, type Game } from './state';
+import { K, type Entity, type Faction, type GameMap, type Ghost, type GroupState, type Kind, type Mode } from './types';
 
 export interface View {
+  mode: Mode;
   tick: number;
   p: number;
   /** What this player plays, and what the other side plays: both are known before the match starts. */
@@ -38,6 +39,18 @@ export interface View {
   canPlace(kind: Kind, tx: number, ty: number): boolean;
   /** True where a building could not stand: rock, a pile or a building. */
   blocked(tx: number, ty: number): boolean;
+
+  // Frenzy. Who is playing, what they play and who is out are known to everyone.
+  sides: readonly { id: number; faction: Faction; out: boolean }[];
+  unlocked: readonly Kind[];
+  muster: number;
+  heroLvl: number;
+  heroXp: number;
+  /** The tick this side's fallen hero returns; 0 while it stands. */
+  heroBack: number;
+  cds: readonly number[];
+  /** Who holds the Watchtower in the middle: a side, -1 for nobody, or -2 when this side can't see it. */
+  middle: number;
 }
 
 export function makeView(g: Game, p: number): View {
@@ -50,13 +63,17 @@ export function makeView(g: Game, p: number): View {
     else if (e.owner === p) own.push(e);
     else if (e.owner >= 0 && visibleTo(g, p, e)) enemies.push(e);
   }
+  let middle = -2;
+  for (const e of g.ents) if (e.kind === K.Tower && onLayer(g, pl.vis, e.x, e.y)) middle = e.busy - 1;
   const hurt: { x: number; y: number; kind: Kind }[] = [];
   for (const ev of g.events) if (ev.t === 'hurt' && ev.owner === p) hurt.push({ x: ev.x, y: ev.y, kind: ev.kind });
   return {
-    tick: g.tick, p, faction: pl.faction, foe: g.players[1 - p]!.faction, blocks: pl.blocks, gas: pl.gas, weapons: pl.weapons, armour: pl.armour, supply: pl.supply, cap: pl.cap, rally: pl.rally, repeat: pl.repeat, groups: pl.groups,
+    mode: g.mode, tick: g.tick, p, faction: pl.faction, foe: g.players[(p + 1) % g.players.length]!.faction, blocks: pl.blocks, gas: pl.gas, weapons: pl.weapons, armour: pl.armour, supply: pl.supply, cap: pl.cap, rally: pl.rally, repeat: pl.repeat, groups: pl.groups,
     own, enemies, ghosts: [...pl.seen.values()], piles, cells, map: g.map, hurt, vis: pl.vis, explored: pl.explored,
     canPlace: (kind, tx, ty) => canPlace(g, p, kind, tx, ty),
     blocked: (tx, ty) => g.nav.isBlocked(tx, ty),
+    sides: g.players.map((q) => ({ id: q.id, faction: q.faction, out: q.out })),
+    unlocked: pl.unlocked, muster: pl.muster, heroLvl: pl.heroLvl, heroXp: pl.heroXp, heroBack: pl.heroBack, cds: pl.cds, middle,
   };
 }
 

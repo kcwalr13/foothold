@@ -5,7 +5,7 @@ const t = (tiles: number) => Math.round(tiles * TILE);
 
 const base = {
   gas: 0, speed: 0, range: 0, dmg: 0, cooldown: 0, vs: [100, 100, 100, 100] as const, splash: 0, minRange: 0, setup: 0,
-  air: false, melee: false, charge: 0, raider: false, brood: 1, size: 0, provides: 0, building: false, needs: [] as Kind[],
+  air: false, melee: false, charge: 0, raider: false, brood: 1, size: 0, provides: 0, building: false, hero: false, needs: [] as Kind[],
 };
 
 export const DEFS: Record<number, Def> = {
@@ -166,6 +166,16 @@ export const DEFS: Record<number, Def> = {
     ...base, kind: K.Tower, name: 'Watchtower', plural: 'Watchtowers', short: 'Tower', cls: C.Structure, hp: 1, cost: 0, time: 0, supply: 0,
     radius: t(0.5), sight: 0, size: 1,
   },
+  // ---------------------------------------------------------------- Frenzy's heroes
+  // One a side. `hp` and `dmg` are for level 1 and grow with level (`FRENZY.hpPer`, `dmgPer`).
+  [K.Captain]: {
+    ...base, kind: K.Captain, name: 'Captain', plural: 'Captains', short: 'Captain', cls: C.Armoured, hp: 520, cost: 0, time: 0, supply: 0,
+    speed: 70, radius: t(0.36), sight: 10, range: t(5.5), dmg: 20, cooldown: 8, vs: [100, 100, 60, 100], hero: true,
+  },
+  [K.Alpha]: {
+    ...base, kind: K.Alpha, name: 'Alpha', plural: 'Alphas', short: 'Alpha', cls: C.Armoured, hp: 1000, cost: 0, time: 0, supply: 0,
+    speed: 84, radius: t(0.44), sight: 10, range: t(0.7), dmg: 30, cooldown: 9, vs: [100, 110, 0, 110], melee: true, charge: 30, hero: true,
+  },
   // ---------------------------------------------------------------- research (cost and time are for the first level)
   [K.Weapons]: {
     ...base, kind: K.Weapons, name: 'Weapons', plural: 'Weapons', short: 'Weapons', cls: C.Structure, hp: 1, cost: 150, gas: 150, time: 600, supply: 0,
@@ -183,10 +193,15 @@ export const DEFS: Record<number, Def> = {
     ...base, kind: K.Hide, name: 'Hide', plural: 'Hide', short: 'Hide', cls: C.Structure, hp: 1, cost: 150, gas: 150, time: 600, supply: 0,
     radius: 0, sight: 0, madeAt: K.BonePit,
   },
+  [K.Muster]: {
+    ...base, kind: K.Muster, name: 'Muster', plural: 'Muster', short: 'Muster', cls: C.Structure, hp: 1, cost: 150, time: 0, supply: 0,
+    radius: 0, sight: 0,
+  },
 };
 
 export const def = (kind: number): Def => DEFS[kind]!;
 
+/** Research that is studied at a lab. (Muster is Frenzy's own, bought on the spot.) */
 export const isResearch = (kind: number): boolean => kind >= K.Weapons && kind <= K.Hide;
 /** Which of a player's two research levels an item raises. */
 export const researchOf = (kind: number): 'weapons' | 'armour' => (kind === K.Weapons || kind === K.Claws ? 'weapons' : 'armour');
@@ -215,6 +230,8 @@ export interface Roster {
   buildings: Kind[];
   units: Kind[];
   research: Kind[];
+  /** Frenzy: who leads it. */
+  hero: Kind;
 }
 
 /** Faction rosters, in the order the panels show them. */
@@ -223,13 +240,13 @@ export const FACTIONS: Record<Faction, Roster> = {
     name: 'Green Army', hall: K.HQ, worker: K.Worker, refinery: K.Refinery, turret: K.Turret, lab: K.Armory, first: K.Barracks,
     buildings: [K.HQ, K.Refinery, K.Barracks, K.Factory, K.Airfield, K.Armory, K.Heavy, K.Turret],
     units: [K.Worker, K.Trooper, K.Lancer, K.Runner, K.Tank, K.Mortar, K.Flak, K.Gunship, K.Jugger],
-    research: [K.Weapons, K.Armour],
+    research: [K.Weapons, K.Armour], hero: K.Captain,
   },
   dino: {
     name: 'Dino Pack', hall: K.Nest, worker: K.Gatherer, refinery: K.Dig, turret: K.Volcano, lab: K.BonePit, first: K.Den,
     buildings: [K.Nest, K.Dig, K.Den, K.Wallow, K.Roost, K.BonePit, K.Cave, K.Volcano],
     units: [K.Gatherer, K.Raptor, K.Spitter, K.Horn, K.Ptero, K.Bronto, K.Rex],
-    research: [K.Claws, K.Hide],
+    research: [K.Claws, K.Hide], hero: K.Alpha,
   },
 };
 export const FACTION_LIST: Faction[] = ['green', 'dino'];
@@ -288,3 +305,145 @@ export function researchCost(kind: number, level: number): { cost: number; gas: 
   const d = def(kind);
   return { cost: d.cost + level * RULES.researchStep, gas: d.gas + level * RULES.researchStep, time: d.time + level * 200 };
 }
+
+// ---------------------------------------------------------------- Frenzy
+
+/** Frenzy's numbers: four corners, bases that make their own units, a hero each. */
+export const FRENZY = {
+  startBlocks: 100,
+  /** Blocks a side is paid every second, and what holding the middle Watchtower alone adds. */
+  trickle: 3,
+  middle: 2,
+  /** Supply a base can keep in the field. */
+  supply: 40,
+  /**
+   * A base's health, and its Turrets': far more than in Classic, where they are buildings among many and can
+   * be built again. A base should outlast an army at its door by long enough for its own to come home.
+   */
+  hallHp: 5500,
+  turretHp: 1500,
+  /** A base's Turrets also reach further than Classic ones, so that Lancers can't pick them off from out of range. */
+  turretReach: t(1.5),
+  /** Work a base does each tick, by Muster level. What each unit takes is in `WORK`. */
+  musterRate: [10, 13, 16, 20] as readonly number[],
+  /**
+   * Price of each Muster level, and of each level of Weapons and Armour (Blocks only: Frenzy has no Batteries).
+   * Frenzy has four levels of each where Classic has two: late in a round Blocks must still buy something.
+   */
+  musterCost: [150, 300, 450] as readonly number[],
+  researchCost: [150, 300, 450, 600] as readonly number[],
+  /** What a kill pays the side that made it: this share of the fallen unit's worth, in percent. */
+  bounty: 25,
+  /** A hero is worth this, and this more for each of its levels. A base is worth a flat sum. */
+  heroBounty: 60,
+  heroBountyPer: 15,
+  hallBounty: 300,
+  /** Experience: the same shape. A hero learns from whatever falls within reach of it. */
+  xp: 20,
+  heroXp: 80,
+  heroXpPer: 20,
+  hallXp: 250,
+  xpReach: t(9),
+  levelMax: 10,
+  /** Experience to go from level n to n + 1 is this times n. */
+  levelXp: 100,
+  /** What each level adds to a hero's health and damage, in percent of level 1. */
+  hpPer: 14,
+  dmgPer: 12,
+  /** A fallen hero is back after this many ticks, and this many more for each of its levels. */
+  respawn: 100,
+  respawnPer: 30,
+  /** Beside its own base a hero mends this share of its health every second, in percent. */
+  healReach: t(6),
+  heal: 3,
+  /** Rallied units fire and move this fast, in percent. */
+  hasteFire: 130,
+  hasteMove: 125,
+  /** A blast does this share of its damage to a building, in percent. A Roar holds a hero for this share of the time. */
+  blastVsBuilding: 50,
+  dazeHero: 50,
+  /** The group that is the hero and nothing else. */
+  heroGroup: 3,
+  /**
+   * Overtime: from this tick on every base crumbles, losing this much health a second, except the base of
+   * whoever holds the middle Watchtower alone. A round that armies can't settle is settled by the middle.
+   */
+  overtime: 6000,
+  crumble: 20,
+};
+
+/** What it costs to unlock a unit for the mix. The first fighter of each faction comes free. */
+export const UNLOCK: Record<number, number> = {
+  [K.Lancer]: 100, [K.Runner]: 100, [K.Flak]: 200, [K.Tank]: 400, [K.Mortar]: 400, [K.Gunship]: 500, [K.Jugger]: 800,
+  [K.Spitter]: 100, [K.Horn]: 300, [K.Ptero]: 350, [K.Bronto]: 500, [K.Rex]: 800,
+};
+
+/**
+ * The work a base does to turn out one unit (for Raptors, the pair). A bigger unit takes longer, but not in
+ * proportion to its price: a base making Juggernauts puts nearly twice the worth on the field each second
+ * that one making Troopers does, which is what unlocking them buys. The Dino Pack's are quicker than their
+ * prices would give: with no eggs to bank in Frenzy, numbers are how it keeps up.
+ */
+export const WORK: Record<number, number> = {
+  [K.Trooper]: 500, [K.Lancer]: 680, [K.Runner]: 580, [K.Flak]: 1150, [K.Tank]: 1550, [K.Mortar]: 1550, [K.Gunship]: 1900, [K.Jugger]: 2900,
+  [K.Raptor]: 340, [K.Spitter]: 420, [K.Horn]: 800, [K.Ptero]: 1050, [K.Bronto]: 1650, [K.Rex]: 2450,
+};
+
+/** The units a faction can field in Frenzy, in panel order. */
+export const frenzyUnits = (f: Faction): Kind[] => FACTIONS[f].units.filter((k) => !isWorker(k));
+
+export interface Ability {
+  name: string;
+  /** What the button says under its picture. */
+  short: string;
+  /** One line for the panel. */
+  blurb: string;
+  /** The hero level that opens it. */
+  level: number;
+  /** Ticks before it can be used again. */
+  cd: number;
+  /**
+   * blast: damage in a circle at a point. leap: the hero jumps to a point and lands as a blast.
+   * haste: the hero's own units nearby move and fire faster. daze: enemies nearby are stunned.
+   * pack: units hatch around the hero and fight for a while.
+   */
+  kind: 'blast' | 'leap' | 'haste' | 'daze' | 'pack';
+  /** How far the hero can point it, in sub-units; 0 for one that works where the hero stands. */
+  range: number;
+  radius: number;
+  /** Ticks between the order and the effect. */
+  delay: number;
+  /** Damage, or how many are called up; and what each hero level past the one that opens it adds. */
+  power: number;
+  per: number;
+  /** How long the effect lasts, in ticks. */
+  time: number;
+  /** pack: what is called up. */
+  calls?: Kind;
+}
+
+export const ABILITIES: Record<number, readonly Ability[]> = {
+  [K.Captain]: [
+    { name: 'Grenade', short: 'Grenade', blurb: 'A blast where you point', level: 1, cd: 100, kind: 'blast', range: t(6.5), radius: t(1.6), delay: 6, power: 55, per: 9, time: 0 },
+    { name: 'Rally', short: 'Rally', blurb: 'Your units nearby move and fire faster', level: 3, cd: 250, kind: 'haste', range: 0, radius: t(6), delay: 0, power: 0, per: 0, time: 80 },
+    { name: 'Air strike', short: 'Strike', blurb: 'A heavy blast over a wide area', level: 6, cd: 600, kind: 'blast', range: t(9), radius: t(2.8), delay: 15, power: 170, per: 25, time: 0 },
+  ],
+  [K.Alpha]: [
+    { name: 'Pounce', short: 'Pounce', blurb: 'Leaps where you point and lands hard', level: 1, cd: 100, kind: 'leap', range: t(6), radius: t(1.4), delay: 3, power: 50, per: 8, time: 0 },
+    { name: 'Roar', short: 'Roar', blurb: 'Stuns enemies nearby', level: 3, cd: 250, kind: 'daze', range: 0, radius: t(4.5), delay: 0, power: 0, per: 0, time: 25 },
+    { name: 'Call the Pack', short: 'Pack', blurb: 'Raptors hatch around it for a while', level: 6, cd: 600, kind: 'pack', range: 0, radius: t(1.4), delay: 1, power: 6, per: 1, time: 250, calls: K.Raptor },
+  ],
+};
+
+/** How strong an ability is in the hands of a hero of this level. */
+export const abilityPower = (a: Ability, level: number): number => a.power + a.per * Math.max(0, level - a.level);
+
+/** A hero's full health and the damage of one of its hits, at a level. Everything else has what its Def says. */
+export const heroHp = (kind: number, level: number): number => Math.trunc((DEFS[kind]!.hp * (100 + FRENZY.hpPer * Math.max(0, level - 1))) / 100);
+export const heroDmg = (kind: number, level: number): number => Math.trunc((DEFS[kind]!.dmg * (100 + FRENZY.dmgPer * Math.max(0, level - 1))) / 100);
+
+/** Experience a hero of this level needs for the next one. */
+export const levelNeeds = (level: number): number => FRENZY.levelXp * level;
+/** Ticks a hero of this level stays down. */
+export const respawnTicks = (level: number): number => FRENZY.respawn + FRENZY.respawnPer * level;
+

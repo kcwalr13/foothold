@@ -237,3 +237,49 @@ button:disabled { opacity: 0.45; }
 
 /* The toys on the buttons are pictures, not text: keep them off the baseline. */
 img.toy { display: inline-block; vertical-align: middle; flex-shrink: 0; -webkit-user-drag: none; user-select: none; pointer-events: none; }
+
+/* ---------- Frenzy: the hero, its abilities and the mix ---------- */
+.tabs.two { grid-template-columns: 1fr 1fr; }
+.tile.off { opacity: 0.72; }
+.tile.locked { background: var(--card-2); }
+.tile .lock::before { content: ''; display: inline-block; width: 7px; height: 6px; margin-right: 3px; border: 1.5px solid currentColor; border-bottom: 0; border-radius: 4px 4px 0 0; vertical-align: 1px; box-shadow: 0 5px 0 -0.5px currentColor; }
+.tile .cost > span { margin: 0 auto; }
+.tile .loop { font-size: 12px; }
+
+.stat.middle.hot .lbl { color: var(--warn); opacity: 1; font-weight: 800; }
+.table { display: inline-flex; gap: 3px; align-items: center; }
+.table i { width: 11px; height: 11px; border: 1.5px solid var(--edge); border-radius: 3px; }
+.table i.out { opacity: 0.25; }
+.clock .pace.ot { background: #f4cfc7; color: #7a1d12; }
+
+.right.frenzy { gap: 4px; }
+.group.hero { grid-template-columns: 40px 1fr; min-height: 46px; padding-left: 2px; }
+.group.hero .who { display: flex; flex-direction: column; line-height: 1.15; }
+.group.hero .who b { font-size: 13px; font-weight: 900; }
+.group.hero .who i { font-style: normal; font-size: 11px; opacity: 0.8; }
+.group.hero.down { opacity: 0.6; }
+.group.hero.down img.toy { filter: grayscale(1); }
+.group.hero .xp { position: absolute; left: 0; right: 0; bottom: 4px; height: 3px; background: rgba(60, 45, 30, 0.18); }
+.group.hero .xp i { display: block; height: 100%; background: var(--gold); }
+.abilities { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3px; }
+.ability { position: relative; height: 46px; display: grid; grid-template-rows: 1fr auto; justify-items: center; align-items: center; padding: 3px 0 2px; overflow: hidden; }
+.ability .name { font-size: 9.5px; font-weight: 800; letter-spacing: -0.2px; white-space: nowrap; }
+.ability.ready { border-color: var(--green); box-shadow: 0 2px 0 var(--green); }
+.ability.locked { opacity: 0.5; }
+.ability.locked svg { filter: grayscale(1); }
+.ability.wait svg { opacity: 0.55; }
+.ability .cool { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(60, 45, 30, 0.32); pointer-events: none; }
+
+.sheet.end .dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 1.5px solid var(--edge); border-radius: 3px; vertical-align: -1px; }
+.sheet.end .faint { opacity: 0.6; font-size: 11px; }
+.sheet.end .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sheet.end .pair .chip { margin: 0; }
+.modes { display: flex; align-items: center; justify-content: center; gap: 5px; }
+.modes .chip { padding: 0 14px; }
+.modes .lbl { font-size: 12.5px; font-weight: 700; }
+
+@media (max-height: 352px) {
+  .right.frenzy { gap: 2px; }
+  .right.frenzy .group { min-height: 44px; }
+  .right.frenzy .ability { height: 44px; }
+}

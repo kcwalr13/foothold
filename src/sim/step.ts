@@ -1,11 +1,12 @@
 // One tick of the rules. Players and the computer opponent act only through commands; everything
 // here runs the same on every device given the same commands.
-import { DEFS, FACTIONS, RULES, def, isHall, isRefinery, isResearch, isWorker, researchCost, researchOf } from './data';
+import { DEFS, FACTIONS, FRENZY, RULES, def, heroDmg, isHall, isRefinery, isResearch, isWorker, researchCost, researchOf } from './data';
 import { updateFog } from './fog';
+import { castNow, castOk, frenzyDeaths, frenzyMix, frenzyResearch, frenzyTick, frenzyUnlock } from './frenzy';
 import { dist, isqrt } from './nav';
 import {
   canPlace, cellAt, centroid, countSupply, footprint, footprintTiles, groupUnits, hasBuilt, missing, onLayer, onNestingGround, spawn,
-  supplyCap, tileOf, visibleTo, wasVisibleTo, type Game,
+  supplyCap, tileOf, turned, visibleTo, wasVisibleTo, type Game,
 } from './state';
 import { K, O, TILE, W, type Command, type Def, type Entity, type Kind } from './types';
 
@@ -23,7 +24,7 @@ const SLOTS: { x: number; y: number }[] = (() => {
 
 const CELL = TILE * 2;
 
-class Buckets {
+export class Buckets {
   readonly cols: number;
   readonly rows: number;
   readonly cells: Entity[][];
@@ -73,6 +74,8 @@ function nearFootprint(e: Entity, b: Entity, slack: number): boolean {
 
 /** How far a weapon reaches against one target: high ground outranges low ground, for anything that shoots. */
 function reach(g: Game, e: Entity, t: Entity, d: Def): number {
+  // A Frenzy base's Turrets (marked by `lvl`) reach further than ordinary ones.
+  if (d.building && e.lvl > 0) return d.range + FRENZY.turretReach;
   if (d.melee || d.air || def(t.kind).air) return d.range;
   const high = g.map.high;
   return onLayer(g, high, e.x, e.y) && !onLayer(g, high, t.x, t.y) ? d.range + RULES.highRange : d.range;
@@ -100,6 +103,7 @@ function inRange(g: Game, e: Entity, t: Entity, d: Def): boolean {
 // While units are being moved, each one judges the others by where they stood when the moves began.
 // Otherwise whoever happens to be moved later in the tick sees a little further into the future.
 function reachThen(g: Game, e: Entity, t: Entity, d: Def): number {
+  if (d.building && e.lvl > 0) return d.range + FRENZY.turretReach;
   if (d.melee || d.air || def(t.kind).air) return d.range;
   const high = g.map.high;
   return onLayer(g, high, e.x, e.y) && !onLayer(g, high, t.px, t.py) ? d.range + RULES.highRange : d.range;
@@ -113,12 +117,21 @@ function refuse(g: Game, p: number, why: string): void {
   g.events.push({ t: 'refused', p, why });
 }
 
-/** The point itself if a unit can stand there, else the middle of the nearest open tile, ties going to the side nearest `from`. */
-function snapOpen(g: Game, x: number, y: number, fromX = x, fromY = y): { x: number; y: number } | null {
+/**
+ * How a side is turned, for the last ties the pathfinder settles; undefined on a two-sided map, where those
+ * ties are settled as they always were.
+ */
+const turnOf = (g: Game, owner: number): number | undefined => (g.mode === 'frenzy' && owner >= 0 ? g.turns[owner] : undefined);
+
+/**
+ * The point itself if a unit can stand there, else the middle of the nearest open tile, ties going to the side
+ * nearest `from`. `owner` is whose unit is asking.
+ */
+export function snapOpen(g: Game, x: number, y: number, fromX = x, fromY = y, owner = -1): { x: number; y: number } | null {
   const mx = g.map.w * TILE - 1, my = g.map.h * TILE - 1;
   const cx = Math.max(0, Math.min(mx, Math.trunc(x))), cy = Math.max(0, Math.min(my, Math.trunc(y)));
   if (!g.nav.blockedAt(cx, cy)) return { x: cx, y: cy };
-  const o = g.nav.nearestOpenTo(cx, cy, fromX, fromY);
+  const o = g.nav.nearestOpenTo(cx, cy, fromX, fromY, turnOf(g, owner));
   if (o < 0) return null;
   return { x: (o % g.map.w) * TILE + TILE / 2, y: Math.floor(o / g.map.w) * TILE + TILE / 2 };
 }
@@ -168,7 +181,7 @@ function moveTo(g: Game, e: Entity, gx: number, gy: number, speed: number, targe
   let escaping = false;
   if (nav.isBlocked(tx, ty)) {
     // Caught inside a new building's outline: step out to the nearest open tile, toward where it was going.
-    const o = nav.nearestOpenTo(e.x, e.y, gx, gy);
+    const o = nav.nearestOpenTo(e.x, e.y, gx, gy, turnOf(g, e.owner));
     if (o < 0) return false;
     sx = (o % nav.w) * TILE + TILE / 2;
     sy = Math.floor(o / nav.w) * TILE + TILE / 2;
@@ -182,7 +195,7 @@ function moveTo(g: Game, e: Entity, gx: number, gy: number, speed: number, targe
       const d = solid
         ? nav.field(10000 + target!.id, () => footprintTiles(g, target!))
         : nav.field(goal, () => [goal]);
-      const n = nav.next(d, tx, ty, e.x, e.y);
+      const n = nav.next(d, tx, ty, e.x, e.y, turnOf(g, e.owner) ?? 0);
       if (n >= 0) {
         sx = (n % nav.w) * TILE + TILE / 2;
         sy = Math.floor(n / nav.w) * TILE + TILE / 2;
@@ -203,8 +216,12 @@ function moveTo(g: Game, e: Entity, gx: number, gy: number, speed: number, targe
     ny = e.y + Math.trunc((vy * speed) / l);
   }
   if (!escaping && nav.blockedAt(nx, ny)) {
-    if (!nav.blockedAt(nx, e.y)) ny = e.y;
-    else if (!nav.blockedAt(e.x, ny)) nx = e.x;
+    // Slide along the wall: across first, then up and down. (A side turned a quarter circle tries them the
+    // other way about, which is the same thing seen from its corner.)
+    const across = !nav.blockedAt(nx, e.y), along = !nav.blockedAt(e.x, ny);
+    const acrossFirst = (turnOf(g, e.owner) ?? 0) % 2 === 0;
+    if (across && (acrossFirst || !along)) ny = e.y;
+    else if (along) nx = e.x;
     else {
       nx = e.x;
       ny = e.y;
@@ -328,16 +345,17 @@ const EGG_SPOTS: readonly { x: number; y: number }[] = (() => {
 
 /** Rolls an egg out of a Nest to hatch into `kind`. Eggs hatch side by side, however many there are. */
 function layEgg(g: Game, nest: Entity, kind: Kind): void {
-  const turn = nest.owner === 1 ? -1 : 1;
   const taken = g.ents.filter((e) => e.kind === K.Egg && e.owner === nest.owner && e.hp > 0);
   let at: { x: number; y: number } | null = null;
   for (const sp of EGG_SPOTS) {
-    const x = nest.x + sp.x * turn, y = nest.y + sp.y * turn;
+    const o = turned(g, nest.owner, sp.x, sp.y);
+    const x = nest.x + o.x, y = nest.y + o.y;
     if (g.nav.blockedAt(x, y) || taken.some((e) => Math.abs(e.x - x) < TILE / 2 && Math.abs(e.y - y) < TILE / 2)) continue;
     at = { x, y };
     break;
   }
-  at ??= snapOpen(g, nest.x + EGG_SPOTS[0]!.x * turn, nest.y + EGG_SPOTS[0]!.y * turn, nest.x, nest.y) ?? { x: nest.x, y: nest.y };
+  const first = turned(g, nest.owner, EGG_SPOTS[0]!.x, EGG_SPOTS[0]!.y);
+  at ??= snapOpen(g, nest.x + first.x, nest.y + first.y, nest.x, nest.y) ?? { x: nest.x, y: nest.y };
   const egg = spawn(g, K.Egg, nest.owner, at.x, at.y);
   egg.queue.push(kind);
   egg.fx = at.x - nest.x;
@@ -347,6 +365,8 @@ function layEgg(g: Game, nest: Entity, kind: Kind): void {
 function tryTrain(g: Game, p: number, kind: Kind, auto: boolean): boolean {
   const pl = g.players[p];
   const d = DEFS[kind];
+  // In Frenzy nothing is trained: the base makes its own.
+  if (g.mode === 'frenzy') return false;
   if (!pl || !d || d.building || !FACTIONS[pl.faction].units.includes(kind)) return false;
   const lacks = missing(g, p, d.madeAt ? [d.madeAt, ...d.needs] : d.needs);
   if (lacks) {
@@ -428,15 +448,14 @@ function cmdOrder(g: Game, c: Extract<Command, { t: 'order' }>): void {
   }
   if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) return;
   const from = centroid(units, g.map);
-  const at = units.length > 0 ? snapOpen(g, c.x, c.y, from.x, from.y) : snapOpen(g, c.x, c.y);
+  const at = units.length > 0 ? snapOpen(g, c.x, c.y, from.x, from.y, c.p) : snapOpen(g, c.x, c.y, c.x, c.y, c.p);
   if (!at) return;
   pl.groups[c.group] = { mode: c.mode, x: at.x, y: at.y };
   const mx = g.map.w * TILE, my = g.map.h * TILE;
-  // The far side's formation is the near side's turned half a circle, like everything else on the map.
-  const turn = c.p === 1 ? -1 : 1;
+  // Another side's formation is side 0's turned the way that side is turned, like everything else on the map.
   units.forEach((u, i) => {
-    const s = SLOTS[i % SLOTS.length]!;
-    let sx = at.x + s.x * turn, sy = at.y + s.y * turn;
+    const s = SLOTS[i % SLOTS.length]!, o = turned(g, c.p, s.x, s.y);
+    let sx = at.x + o.x, sy = at.y + o.y;
     if (sx < 0 || sy < 0 || sx >= mx || sy >= my || (!def(u.kind).air && g.nav.blockedAt(sx, sy))) {
       sx = at.x;
       sy = at.y;
@@ -453,7 +472,8 @@ function cmdOrder(g: Game, c: Extract<Command, { t: 'order' }>): void {
 
 function cmdAssign(g: Game, c: Extract<Command, { t: 'assign' }>): void {
   const pl = g.players[c.p];
-  const ok = (n: number) => Number.isInteger(n) && n >= 0 && n < RULES.groups;
+  // In Frenzy the last group is the hero's own: nothing joins it and it joins nothing.
+  const ok = (n: number) => Number.isInteger(n) && n >= 0 && n < RULES.groups && !(g.mode === 'frenzy' && n === FRENZY.heroGroup);
   if (!pl || !ok(c.from) || !ok(c.to) || c.from === c.to) return;
   const dest = groupUnits(g, c.p, c.to);
   const moved: Entity[] = [];
@@ -466,7 +486,7 @@ function cmdAssign(g: Game, c: Extract<Command, { t: 'assign' }>): void {
   if (moved.length === 0) return;
   if (dest.length > 0) {
     const mid = centroid(dest, g.map);
-    const cen = snapOpen(g, mid.x, mid.y);
+    const cen = snapOpen(g, mid.x, mid.y, mid.x, mid.y, c.p);
     if (!cen) return;
     for (const u of moved) {
       u.mode = O.Attack;
@@ -488,7 +508,7 @@ function cmdAssign(g: Game, c: Extract<Command, { t: 'assign' }>): void {
   }
 }
 
-const PHASE: Record<string, number> = { order: 0, assign: 0, rally: 0, cancel: 1, build: 2, train: 3, research: 3, repeat: 3 };
+const PHASE: Record<string, number> = { order: 0, assign: 0, rally: 0, cast: 0, cancel: 1, build: 2, train: 3, research: 3, repeat: 3, unlock: 3 };
 
 function runCommands(g: Game): void {
   if (g.pending.length === 0) return;
@@ -509,11 +529,43 @@ function runCommands(g: Game): void {
     if (!a || !b || a.cmd.p === b.cmd.p) continue;
     if (a.tx < b.tx + b.size && b.tx < a.tx + a.size && a.ty < b.ty + b.size && b.ty < a.ty + a.size) clash.add(a.cmd);
   }
+  // Abilities are judged against the map as the tick found it, all of them, before any takes effect: a hero
+  // stunned by a Roar on this tick still gets off the Grenade it threw on this tick, whoever's order came first.
+  const frenzy = g.mode === 'frenzy';
+  const casting = new Set<Command>();
+  if (frenzy) {
+    for (const { cmd } of due) {
+      if (cmd.t !== 'cast') continue;
+      const why = castOk(g, cmd);
+      if (why === '') casting.add(cmd);
+      else if (why !== 'no' && g.players[cmd.p]) refuse(g, cmd.p, why);
+    }
+  }
   for (const { cmd } of due) {
     g.log.push({ tick: g.tick, cmd });
     if (clash.has(cmd)) {
       refuse(g, cmd.p, "Can't build there");
       continue;
+    }
+    if (frenzy) {
+      // A side that is out gives no orders, and nobody builds, trains or cancels: bases make their own.
+      if (g.players[cmd.p]?.out || cmd.t === 'build' || cmd.t === 'cancel' || cmd.t === 'train') continue;
+      if (cmd.t === 'cast') {
+        if (casting.has(cmd)) castNow(g, cmd);
+        continue;
+      }
+      if (cmd.t === 'research') {
+        frenzyResearch(g, cmd);
+        continue;
+      }
+      if (cmd.t === 'repeat') {
+        frenzyMix(g, cmd);
+        continue;
+      }
+      if (cmd.t === 'unlock') {
+        frenzyUnlock(g, cmd);
+        continue;
+      }
     }
     switch (cmd.t) {
       case 'build': cmdBuild(g, cmd); break;
@@ -531,6 +583,7 @@ function runCommands(g: Game): void {
       case 'assign': cmdAssign(g, cmd); break;
       case 'rally': {
         const pl = g.players[cmd.p];
+        if (frenzy && cmd.group === FRENZY.heroGroup) break;
         if (pl && Number.isInteger(cmd.group) && cmd.group >= 0 && cmd.group < RULES.groups) pl.rally = cmd.group;
         break;
       }
@@ -541,11 +594,11 @@ function runCommands(g: Game): void {
 // ---------------------------------------------------------------- production
 
 /** Puts a new unit beside whatever made it (a building, or the egg it hatched from) and sends it on its way. */
-function spawnUnit(g: Game, b: Entity, kind: Kind): void {
+export function spawnUnit(g: Game, b: Entity, kind: Kind): void {
   const pl = g.players[b.owner]!;
   const bd = def(b.kind);
   let tx = (g.map.w * TILE) / 2, ty = (g.map.h * TILE) / 2;
-  let members: Entity[] = [];
+  let members: Entity[] = [], sent = false;
   if (isWorker(kind)) {
     let bestD = 1 << 30;
     for (const p of g.ents) {
@@ -559,8 +612,8 @@ function spawnUnit(g: Game, b: Entity, kind: Kind): void {
     }
   } else {
     members = groupUnits(g, b.owner, pl.rally);
+    const gs = pl.groups[pl.rally]!;
     if (members.length > 0) {
-      const gs = pl.groups[pl.rally]!;
       if (members.some((m) => !m.arrived) && gs.mode !== O.Hold) {
         tx = gs.x;
         ty = gs.y;
@@ -569,13 +622,19 @@ function spawnUnit(g: Game, b: Entity, kind: Kind): void {
         tx = c.x;
         ty = c.y;
       }
+    } else if (g.mode === 'frenzy' && (gs.mode === O.Attack || gs.mode === O.Move)) {
+      // Frenzy: a group that has been sent somewhere is still headed there when its last unit has fallen,
+      // and whatever the base turns out next goes the same way.
+      tx = gs.x;
+      ty = gs.y;
+      sent = true;
     }
   }
   const vx = tx - b.x, vy = ty - b.y;
   const l = Math.max(1, isqrt(vx * vx + vy * vy));
   // A unit walks out of a building's door; a hatchling stands where its egg lay.
   const out = b.kind === K.Egg ? 0 : bd.radius + Math.trunc(TILE * 0.9);
-  const door = snapOpen(g, b.x + Math.trunc((vx * out) / l), b.y + Math.trunc((vy * out) / l), tx, ty);
+  const door = snapOpen(g, b.x + Math.trunc((vx * out) / l), b.y + Math.trunc((vy * out) / l), tx, ty, b.owner);
   if (!door) return;
   const u = spawn(g, kind, b.owner, door.x, door.y);
   u.fx = vx;
@@ -584,12 +643,13 @@ function spawnUnit(g: Game, b: Entity, kind: Kind): void {
   if (isWorker(kind)) return;
   u.group = pl.rally;
   let goal: { x: number; y: number } | null;
-  if (members.length > 0) {
-    goal = snapOpen(g, tx, ty);
+  if (members.length > 0 || sent) {
+    goal = snapOpen(g, tx, ty, tx, ty, b.owner);
   } else {
     // An empty group gathers a few steps out from the building, toward the middle of the map.
-    const s = SLOTS[g.tick % 9]!, turn = b.owner === 1 ? -1 : 1;
-    goal = snapOpen(g, b.x + Math.trunc((vx * (out + TILE * 3)) / l) + s.x * turn, b.y + Math.trunc((vy * (out + TILE * 3)) / l) + s.y * turn);
+    const s = SLOTS[g.tick % 9]!, o = turned(g, b.owner, s.x, s.y);
+    const gx = b.x + Math.trunc((vx * (out + TILE * 3)) / l) + o.x, gy = b.y + Math.trunc((vy * (out + TILE * 3)) / l) + o.y;
+    goal = snapOpen(g, gx, gy, gx, gy, b.owner);
     // That spot is where the group is now headed: whoever comes out next, before this one has arrived, follows it there.
     if (goal) pl.groups[pl.rally] = { mode: O.Attack, x: goal.x, y: goal.y };
   }
@@ -625,7 +685,7 @@ function production(g: Game): void {
       if (b.builder === -1) raise(g, b);
       continue;
     }
-    if (b.kind === K.Nest && b.eggs < RULES.eggMax && ++b.timer >= RULES.eggTicks) {
+    if (b.kind === K.Nest && g.mode === 'classic' && b.eggs < RULES.eggMax && ++b.timer >= RULES.eggTicks) {
       b.eggs++;
       b.timer = 0;
     }
@@ -655,7 +715,7 @@ function production(g: Game): void {
       }
     }
   }
-  if (g.tick % 5 === 0) {
+  if (g.tick % 5 === 0 && g.mode === 'classic') {
     for (const pl of g.players) {
       // Each kind set to keep coming gets its turn; with eggs to share, the turns start one further on each time.
       const n2 = pl.repeat.length, from = pl.faction === 'dino' && n2 > 0 ? pl.stats.trained % n2 : 0;
@@ -926,8 +986,9 @@ function workers(g: Game): void {
 
 function acquire(g: Game, b: Buckets, e: Entity, d: Def, extra: number): number {
   let best = 0;
-  let bestScore = 1 << 30;
-  const far = d.range + RULES.highRange + extra;
+  let bestScore = 1 << 30, bestRound = 0;
+  const n = g.players.length;
+  const far = d.range + RULES.highRange + extra + (d.building && e.lvl > 0 ? FRENZY.turretReach : 0);
   b.near(e.x, e.y, far + TILE * 3, (o) => {
     if (o.owner === e.owner || o.owner < 0 || o.hp <= 0) return;
     const od = def(o.kind);
@@ -942,8 +1003,12 @@ function acquire(g: Game, b: Buckets, e: Entity, d: Def, extra: number): number 
     else if (isWorker(o.kind)) score += d.raider ? -TILE * 2 : TILE * 2;
     if (pct >= 150) score -= TILE * 2;
     else if (pct <= 50) score += TILE;
-    if (score < bestScore || (score === bestScore && o.id < best)) {
+    // Two targets equally good: with more than two sides, the one whose side comes first going round from the
+    // shooter's own; then the older. (Ids are only ever compared between two units of one side.)
+    const round = n > 2 ? (o.owner - e.owner + n) % n : 0;
+    if (score < bestScore || (score === bestScore && (round < bestRound || (round === bestRound && o.id < best)))) {
       bestScore = score;
+      bestRound = round;
       best = o.id;
     }
   });
@@ -952,6 +1017,9 @@ function acquire(g: Game, b: Buckets, e: Entity, d: Def, extra: number): number 
 
 function unitStep(g: Game, b: Buckets, e: Entity, pace: readonly number[]): void {
   const d = def(e.kind);
+  // Stunned: it stands where it is and does nothing.
+  if (e.daze > g.tick) return;
+  const pace0 = e.haste > g.tick ? Math.trunc((d.speed * FRENZY.hasteMove) / 100) : d.speed;
   let t = e.tgt ? g.byId.get(e.tgt) : undefined;
   if (t && (t.hp <= 0 || !wasVisibleTo(g, e.owner, t))) {
     t = undefined;
@@ -980,13 +1048,13 @@ function unitStep(g: Game, b: Buckets, e: Entity, pace: readonly number[]): void
       e.fx = t.px - e.x;
       e.fy = t.py - e.y;
     } else if (e.mode !== O.Hold) {
-      moveTo(g, e, t.px, t.py, d.speed + d.charge, def(t.kind).building ? t : undefined);
+      moveTo(g, e, t.px, t.py, pace0 + d.charge, def(t.kind).building ? t : undefined);
     }
     return;
   }
   if (e.mode === O.Attack || e.mode === O.Move) {
     if (!e.arrived) {
-      const speed = Math.min(d.speed, pace[e.owner * RULES.groups + e.group] ?? d.speed);
+      const speed = Math.min(pace0, pace[e.owner * RULES.groups + e.group] ?? pace0);
       const reached = moveTo(g, e, e.dx, e.dy, speed);
       const left = dist(e.x, e.y, e.dx, e.dy);
       let done = reached || left <= TILE * 0.4;
@@ -1002,7 +1070,7 @@ function unitStep(g: Game, b: Buckets, e: Entity, pace: readonly number[]): void
       e.mode = O.Idle;
     }
   } else if (e.mode === O.Idle) {
-    if (dist(e.x, e.y, e.ax, e.ay) > TILE * 1.5) moveTo(g, e, e.ax, e.ay, d.speed);
+    if (dist(e.x, e.y, e.ax, e.ay) > TILE * 1.5) moveTo(g, e, e.ax, e.ay, pace0);
   }
 }
 
@@ -1056,9 +1124,20 @@ function separate(g: Game, b: Buckets): void {
         // the clock. Of two on one side the newer goes its side's way along it; of two enemies, each goes
         // its own side's way. Chosen by anything else, such as their ids, the two ends of the map would differ.
         const way = APART[g.tick % APART.length]!;
-        const turn = (a.owner === o.owner ? o.owner : 1 - o.owner) === 1 ? -1 : 1;
-        dx = way.x * turn;
-        dy = way.y * turn;
+        if (a.owner !== o.owner && g.players.length > 2) {
+          // With more than two sides, each of two enemies steps off against its own side's way: which of the
+          // two is the older can decide nothing, since ids are not in the same order seen from every corner.
+          const wa = turned(g, a.owner, way.x, way.y), wo = turned(g, o.owner, way.x, way.y);
+          const l = isqrt(way.x * way.x + way.y * way.y), step = Math.min(64, Math.trunc(rr / 2) + 2);
+          a.qx -= Math.trunc((wa.x * step) / l);
+          a.qy -= Math.trunc((wa.y * step) / l);
+          o.qx -= Math.trunc((wo.x * step) / l);
+          o.qy -= Math.trunc((wo.y * step) / l);
+          return;
+        }
+        const w = turned(g, a.owner === o.owner ? o.owner : 1 - o.owner, way.x, way.y);
+        dx = w.x;
+        dy = w.y;
         d = isqrt(dx * dx + dy * dy);
       }
       const push = Math.min(64, Math.trunc((rr - d) / 2) + 2);
@@ -1098,7 +1177,7 @@ function inMap(g: Game, x: number, y: number): boolean {
  */
 function damage(g: Game, by: Entity, d: Def, t: Entity, share: number): number {
   const td = def(t.kind);
-  const hit = Math.max(1, Math.trunc((d.dmg * d.vs[td.cls]!) / 100));
+  const hit = Math.max(1, Math.trunc(((d.hero ? heroDmg(by.kind, by.lvl) : d.dmg) * d.vs[td.cls]!) / 100));
   const up = d.building ? 100 : 100 + g.players[by.owner]!.weapons * RULES.weaponStep;
   const down = td.building ? 100 : 100 - g.players[t.owner]!.armour * RULES.armourStep;
   if (up === 100 && down === 100 && share === 100) return hit;
@@ -1109,12 +1188,60 @@ function damage(g: Game, by: Entity, d: Def, t: Entity, share: number): number {
   return Math.trunc(v / 100);
 }
 
+/** One blow: what it lands on, how hard, and whose it is. */
+export interface Hit {
+  t: Entity;
+  dmg: number;
+  by: number;
+}
+
+/**
+ * Lands a tick's blows all at once. Whatever falls is put down to the side that did it the most harm on this
+ * tick: with the blows taken one at a time, the credit would go to whichever shooter the loop reached last.
+ */
+export function land(g: Game, hits: readonly Hit[]): void {
+  const n = g.players.length;
+  for (const { t, dmg } of hits) {
+    t.hp -= dmg;
+    const td = def(t.kind);
+    if (td.building || isWorker(t.kind)) {
+      g.events.push({ t: 'hurt', owner: t.owner, x: t.x, y: t.y, kind: t.kind });
+      const st = g.players[t.owner]!.stats;
+      if (st.firstAttackTick < 0) st.firstAttackTick = g.tick;
+    }
+  }
+  if (n <= 2) return;
+  let tally: Map<Entity, number[]> | undefined;
+  for (const { t, dmg, by } of hits) {
+    if (t.hp > 0 || t.by !== -1) continue;
+    tally ??= new Map();
+    let row = tally.get(t);
+    if (!row) tally.set(t, (row = new Array<number>(n).fill(0)));
+    row[by]! += dmg;
+  }
+  if (!tally) return;
+  for (const [t, row] of tally) {
+    // Level on harm done, the side that comes first going round from the fallen one's own.
+    let best = -1, most = 0, round = n;
+    for (let p = 0; p < n; p++) {
+      const r = (p - t.owner + n) % n;
+      if (row[p]! > most || (row[p]! === most && most > 0 && r < round)) {
+        most = row[p]!;
+        round = r;
+        best = p;
+      }
+    }
+    t.by = best;
+  }
+}
+
 function shooting(g: Game, b: Buckets): void {
-  const hits: { t: Entity; dmg: number }[] = [];
+  const hits: Hit[] = [];
   for (const e of g.ents) {
     const d = def(e.kind);
     if (d.range === 0 || e.hp <= 0 || !e.built) continue;
     if (e.cd > 0) e.cd--;
+    if (e.daze > g.tick) continue;
     if (d.building) {
       let t = e.tgt ? g.byId.get(e.tgt) : undefined;
       if (t && (t.hp <= 0 || !inRange(g, e, t, d) || !visibleTo(g, e.owner, t))) {
@@ -1134,7 +1261,7 @@ function shooting(g: Game, b: Buckets): void {
     // A weapon that needs setting up fires only once its crew has stood still long enough.
     if (e.cd > 0 || e.still < d.setup) continue;
     const dmg = damage(g, e, d, t, 100);
-    if (dmg > 0) hits.push({ t, dmg });
+    if (dmg > 0) hits.push({ t, dmg, by: e.owner });
     if (d.splash > 0) {
       b.near(t.x, t.y, d.splash + TILE * 2, (o) => {
         if (o === t || o.owner === e.owner || o.owner < 0 || o.hp <= 0) return;
@@ -1142,74 +1269,84 @@ function shooting(g: Game, b: Buckets): void {
         if (od.air !== td.air || d.vs[od.cls] === 0) return;
         if (dist(t.x, t.y, o.x, o.y) - od.radius > d.splash) return;
         const part = damage(g, e, d, o, RULES.splashShare);
-        if (part > 0) hits.push({ t: o, dmg: part });
+        if (part > 0) hits.push({ t: o, dmg: part, by: e.owner });
       });
     }
-    e.cd = d.cooldown;
+    e.cd = e.haste > g.tick ? Math.max(1, Math.trunc((d.cooldown * 100) / FRENZY.hasteFire)) : d.cooldown;
     g.events.push({ t: 'shot', from: e.id, to: t.id, kind: e.kind, x1: e.x, y1: e.y, x2: t.x, y2: t.y, owner: e.owner });
   }
-  for (const { t, dmg } of hits) {
-    t.hp -= dmg;
-    const td = def(t.kind);
-    if (td.building || isWorker(t.kind)) {
-      g.events.push({ t: 'hurt', owner: t.owner, x: t.x, y: t.y, kind: t.kind });
-      const st = g.players[t.owner]!.stats;
-      if (st.firstAttackTick < 0) st.firstAttackTick = g.tick;
-    }
-  }
+  land(g, hits);
 }
 
 // ---------------------------------------------------------------- bookkeeping
 
 function cleanup(g: Game): void {
-  let any = false;
-  for (const e of g.ents) {
-    if (e.hp > 0) continue;
-    any = true;
-    const d = def(e.kind);
-    if (isRefinery(e.kind)) {
-      // The battery pack outlives the Refinery, and still stands in the way.
-      const cell = g.byId.get(e.pile);
-      if (cell) cell.site = 0;
-    } else if (e.kind === K.Pile || d.building) {
-      const f = footprint(e);
-      g.nav.setRect(f.tx, f.ty, f.size, 0);
-    }
-    if (isWorker(e.kind)) releasePile(g, e);
-    if (e.owner >= 0 && e.progress !== -1) {
-      const mine = g.players[e.owner]!.stats, theirs = g.players[1 - e.owner]!.stats;
-      if (d.building) {
-        mine.lostBuildings++;
-        theirs.killedBuildings++;
-      } else {
-        mine.lostUnits++;
-        theirs.killedUnits++;
+  // Twice over in Frenzy: once for what fell, and once more for the army of a side that fell with its base.
+  for (let pass = 0; pass < 2; pass++) {
+    const dead: Entity[] = [];
+    for (const e of g.ents) {
+      if (e.hp > 0 || !g.byId.has(e.id)) continue;
+      dead.push(e);
+      const d = def(e.kind);
+      if (isRefinery(e.kind)) {
+        // The battery pack outlives the Refinery, and still stands in the way.
+        const cell = g.byId.get(e.pile);
+        if (cell) cell.site = 0;
+      } else if (e.kind === K.Pile || d.building) {
+        const f = footprint(e);
+        g.nav.setRect(f.tx, f.ty, f.size, 0);
       }
-      g.events.push({ t: 'death', kind: e.kind, owner: e.owner, x: e.x, y: e.y, fx: e.fx, fy: e.fy });
+      if (isWorker(e.kind)) releasePile(g, e);
+      if (e.owner >= 0 && e.progress !== -1) {
+        // Counted as a loss and a kill, unless it was only ever on loan (called up for a while) or went with its base.
+        if (e.ttl === 0 && pass === 0) {
+          const mine = g.players[e.owner]!.stats;
+          const killer = g.players.length === 2 ? 1 - e.owner : e.by;
+          const theirs = killer >= 0 ? g.players[killer]!.stats : undefined;
+          if (d.building) {
+            mine.lostBuildings++;
+            if (theirs) theirs.killedBuildings++;
+          } else {
+            mine.lostUnits++;
+            if (theirs) theirs.killedUnits++;
+          }
+        }
+        g.events.push({ t: 'death', kind: e.kind, owner: e.owner, x: e.x, y: e.y, fx: e.fx, fy: e.fy });
+      }
+      g.byId.delete(e.id);
     }
-    g.byId.delete(e.id);
+    if (dead.length === 0) break;
+    g.ents = g.ents.filter((e) => e.hp > 0);
+    if (g.mode !== 'frenzy' || pass === 1 || !frenzyDeaths(g, dead)) break;
   }
-  if (any) g.ents = g.ents.filter((e) => e.hp > 0);
 }
 
 function accounts(g: Game): void {
-  const hq = [0, 0];
-  for (const e of g.ents) if (isHall(e.kind) && e.owner >= 0) hq[e.owner]!++;
   for (const pl of g.players) {
     pl.supply = countSupply(g, pl.id);
     pl.cap = supplyCap(g, pl.id);
   }
+  if (g.mode === 'frenzy') {
+    // Last side standing. Should the last of them fall on the same tick, nobody wins.
+    const left = g.players.filter((pl) => !pl.out);
+    if (left.length === 1) g.winner = left[0]!.id;
+    else if (left.length === 0) g.winner = -2;
+    return;
+  }
+  const hq = [0, 0];
+  for (const e of g.ents) if (isHall(e.kind) && e.owner >= 0) hq[e.owner]!++;
   if (hq[0] === 0) g.winner = 1;
   else if (hq[1] === 0) g.winner = 0;
 }
 
 export function step(g: Game): void {
-  if (g.winner >= 0) return;
+  if (g.winner !== -1) return;
   g.tick++;
   g.events.length = 0;
   runCommands(g);
   production(g);
   const s = scratch(g);
+  if (g.mode === 'frenzy') frenzyTick(g);
   s.all.fill(g.ents, (e) => e.owner >= 0 && e.hp > 0);
   workers(g);
   units(g, s.all);

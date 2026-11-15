@@ -1,35 +1,8 @@
-import { type Page, expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { def } from '../src/sim/data';
 import { K } from '../src/sim/types';
 
-type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
-
-async function start(p: Page, query = 'play=1&seed=7') {
-  await p.goto(`./?nosw&${query}`);
-  await p.waitForFunction(() => !!(window as Any).__fh);
-  await p.evaluate(() => { (window as Any).__fh.paused.value = true; });
-}
-const run = (p: Page, n: number) => p.evaluate((k) => {
-  const m = (window as Any).__fh;
-  for (let i = 0; i < k; i++) m.tick();
-}, n);
-const state = <T>(p: Page, fn: string): Promise<T> => p.evaluate((f) => new Function('m', `return (${f})(m)`)((window as Any).__fh), fn);
-
-async function noSmallButtons(p: Page) {
-  const small = await p.evaluate(() => [...document.querySelectorAll('button')]
-    .map((el) => ({ label: el.getAttribute('aria-label') ?? el.textContent, r: el.getBoundingClientRect() }))
-    .filter(({ r }) => r.width > 0 && (r.width < 44 || r.height < 44))
-    .map(({ label, r }) => `${label} ${Math.round(r.width)}×${Math.round(r.height)}`));
-  expect(small).toEqual([]);
-}
-
-async function hold(p: Page, selector: string, ms = 600) {
-  const box = (await p.locator(selector).boundingBox())!;
-  const at = { clientX: box.x + box.width / 2, clientY: box.y + box.height / 2, bubbles: true };
-  await p.locator(selector).dispatchEvent('pointerdown', at);
-  await p.waitForTimeout(ms);
-  await p.locator(selector).dispatchEvent('pointerup', at);
-}
+import { type Any, hold, noSmallButtons, run, start, state } from './helpers';
 
 test('menu to match, and every control is thumb-sized', async ({ page: p }, info) => {
   await p.goto('./?nosw');

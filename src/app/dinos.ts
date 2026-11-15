@@ -9,7 +9,7 @@ const TAU = Math.PI * 2;
 const ROCK = '#9d9382', ROCK_DARK = '#6d6355', ROCK_LIGHT = '#bcb3a0', MUD = '#5f4a35', MUD_LIGHT = '#7b6046', EARTH = '#8f6d44', EARTH_DARK = '#5d452b';
 const WOOD = '#b98a52', WOOD_DARK = '#8d6336', STRAW = '#ecdca6', HAT = '#f7c531', SPIT = '#a5e84f', EYE = '#ffe45e', LAVA = '#f0561d', LAVA_HOT = '#ffc23d';
 
-export const isDinoUnit = (kind: number): boolean => kind >= K.Gatherer && kind <= K.Egg;
+export const isDinoUnit = (kind: number): boolean => (kind >= K.Gatherer && kind <= K.Egg) || kind === K.Alpha;
 export const isDinoBuilding = (kind: number): boolean => kind >= K.Nest && kind <= K.Volcano;
 
 // ------------------------------------------------------------------ dinosaurs
@@ -36,11 +36,24 @@ const BUILD: Record<number, Build> = {
   [K.Horn]: { half: 0.76, feet: [[0.14, 0.27], [-0.2, 0.27]], foot: 0.095, tail: [-0.3, 0.3, 0.12], pace: 8, lunge: 0.14 },
   [K.Bronto]: { half: 0.6, feet: [[0.22, 0.33], [-0.24, 0.33]], foot: 0.125, tail: [-0.38, 0.62, 0.14], pace: 5, lunge: 0 },
   [K.Rex]: { half: 0.6, feet: [[-0.04, 0.3]], foot: 0.15, tail: [-0.36, 0.62, 0.17], pace: 6, lunge: 0.1 },
+  [K.Alpha]: { half: 0.74, feet: [[-0.04, 0.22]], foot: 0.11, tail: [-0.26, 0.58, 0.1], pace: 10, lunge: 0.16 },
 };
 
 /** The body of a dinosaur from above, facing right. Tails, necks and feet are drawn fresh each frame. */
 function paintBody(p: Pen, t: Team, kind: number): void {
   switch (kind) {
+    case K.Alpha:
+      // A Raptor grown half as big again, with a crest of gold down its back: the leader of the pack.
+      p.s(t.fill, [0.36, 0, 0.17, 0.165, -0.17, 0.165, -0.36, 0, -0.17, -0.165, 0.17, -0.165]);
+      p.l(t.fill, 0.065, [0.15, 0.13, 0.3, 0.23]).l(t.fill, 0.065, [0.15, -0.13, 0.3, -0.23]);
+      for (const sx of [-0.22, -0.09, 0.04]) p.l(t.dark, 0.06, [sx, -0.14, sx - 0.04, 0.14]);
+      p.p(t.fill, [0.17, -0.115, 0.42, -0.13, 0.68, -0.065, 0.56, 0, 0.68, 0.065, 0.42, 0.13, 0.17, 0.115]);
+      for (const side of [-1, 1]) {
+        for (const tx of [0.5, 0.58]) p.p(IVORY, [tx - 0.025, side * 0.075, tx + 0.025, side * 0.07, tx + 0.005, side * 0.02]);
+        p.o(EYE, 0.4, side * 0.075, 0.032).o(t.ink, 0.41, side * 0.075, 0.014);
+      }
+      p.p(HAT, [-0.3, 0, -0.2, -0.05, -0.12, 0, -0.02, -0.055, 0.07, 0, 0.17, -0.05, 0.26, 0, 0.17, 0.05, 0.07, 0, -0.02, 0.055, -0.12, 0, -0.2, 0.05]).k(t.ink, 0.02);
+      break;
     case K.Gatherer:
       p.o(t.fill, -0.02, 0, 0.2, 0.145);
       p.o(t.fill, 0.2, 0, 0.115, 0.095);
@@ -734,7 +747,7 @@ export function drawDinoHit(st: Stage, kind: number, x1: number, y1: number, x2:
 /** How far a Dino Pack piece reaches from its middle when it is standing still, in tiles. */
 export function dinoReach(kind: number): number {
   if (def(kind).building) return def(kind).size / 2 + 0.06;
-  return kind === K.Bronto ? 1.04 : kind === K.Rex ? 0.9 : kind === K.Ptero ? 0.72 : kind === K.Horn ? 0.68 : kind === K.Egg ? 0.32 : kind === K.Gatherer ? 0.38 : 0.56;
+  return kind === K.Bronto ? 1.04 : kind === K.Rex ? 0.9 : kind === K.Alpha ? 0.82 : kind === K.Ptero ? 0.72 : kind === K.Horn ? 0.68 : kind === K.Egg ? 0.32 : kind === K.Gatherer ? 0.38 : 0.56;
 }
 
 /** A whole Dino Pack piece, standing still and facing right: what the buttons in the panels show. */
@@ -776,7 +789,7 @@ export function paintDinoPiece(p: Pen, t: Team, kind: number): void {
   }
   const b = BUILD[kind]!;
   // Nudged so that tail and head together sit in the middle of the button.
-  const shift = kind === K.Bronto ? -0.04 : kind === K.Rex ? 0.08 : kind === K.Raptor ? 0.08 : kind === K.Spitter ? 0.04 : 0;
+  const shift = kind === K.Bronto ? -0.04 : kind === K.Rex ? 0.08 : kind === K.Raptor ? 0.08 : kind === K.Alpha ? 0.08 : kind === K.Spitter ? 0.04 : 0;
   x.save();
   x.translate(shift, 0);
   for (const [fx, fy] of b.feet) p.o(t.dark, fx, fy, b.foot, b.foot * 0.66).o(t.dark, fx, -fy, b.foot, b.foot * 0.66);

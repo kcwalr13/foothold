@@ -23,6 +23,13 @@ export function dist(x0: number, y0: number, x1: number, y1: number): number {
 // south-east or north-west before north-east or south-west), so both sides walk mirror-image paths.
 const NX = [1, -1, 0, 0, 1, -1, 1, -1];
 const NY = [0, 0, 1, -1, 1, -1, -1, 1];
+// The same order turned one, two and three quarter circles. On a four-cornered map each side settles its
+// last ties in the order as seen from its own corner, so all four walk the same paths, each turned.
+const TURNED: { x: number[]; y: number[] }[] = [{ x: NX, y: NY }];
+for (let t = 1; t < 4; t++) {
+  const was = TURNED[t - 1]!;
+  TURNED.push({ x: was.y.map((v) => 0 - v), y: was.x.slice() });
+}
 
 export class Nav {
   /** 1 where a tile can't be walked: terrain, buildings or piles. */
@@ -142,12 +149,13 @@ export class Nav {
    * a walker dead in line with the building goes round on the side nearer the middle of the map. Either way a
    * unit and its mirror image on the far side of the map go round the same way.
    */
-  next(d: Uint16Array, tx: number, ty: number, x = tx * TILE + TILE / 2, y = ty * TILE + TILE / 2): number {
+  next(d: Uint16Array, tx: number, ty: number, x = tx * TILE + TILE / 2, y = ty * TILE + TILE / 2, turn = 0): number {
     const { w, h, blocked } = this;
+    const ox = TURNED[turn]!.x, oy = TURNED[turn]!.y;
     let best = -1, bestNear = Infinity, bestMid = Infinity;
     let bestCost = this.inside(tx, ty) ? d[ty * w + tx]! : INF;
     for (let k = 0; k < 8; k++) {
-      const nx = tx + NX[k]!, ny = ty + NY[k]!;
+      const nx = tx + ox[k]!, ny = ty + oy[k]!;
       if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
       const ni = ny * w + nx;
       if (k >= 4 && (blocked[ty * w + nx] === 1 || blocked[ny * w + tx] === 1)) continue;
@@ -166,6 +174,12 @@ export class Nav {
       }
     }
     return best;
+  }
+
+  /** Where a tile comes in reading order on a square map turned back `turn` quarter circles. */
+  private readingOrder(tx: number, ty: number, turn: number): number {
+    for (let k = 0; k < turn; k++) [tx, ty] = [ty, this.w - 1 - tx];
+    return ty * this.w + tx;
   }
 
   /** How far a point is from the middle of the map (squared): the last word when everything else is level. */
@@ -194,13 +208,18 @@ export class Nav {
    * as on every side of a square building asked for by its middle, the one nearest `from` wins:
    * an army sent at a building stops on the side it came from, whichever way it was walking. With
    * that level too, the one nearer the middle of the map wins. Returns the tile's index, or -1.
+   *
+   * `turn` is for a four-cornered map, where even that can leave two tiles level (a point on a diagonal of
+   * the map): then the tile that comes first in reading order, read from the asker's own corner, wins, and
+   * the search covers one ring more so that no tile is missed for standing on the far side of a line.
    */
-  nearestOpenTo(x: number, y: number, fromX: number, fromY: number): number {
+  nearestOpenTo(x: number, y: number, fromX: number, fromY: number, turn?: number): number {
     const cx = Math.max(0, Math.min(this.w - 1, Math.floor(x / TILE))), cy = Math.max(0, Math.min(this.h - 1, Math.floor(y / TILE)));
-    let best = -1, bestD = Infinity, bestF = Infinity, bestM = Infinity;
+    let best = -1, bestD = Infinity, bestF = Infinity, bestM = Infinity, bestK = Infinity;
+    const slack = turn === undefined ? 1 : 2;
     for (let r = 0; r < 24; r++) {
       // A tile in ring r is at least r - 1 tiles away, so once a find is nearer than that, no later ring can beat it.
-      if (best >= 0 && bestD < (r - 1) * TILE * ((r - 1) * TILE)) break;
+      if (best >= 0 && r >= slack && bestD < (r - slack) * TILE * ((r - slack) * TILE)) break;
       for (let ty = cy - r; ty <= cy + r; ty++) for (let tx = cx - r; tx <= cx + r; tx++) {
         if (Math.max(Math.abs(tx - cx), Math.abs(ty - cy)) !== r) continue;
         if (this.isBlocked(tx, ty)) continue;
@@ -208,10 +227,12 @@ export class Nav {
         const d = (mx - x) * (mx - x) + (my - y) * (my - y);
         const f = (mx - fromX) * (mx - fromX) + (my - fromY) * (my - fromY);
         const m = this.fromMiddle(mx, my);
-        if (d < bestD || (d === bestD && (f < bestF || (f === bestF && m < bestM)))) {
+        const k = turn === undefined ? 0 : this.readingOrder(tx, ty, turn);
+        if (d < bestD || (d === bestD && (f < bestF || (f === bestF && (m < bestM || (m === bestM && k < bestK)))))) {
           bestD = d;
           bestF = f;
           bestM = m;
+          bestK = k;
           best = ty * this.w + tx;
         }
       }

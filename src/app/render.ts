@@ -1,11 +1,11 @@
 // Draws the match: a hand-drawn paper map with toy soldiers on it. No art files; everything is drawn here.
-import { RULES, def, isRefinery, isWorker } from '../sim/data';
-import { centroid, groupUnits, visibleTo, type Game } from '../sim/state';
+import { ABILITIES, FACTIONS, FRENZY, RULES, def, isRefinery, isWorker } from '../sim/data';
+import { centroid, groupUnits, maxHp, visibleTo, type Game } from '../sim/state';
 import { drawArmyBuilding, drawArmyFallen, drawArmyMarker, drawArmyUnit, drawGunship } from './army';
 import { drawDinoBuilding, drawDinoFallen, drawDinoHit, drawDinoMarker, drawDinoUnit, drawPtero, isDinoBuilding, isDinoUnit } from './dinos';
 import { K, O, TILE, type Entity, type GameMap } from '../sim/types';
 import { INSET, type Fx, type Match } from './match';
-import { BLOCK_COLOURS, PENCIL, Pen, STEEL, TEAM, ToyBox, brush, fire, home, pop, shadow, smoke, stamp, turn, type Anim, type BuildingLook, type Stage } from './toys';
+import { BLOCK_COLOURS, GOLD, IVORY, PENCIL, Pen, STEEL, TEAM, ToyBox, brush, fire, home, pop, shadow, smoke, stamp, turn, type Anim, type BuildingLook, type Stage } from './toys';
 
 export { TEAM } from './toys';
 
@@ -364,7 +364,7 @@ export class Renderer {
         x.fillStyle = '#ffd24a';
         x.fillRect(px - s / 2, py + s / 2 + 3, s * f, 4);
       }
-      if (e.hp < def(e.kind).hp && e.built) this.hpBar(px, py - (def(e.kind).size * z) / 2 - 7, def(e.kind).size * z * 0.8, e.hp / def(e.kind).hp);
+      if (e.hp < maxHp(e) && e.built) this.hpBar(px, py - (def(e.kind).size * z) / 2 - 7, def(e.kind).size * z * 0.8, e.hp / maxHp(e));
     }
 
     // Selected group: rings under its units, and a line to where it is headed.
@@ -421,7 +421,8 @@ export class Renderer {
         if (!onScreen(p.x, p.y, z * 1.5)) continue;
         this.unit(st, e, p, dt, detail);
         const r = def(e.kind).radius / TILE;
-        if (e.hp < def(e.kind).hp && detail) this.hpBar(p.x, p.y - z * (r + 0.3), z * Math.max(0.7, r * 2), e.hp / def(e.kind).hp);
+        // A hero's health is always on show; anything else's only once it is hurt.
+        if ((e.hp < maxHp(e) || def(e.kind).hero) && detail) this.hpBar(p.x, p.y - z * (r + (def(e.kind).hero ? 0.5 : 0.3)), z * Math.max(0.7, r * 2), e.hp / maxHp(e));
       }
     }
 
@@ -431,11 +432,33 @@ export class Renderer {
     for (const { e, p } of air) {
       if (!onScreen(p.x, p.y, z * 2)) continue;
       this.unit(st, e, p, dt, detail);
-      if (e.hp < def(e.kind).hp && detail) this.hpBar(p.x, p.y - z * 1.0, z * 0.9, e.hp / def(e.kind).hp);
+      if (e.hp < maxHp(e) && detail) this.hpBar(p.x, p.y - z * 1.0, z * 0.9, e.hp / maxHp(e));
+    }
+
+    // An ability being aimed: how far it reaches from the hero, and how wide it lands.
+    const aiming = m.aim.value >= 0 ? m.ability(m.aim.value) : undefined, aimer = aiming ? m.hero() : undefined;
+    if (aiming && aimer) {
+      const hp = pos(aimer), t = TEAM[me]!;
+      x.setLineDash([7, 6]);
+      x.lineDashOffset = -now / 40;
+      for (const [w, c] of [[4, 'rgba(255,255,255,0.75)'], [2, t.ink]] as const) {
+        x.strokeStyle = c;
+        x.lineWidth = w;
+        x.beginPath();
+        x.arc(hp.x, hp.y, (aiming.range / TILE) * z, 0, Math.PI * 2);
+        x.stroke();
+      }
+      x.setLineDash([]);
+      x.fillStyle = t.pale;
+      x.beginPath();
+      x.arc(hp.x, hp.y, (aiming.range / TILE) * z, 0, Math.PI * 2);
+      x.fill();
     }
 
     // Flags over your groups.
     for (let i = 0; i < 4; i++) {
+      // In Frenzy the last group is the hero, who is marked in gold and needs no number.
+      if (m.frenzy && i === FRENZY.heroGroup) continue;
       const us = groupUnits(g, me, i);
       if (us.length === 0) continue;
       let cx = 0, cy = 0, top = 1e9;
@@ -521,16 +544,84 @@ export class Renderer {
   private unit(st: Stage, e: Entity, p: { x: number; y: number; wx: number; wy: number }, dt: number, detail: boolean): void {
     const { x, z, now } = st, t = TEAM[e.owner]!;
     const a = this.animOf(e, p.wx, p.wy, now, dt);
+    const d = def(e.kind);
     if (!detail) {
-      if (isDinoUnit(e.kind)) drawDinoMarker(st, e, p.x, p.y, t, a.aim);
+      if (d.hero) this.heroMarker(p.x, p.y, t);
+      else if (isDinoUnit(e.kind)) drawDinoMarker(st, e, p.x, p.y, t, a.aim);
       else drawArmyMarker(st, e, p.x, p.y, t, a.aim);
       return;
     }
     const size = pop((now - a.born) / 300);
+    const tick = this.m.g.tick;
+    if (d.hero) {
+      // A hero stands in a ring of its side's colour that breathes, so it can be found in any crowd.
+      const r = z * (d.radius / TILE + 0.34) * (1 + Math.sin(now / 420) * 0.05);
+      x.fillStyle = t.pale;
+      x.beginPath();
+      x.arc(p.x, p.y, r, 0, Math.PI * 2);
+      x.fill();
+      x.lineWidth = Math.max(1.5, z * 0.07);
+      x.strokeStyle = GOLD;
+      x.stroke();
+    }
+    if (e.haste > tick) {
+      // Rallied: a bright ring spinning underfoot.
+      x.strokeStyle = t.light;
+      x.lineWidth = Math.max(1.2, z * 0.06);
+      x.setLineDash([z * 0.18, z * 0.16]);
+      x.lineDashOffset = -now / 30;
+      x.beginPath();
+      x.arc(p.x, p.y, z * (d.radius / TILE + 0.14), 0, Math.PI * 2);
+      x.stroke();
+      x.setLineDash([]);
+    }
+    if (e.ttl > tick) {
+      // Called up for a while: a gold ring underfoot that runs down like a clock, so it is plain they won't stay.
+      const whole = ABILITIES[FACTIONS[this.m.g.players[e.owner]!.faction].hero]?.find((ab) => ab.kind === 'pack')?.time ?? 250;
+      x.strokeStyle = GOLD;
+      x.lineWidth = Math.max(1.5, z * 0.07);
+      x.beginPath();
+      x.arc(p.x, p.y, z * (d.radius / TILE + 0.1), -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, (e.ttl - tick) / whole));
+      x.stroke();
+    }
     if (e.kind === K.Ptero) drawPtero(st, e, p.x, p.y, a, t, size);
     else if (isDinoUnit(e.kind)) drawDinoUnit(st, e, p.x, p.y, a, t, size);
     else if (e.kind === K.Gunship) drawGunship(st, e, p.x, p.y, a, t, size);
     else drawArmyUnit(st, e, p.x, p.y, a, t, size);
+    if (e.daze > tick) {
+      // Stunned: stars going round its head.
+      const top = p.y - z * (d.radius / TILE + 0.12) - (d.air ? z * 0.2 : 0);
+      x.fillStyle = '#ffe45e';
+      x.strokeStyle = '#7a5a10';
+      x.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        const w = now / 190 + i * 2.094, cx = p.x + Math.cos(w) * z * 0.26, cy = top + Math.sin(w) * z * 0.09, r = Math.max(2, z * 0.085);
+        x.beginPath();
+        for (let k = 0; k < 8; k++) {
+          const q = (k * Math.PI) / 4, rr = k % 2 ? r * 0.45 : r;
+          x.lineTo(cx + Math.cos(q) * rr, cy + Math.sin(q) * rr);
+        }
+        x.closePath();
+        x.fill();
+        x.stroke();
+      }
+    }
+    if (d.hero) {
+      // Its level, on a gold badge at its shoulder.
+      const bx = p.x + z * (d.radius / TILE + 0.3), by = p.y - z * (d.radius / TILE + 0.22), r = Math.max(6, z * 0.26);
+      x.fillStyle = GOLD;
+      x.strokeStyle = PENCIL;
+      x.lineWidth = 1.5;
+      x.beginPath();
+      x.arc(bx, by, r, 0, Math.PI * 2);
+      x.fill();
+      x.stroke();
+      x.fillStyle = PENCIL;
+      x.font = `900 ${Math.round(r * 1.35)}px system-ui, sans-serif`;
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.fillText(String(e.lvl), bx, by + r * 0.06);
+    }
     const hurt = now - a.hurt;
     if (hurt < 120) {
       // Struck: a blink of white.
@@ -541,6 +632,158 @@ export class Renderer {
       x.arc(p.x, p.y - (def(e.kind).air ? z * 0.2 : 0), r, 0, Math.PI * 2);
       x.fill();
       x.globalAlpha = 1;
+    }
+  }
+
+  /** A hero from far off: a gold star on its side's colour. */
+  private heroMarker(px: number, py: number, t: (typeof TEAM)[number]): void {
+    const x = this.ctx, r = Math.max(5, this.m.cam.zoom * 0.55);
+    x.fillStyle = t.fill;
+    x.strokeStyle = t.ink;
+    x.lineWidth = 1.5;
+    x.beginPath();
+    x.arc(px, py, r, 0, Math.PI * 2);
+    x.fill();
+    x.stroke();
+    x.fillStyle = GOLD;
+    x.beginPath();
+    for (let k = 0; k < 10; k++) {
+      const q = -Math.PI / 2 + (k * Math.PI) / 5, rr = k % 2 ? r * 0.36 : r * 0.82;
+      x.lineTo(px + Math.cos(q) * rr, py + Math.sin(q) * rr);
+    }
+    x.closePath();
+    x.fill();
+  }
+
+  /** An ability on its way: what is thrown, called down or shouted, between the order and the effect. */
+  private casting(st: Stage, f: Fx, k: number, sx: (n: number) => number, sy: (n: number) => number): void {
+    const { x, z, now } = st, t = TEAM[f.owner] ?? TEAM[0]!;
+    const a = ABILITIES[f.kind]?.[f.mode ?? 0];
+    if (!a) return;
+    const x1 = sx(f.x1), y1 = sy(f.y1), x2 = sx(f.x2), y2 = sy(f.y2), r = ((f.r ?? 0) / TILE) * z;
+    const ring = (cx: number, cy: number, rad: number, colour: string, w: number, dash = false) => {
+      x.strokeStyle = colour;
+      x.lineWidth = w;
+      if (dash) x.setLineDash([6, 5]);
+      x.beginPath();
+      x.arc(cx, cy, Math.max(1, rad), 0, Math.PI * 2);
+      x.stroke();
+      if (dash) x.setLineDash([]);
+    };
+    if (a.kind === 'blast' && a.delay < 10) {
+      // A grenade: where it will land, and the thing itself in the air.
+      ring(x2, y2, r, `rgba(190,50,35,${0.35 + 0.5 * k})`, 2, true);
+      const gx = x1 + (x2 - x1) * k, gy = y1 + (y2 - y1) * k - Math.sin(k * Math.PI) * z * 1.6;
+      x.fillStyle = 'rgba(0,0,0,0.22)';
+      x.beginPath();
+      x.ellipse(x1 + (x2 - x1) * k, y1 + (y2 - y1) * k, z * 0.14, z * 0.09, 0, 0, Math.PI * 2);
+      x.fill();
+      x.fillStyle = t.ink;
+      x.beginPath();
+      x.arc(gx, gy, Math.max(2.5, z * 0.13), 0, Math.PI * 2);
+      x.fill();
+      x.fillStyle = GOLD;
+      x.beginPath();
+      x.arc(gx + z * 0.05, gy - z * 0.07, Math.max(1, z * 0.045), 0, Math.PI * 2);
+      x.fill();
+    } else if (a.kind === 'blast') {
+      // An air strike: a target marked on the ground, and a shadow crossing it.
+      x.fillStyle = `rgba(200,50,35,${0.1 + 0.12 * Math.abs(Math.sin(now / 90))})`;
+      x.beginPath();
+      x.arc(x2, y2, r, 0, Math.PI * 2);
+      x.fill();
+      ring(x2, y2, r, 'rgba(190,50,35,0.85)', 2.5, true);
+      x.strokeStyle = 'rgba(190,50,35,0.85)';
+      x.lineWidth = 2;
+      x.beginPath();
+      x.moveTo(x2 - r * 0.3, y2);
+      x.lineTo(x2 + r * 0.3, y2);
+      x.moveTo(x2, y2 - r * 0.3);
+      x.lineTo(x2, y2 + r * 0.3);
+      x.stroke();
+      const run = (k - 0.72) * 9, px = x2 + run * r, py = y2 + run * r * 0.2;
+      x.fillStyle = 'rgba(0,0,0,0.26)';
+      x.beginPath();
+      x.moveTo(px + z * 1.1, py);
+      x.lineTo(px - z * 0.5, py - z * 1.0);
+      x.lineTo(px - z * 0.2, py);
+      x.lineTo(px - z * 0.5, py + z * 1.0);
+      x.closePath();
+      x.fill();
+    } else if (a.kind === 'leap') {
+      // A pounce: where it will land, and a streak through the air.
+      ring(x2, y2, r, `rgba(190,50,35,${0.3 + 0.5 * k})`, 2, true);
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 - z * 1.8;
+      x.strokeStyle = t.fill;
+      x.globalAlpha = 0.75;
+      x.lineWidth = Math.max(3, z * 0.3);
+      x.setLineDash([z * 0.5, z * 0.35]);
+      x.lineDashOffset = -k * z * 6;
+      x.beginPath();
+      x.moveTo(x1, y1);
+      x.quadraticCurveTo(mx, my, x1 + (x2 - x1) * Math.min(1, k * 1.1), y1 + (y2 - y1) * Math.min(1, k * 1.1) - Math.sin(Math.min(1, k * 1.1) * Math.PI) * z * 0.5);
+      x.stroke();
+      x.setLineDash([]);
+      x.globalAlpha = 1;
+    } else if (a.kind === 'daze') {
+      // A roar: rings going out, one after another.
+      for (let i = 0; i < 3; i++) {
+        const q = k * 1.4 - i * 0.2;
+        if (q <= 0 || q >= 1) continue;
+        ring(x1, y1, r * q, `rgba(255,228,94,${0.9 * (1 - q)})`, Math.max(2, z * 0.14 * (1 - q)));
+        ring(x1, y1, r * q, `rgba(90,60,10,${0.5 * (1 - q)})`, 1);
+      }
+    } else if (a.kind === 'haste') {
+      // A rally: one bright ring out to everyone it reaches.
+      ring(x1, y1, r * k, t.light, Math.max(2, z * 0.16 * (1 - k)));
+      x.globalAlpha = 0.25 * (1 - k);
+      x.fillStyle = t.light;
+      x.beginPath();
+      x.arc(x1, y1, r * k, 0, Math.PI * 2);
+      x.fill();
+      x.globalAlpha = 1;
+    }
+  }
+
+  /** An ability going off. */
+  private blasted(st: Stage, f: Fx, k: number, sx: (n: number) => number, sy: (n: number) => number): void {
+    const { x, z } = st;
+    const a = ABILITIES[f.kind]?.[f.mode ?? 0];
+    if (!a) return;
+    const px = sx(f.x1), py = sy(f.y1), r = ((f.r ?? TILE) / TILE) * z;
+    if (a.kind === 'pack') {
+      // The pack hatching: shell flying outward.
+      x.fillStyle = IVORY;
+      x.strokeStyle = PENCIL;
+      x.lineWidth = 1;
+      x.globalAlpha = 1 - k * k;
+      for (let i = 0; i < 10; i++) {
+        const q = i * 0.628 + 0.3, d = r * (0.3 + 1.5 * (1 - Math.pow(1 - k, 2))), s = Math.max(1.5, z * 0.09);
+        x.beginPath();
+        x.ellipse(px + Math.cos(q) * d, py + Math.sin(q) * d * 0.8, s, s * 0.7, q + k * 5, 0, Math.PI * 2);
+        x.fill();
+        x.stroke();
+      }
+      x.globalAlpha = 1;
+      return;
+    }
+    if (a.delay >= 10) {
+      // An air strike is five blasts across the circle, one after another.
+      const spots = [[0, 0], [-0.5, -0.3], [0.45, -0.35], [-0.35, 0.45], [0.5, 0.35]] as const;
+      spots.forEach(([ox, oy], i) => {
+        const q = k * 1.8 - i * 0.16;
+        if (q > 0 && q < 1) this.burst(px + ox * r, py + oy * r, r * 0.62, q, i);
+      });
+      return;
+    }
+    this.burst(px, py, r, k, f.born);
+    if (k < 0.5) {
+      // The ground shakes out to the edge of the blast.
+      x.strokeStyle = `rgba(110,60,25,${0.6 * (1 - k * 2)})`;
+      x.lineWidth = 2;
+      x.beginPath();
+      x.arc(px, py, r * (0.5 + k), 0, Math.PI * 2);
+      x.stroke();
     }
   }
 
@@ -628,7 +871,7 @@ export class Renderer {
       x.arc(px, py, h * (0.7 + 0.7 * k), 0, Math.PI * 2);
       x.stroke();
     }
-    const hp = e.hp / d.hp;
+    const hp = e.hp / maxHp(e);
     if (hp < 0.66 && z >= 11) {
       // Hurt: smoke, and below a third, fire.
       const ox = Math.sin(e.id * 1.7) * h * 0.4, oy = Math.cos(e.id * 2.3) * h * 0.35;
@@ -818,6 +1061,31 @@ export class Renderer {
   private effect(st: Stage, f: Fx, sx: (n: number) => number, sy: (n: number) => number): void {
     const { x, z, now } = st;
     const k = Math.min(1, (now - f.born) / f.life);
+    if (f.t === 'cast') return this.casting(st, f, k, sx, sy);
+    if (f.t === 'blast') return this.blasted(st, f, k, sx, sy);
+    if (f.t === 'level' || f.t === 'coin') {
+      // Words that rise and fade: a level gained, Blocks paid for a kill.
+      const px = sx(f.x1), py = sy(f.y1) - z * 0.7 - k * z * 1.3;
+      if (f.t === 'level') {
+        x.strokeStyle = `rgba(247,197,49,${1 - k})`;
+        x.lineWidth = Math.max(2, z * 0.14 * (1 - k));
+        x.beginPath();
+        x.arc(sx(f.x1), sy(f.y1), z * (0.5 + k * 1.6), 0, Math.PI * 2);
+        x.stroke();
+      }
+      const text = f.t === 'level' ? `Level ${f.mode}` : `+${f.mode}`;
+      x.globalAlpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+      x.font = `900 ${f.t === 'level' ? Math.max(13, Math.round(z * 0.62)) : Math.max(11, Math.round(z * 0.5))}px system-ui, sans-serif`;
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.lineWidth = 3;
+      x.strokeStyle = 'rgba(58,45,32,0.85)';
+      x.strokeText(text, px, py);
+      x.fillStyle = GOLD;
+      x.fillText(text, px, py);
+      x.globalAlpha = 1;
+      return;
+    }
     const seed = f.born % 6.28;
     if (f.t === 'shot') {
       const x1 = sx(f.x1), y1 = sy(f.y1), x2 = sx(f.x2), y2 = sy(f.y2);
@@ -1012,7 +1280,14 @@ export class Renderer {
 /** Draws the minimap: the whole sheet, the fog, and a dot per unit. */
 export function drawMini(c: HTMLCanvasElement, r: Renderer, m: Match): void {
   const g: Game = m.g, x = c.getContext('2d')!;
-  const w = c.width, h = c.height;
+  // A square map sits in the middle of the box, with the panel's own colour either side of it.
+  const box = m.miniRect(), w = c.width * box.w, h = c.height, left = c.width * box.x;
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  if (box.w < 1) {
+    x.fillStyle = '#d9c9a2';
+    x.fillRect(0, 0, c.width, c.height);
+  }
+  x.setTransform(1, 0, 0, 1, left, 0);
   x.imageSmoothingEnabled = true;
   x.drawImage(r.mapSheet(), 0, 0, w, h);
   x.drawImage(r.fogSheet(), 0, 0, w, h);
@@ -1027,7 +1302,8 @@ export function drawMini(c: HTMLCanvasElement, r: Renderer, m: Match): void {
         x.fillStyle = '#e08a1e';
         x.fillRect(e.x * kx - 2, e.y * ky - 2, 4, 4);
       } else if (e.kind === K.Tower) {
-        x.fillStyle = e.busy === m.me + 1 ? '#2f9a2f' : '#fff';
+        const holder = e.busy - 1, known = holder === m.me || (holder >= 0 && visibleTo(g, m.me, e));
+        x.fillStyle = known ? TEAM[holder]!.flag : '#fff';
         x.strokeStyle = '#3a2d20';
         x.lineWidth = 1;
         x.fillRect(e.x * kx - 2.5, e.y * ky - 2.5, 5, 5);
@@ -1040,11 +1316,21 @@ export function drawMini(c: HTMLCanvasElement, r: Renderer, m: Match): void {
     // Yours in your green. Theirs stay red here, not their tan: on a map this small tan is a battery pack,
     // and the one thing the minimap must do is show an attack coming at a glance.
     x.fillStyle = e.owner === m.me ? (b ? TEAM[0]!.ink : TEAM[0]!.fill) : (b ? '#8a2a12' : '#e0452b');
-    const s = b ? 4 : isWorker(e.kind) || e.kind === K.Egg ? 1.5 : def(e.kind).supply >= 3 ? 3.5 : 2.5;
+    // With three opponents each shows in its own colour: who is coming matters as much as that someone is.
+    // (Frenzy's map has no battery packs for tan to be mistaken for.)
+    if (m.frenzy && e.owner !== m.me) x.fillStyle = b ? TEAM[e.owner]!.dark : TEAM[e.owner]!.flag;
+    const hero = def(e.kind).hero;
+    const s = b ? (m.frenzy ? 5 : 4) : hero ? 5 : isWorker(e.kind) || e.kind === K.Egg ? 1.5 : def(e.kind).supply >= 3 ? 3.5 : 2.5;
     x.fillRect(e.x * kx - s / 2, e.y * ky - s / 2, s, s);
+    if (hero) {
+      x.strokeStyle = GOLD;
+      x.lineWidth = 1.5;
+      x.strokeRect(e.x * kx - s / 2, e.y * ky - s / 2, s, s);
+    }
   }
   const a = m.toWorld(INSET.left, INSET.top), b2 = m.toWorld(m.viewW - INSET.right, m.viewH);
   x.strokeStyle = '#fff';
   x.lineWidth = 1.5;
   x.strokeRect(a.x * kx, a.y * ky, (b2.x - a.x) * kx, (b2.y - a.y) * ky);
+  x.setTransform(1, 0, 0, 1, 0, 0);
 }

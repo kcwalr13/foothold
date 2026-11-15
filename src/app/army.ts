@@ -2,7 +2,7 @@
 // Every piece is moulded in its side's colour, so a glance tells you whose it is; shape tells you what it is.
 import { def } from '../sim/data';
 import { K, W, type Entity } from '../sim/types';
-import { BLOCK_COLOURS, IVORY, PENCIL, STEEL, brush, flash, home, kick, shadow, smoke, stamp, type Anim, type BuildingLook, type Pen, type Stage, type Team } from './toys';
+import { BLOCK_COLOURS, GOLD, IVORY, PENCIL, STEEL, brush, flash, home, kick, shadow, smoke, stamp, type Anim, type BuildingLook, type Pen, type Stage, type Team } from './toys';
 
 const TAU = Math.PI * 2;
 const HAT = '#f7c531', SAND = '#dcc9a0', SAND_DARK = '#a88f5f', RED = '#d9463d', TARMAC = '#7b766b', GLASS = '#cfeef2', WOOD = '#c2935a';
@@ -11,7 +11,10 @@ const HAT = '#f7c531', SAND = '#dcc9a0', SAND_DARK = '#a88f5f', RED = '#d9463d',
 
 /** The base a figure stands on. Its outline is how you tell the infantry apart from far off. */
 function paintBase(p: Pen, t: Team, kind: number): void {
-  if (kind === K.Lancer) {
+  if (kind === K.Captain) {
+    // The Captain's base is the biggest on the table, and rimmed in gold.
+    p.o(GOLD, 0, 0, 0.43).o(t.fill, 0, 0, 0.375).o(t.dark, 0, 0, 0.325).o(t.fill, 0, 0, 0.29);
+  } else if (kind === K.Lancer) {
     p.b(t.fill, 0, 0, 0.6, 0.6, 0.12);
     p.b(t.dark, 0, 0, 0.5, 0.5, 0.09).b(t.fill, 0, 0, 0.44, 0.44, 0.07);
   } else if (kind === K.Runner) {
@@ -26,6 +29,16 @@ function paintBase(p: Pen, t: Team, kind: number): void {
 /** The figure itself, seen from above and facing right: pack, shoulders, arms, weapon, helmet. */
 function paintFigure(p: Pen, t: Team, kind: number, ready: boolean): void {
   switch (kind) {
+    case K.Captain:
+      // Broader than a Trooper, a rifle at the shoulder, and an officer's cap with a gold star on it.
+      p.b(t.dark, -0.17, 0, 0.14, 0.27, 0.05);
+      p.o(t.dark, 0, 0, 0.145, 0.275);
+      p.l(t.dark, 0.1, [0.02, 0.22, 0.24, 0.13]).l(t.dark, 0.1, [0.03, -0.22, 0.35, 0.04]);
+      p.l(t.ink, 0.075, [0.07, 0.14, 0.6, 0.055]);
+      p.o(t.light, 0.02, 0, 0.165);
+      p.o(t.ink, 0.13, 0, 0.075, 0.15);
+      star(p, GOLD, 0.0, 0, 0.09);
+      break;
     case K.Trooper:
       p.b(t.dark, -0.13, 0, 0.11, 0.2, 0.04);
       p.o(t.dark, 0, 0, 0.115, 0.215);
@@ -82,13 +95,18 @@ const MUZZLE: Record<number, [number, number, number]> = {
   [K.Flak]: [0.78, 0, 0.2],
   [K.Jugger]: [0.98, 0, 0.36],
   [K.Gunship]: [0.5, 0, 0.2],
+  [K.Captain]: [0.62, 0.055, 0.2],
 };
+
+/** How big a square a figure's base and body are painted in: the Captain is a size up from everyone else. */
+const baseHalf = (kind: number): number => (kind === K.Captain ? 0.52 : 0.46);
+const bodyHalf = (kind: number): number => (kind === K.Captain ? 0.74 : 0.56);
 
 function drawInfantry(st: Stage, e: Entity, px: number, py: number, an: Anim, t: Team, size: number): void {
   const { z, toys, now } = st;
   const ready = e.kind === K.Mortar && e.still >= def(K.Mortar).setup;
-  const base = toys.get(`a${e.kind}b${e.owner}`, z, 0.46, (p) => paintBase(p, t, e.kind), t.ink);
-  const body = toys.get(`a${e.kind}f${e.owner}${ready ? 'r' : ''}`, z, 0.56, (p) => paintFigure(p, t, e.kind, ready), t.ink);
+  const base = toys.get(`a${e.kind}b${e.owner}`, z, baseHalf(e.kind), (p) => paintBase(p, t, e.kind), t.ink);
+  const body = toys.get(`a${e.kind}f${e.owner}${ready ? 'r' : ''}`, z, bodyHalf(e.kind), (p) => paintFigure(p, t, e.kind, ready), t.ink);
   const face = an.aim, cos = Math.cos(face), sin = Math.sin(face);
   // The base stays flat on the table; the figure on it rocks as it walks and jolts as it fires.
   shadow(st, base, px, py, face, size, 0.06);
@@ -265,8 +283,8 @@ export function drawArmyUnit(st: Stage, e: Entity, px: number, py: number, an: A
 /** A unit lying where it fell: `k` runs 0 to 1 as it tips over and fades into the paper. */
 export function drawArmyFallen(st: Stage, kind: number, owner: number, px: number, py: number, face: number, t: Team, k: number): void {
   const { x, z, toys } = st;
-  const base = toys.get(`a${kind}b${owner}`, z, 0.46, (p) => paintBase(p, t, kind), t.ink);
-  const body = toys.get(`a${kind}f${owner}`, z, 0.56, (p) => paintFigure(p, t, kind, false), t.ink);
+  const base = toys.get(`a${kind}b${owner}`, z, baseHalf(kind), (p) => paintBase(p, t, kind), t.ink);
+  const body = toys.get(`a${kind}f${owner}`, z, bodyHalf(kind), (p) => paintFigure(p, t, kind, false), t.ink);
   const tip = Math.min(1, k * 5);
   x.globalAlpha = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
   // Knocked flat: the base swings up on edge and the figure lies along the ground beside it.
@@ -587,7 +605,7 @@ export function drawArmyMarker(st: Stage, e: Entity, px: number, py: number, t: 
 /** How far a Green Army piece reaches from its middle when it is standing still, in tiles. */
 export function armyReach(kind: number): number {
   if (def(kind).building) return def(kind).size / 2 + 0.06;
-  return kind === K.Jugger ? 0.92 : kind === K.Tank || kind === K.Flak ? 0.74 : kind === K.Gunship ? 0.78 : kind === K.Mortar ? 0.52 : 0.5;
+  return kind === K.Jugger ? 0.92 : kind === K.Tank || kind === K.Flak ? 0.74 : kind === K.Gunship ? 0.78 : kind === K.Captain ? 0.66 : kind === K.Mortar ? 0.52 : 0.5;
 }
 
 /** A whole Green Army piece, standing still and facing right: what the buttons in the panels show. */

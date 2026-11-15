@@ -1,10 +1,13 @@
 // The panels around the battlefield: the left thumb runs the base, the right thumb runs the armies.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { TargetedPointerEvent } from 'preact';
-import { FACTIONS, def, isRefinery } from '../sim/data';
+import { FACTIONS, FRENZY, def, isRefinery } from '../sim/data';
 import { K, O, TILE, type Kind } from '../sim/types';
-import { SPEEDS, type Match } from './match';
+import { SIDES, SPEEDS, type AbilityInfo, type Match, type SpawnInfo, type UpgradeInfo } from './match';
 import { toyIcon } from './icons';
+import { TEAM } from './toys';
+
+const HERO = FRENZY.heroGroup;
 
 const clock = (ticks: number) => `${Math.floor(ticks / 600)}:${String(Math.floor((ticks % 600) / 10)).padStart(2, '0')}`;
 
@@ -54,6 +57,8 @@ export function UnitIcon({ kind, size = 22 }: { kind: number; size?: number }) {
       return <svg viewBox="0 0 24 24" {...s}><path d="M12 2.5 L20.5 6 V12 C20.5 17 17 20.2 12 21.8 C7 20.2 3.5 17 3.5 12 V6 Z" fill="#8fa3b5" stroke={ink} stroke-linejoin="round" /><path d="M12 5.5 V18.6" stroke="#dfe7ee" stroke-width="2" /></svg>;
     case K.Claws:
       return <svg viewBox="0 0 24 24" {...s}><path d="M5 4 Q9 12 6 20 M11 3 Q15 12 12 21 M17 4 Q21 12 18 20" stroke="#d9463d" stroke-width="2.6" fill="none" stroke-linecap="round" /><path d="M5 4 Q9 12 6 20 M11 3 Q15 12 12 21 M17 4 Q21 12 18 20" stroke={ink} stroke-width="0.6" fill="none" stroke-linecap="round" /></svg>;
+    case K.Muster:
+      return <svg viewBox="0 0 24 24" {...s}><path d="M4 12 H13 M4 7 H10 M4 17 H10" stroke={ink} stroke-width="2.2" stroke-linecap="round" /><path d="M12 5 L20 12 L12 19 Z" fill="#58c04a" stroke={ink} stroke-linejoin="round" /></svg>;
     case K.Hide:
       return <svg viewBox="0 0 24 24" {...s}><path d="M12 2.5 L20.5 6 V12 C20.5 17 17 20.2 12 21.8 C7 20.2 3.5 17 3.5 12 V6 Z" fill="#8a9a5b" stroke={ink} stroke-linejoin="round" /><path d="M7 9 Q9.5 7 12 9 Q14.5 7 17 9 M7 13 Q9.5 11 12 13 Q14.5 11 17 13 M9 17 Q10.5 15.4 12 17 Q13.5 15.4 15 17" stroke="#dfe7c0" stroke-width="1.4" fill="none" /></svg>;
     default:
@@ -124,11 +129,89 @@ function ResearchButton({ m, kind }: { m: Match; kind: Kind }) {
   );
 }
 
+/** A unit on Frenzy's Spawn tab: locked with its price, or in the mix, or left out of it. */
+function SpawnButton({ m, info }: { m: Match; info: SpawnInfo }) {
+  const d = def(info.kind);
+  const label = !info.unlocked ? `Unlock ${d.plural}` : info.on ? `Stop making ${d.plural}` : `Make ${d.plural}`;
+  return (
+    <button class={`tile ${info.unlocked ? (info.on ? 'rep' : 'off') : 'locked'} ${info.ok || info.unlocked ? '' : 'dim'}`} aria-label={label} aria-pressed={info.unlocked ? info.on : undefined}
+      data-kind={info.kind} onClick={() => m.spawnTap(info.kind)}>
+      <UnitIcon kind={info.kind} size={28} />
+      <span class="name">{d.short}{d.brood > 1 && <b class="brood"> ×{d.brood}</b>}</span>
+      <span class="cost">{info.unlocked ? <span>{Math.round(info.seconds)} s</span> : <span class="lock">{info.price}</span>}</span>
+      {info.on && <span class="loop">✓</span>}
+      {info.progress >= 0 && <span class="bar"><i style={{ width: `${Math.round(info.progress * 100)}%` }} /></span>}
+    </button>
+  );
+}
+
+function UpgradeButton({ m, info }: { m: Match; info: UpgradeInfo }) {
+  const d = def(info.kind);
+  const done = info.level >= info.max;
+  return (
+    <button class={`row ${info.ok ? '' : 'dim'}`} aria-label={`Buy ${d.name}`} data-kind={info.kind}
+      onClick={() => (info.ok ? m.research(info.kind) : m.alert(`why${info.kind}`, info.why, 'warn', undefined, undefined, 5))}>
+      <UnitIcon kind={info.kind} size={24} />
+      <span class="name">{d.name} <b class="pips">{'●'.repeat(info.level)}{'○'.repeat(info.max - info.level)}</b></span>
+      {done ? <span class="cost">Top level</span> : <Cost cost={info.cost} gas={0} />}
+    </button>
+  );
+}
+
+/** A picture for each ability: what it does, drawn small. */
+function AbilityIcon({ hero, slot }: { hero: Kind; slot: number }) {
+  const ink = '#3a2d20', s = { width: 22, height: 22 };
+  if (hero === K.Captain) {
+    if (slot === 0) return <svg viewBox="0 0 24 24" {...s}><ellipse cx="11" cy="14.5" rx="6.5" ry="7.5" fill="#3f7a35" stroke={ink} stroke-width="1.5" /><path d="M7 12 H15 M6.5 16 H15.5 M11 8 V21" stroke={ink} stroke-width="1" /><rect x="8.5" y="3" width="5" height="4.5" fill="#b9b9b9" stroke={ink} stroke-width="1.2" /><path d="M13.5 5 H18 V10" stroke={ink} stroke-width="1.6" fill="none" stroke-linecap="round" /></svg>;
+    if (slot === 1) return <svg viewBox="0 0 24 24" {...s}><path d="M5 3 V22" stroke={ink} stroke-width="2.2" stroke-linecap="round" /><path d="M6 4 Q11 1.5 14 4 T21 4 V13 Q17 15.5 14 13 T6 13 Z" fill="#35c23b" stroke={ink} stroke-width="1.5" stroke-linejoin="round" /></svg>;
+    return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="12" r="8.5" fill="#f6d9d2" stroke="#b9382a" stroke-width="2" /><path d="M12 1.5 V8 M12 16 V22.5 M1.5 12 H8 M16 12 H22.5" stroke="#b9382a" stroke-width="2" stroke-linecap="round" /><circle cx="12" cy="12" r="2.2" fill="#b9382a" /></svg>;
+  }
+  if (slot === 0) return <svg viewBox="0 0 24 24" {...s}><path d="M3 19 Q9 3 21 8" stroke={ink} stroke-width="1.6" fill="none" stroke-dasharray="3 2.5" stroke-linecap="round" /><path d="M21 8 L14.5 7.5 L18 12.5 Z" fill="#d9463d" stroke={ink} stroke-linejoin="round" /><path d="M3 21 L6 15 M7 22 L9 17 M11 22 L12 18" stroke={ink} stroke-width="1.8" stroke-linecap="round" /></svg>;
+  if (slot === 1) return <svg viewBox="0 0 24 24" {...s}><path d="M3 8 L9 10 V14 L3 16 Z" fill="#ffe45e" stroke={ink} stroke-width="1.4" stroke-linejoin="round" /><path d="M12 8.5 Q14 12 12 15.5 M15.5 6 Q19 12 15.5 18 M19 3.5 Q24 12 19 20.5" stroke={ink} stroke-width="1.8" fill="none" stroke-linecap="round" /></svg>;
+  return <svg viewBox="0 0 24 24" {...s}>{[[7, 8], [17, 8], [12, 16]].map(([cx, cy]) => <ellipse key={`${cx}`} cx={cx} cy={cy} rx="4.2" ry="5.4" fill="#f8f1dc" stroke={ink} stroke-width="1.4" />)}<path d="M5 8 L7 6.5 L9 8.5 M15 8 L17 6.5 L19 8.5 M10 16 L12 14.5 L14 16.5" stroke={ink} stroke-width="1.1" fill="none" /></svg>;
+}
+
+function AbilityButton({ m, info, slot, hero }: { m: Match; info: AbilityInfo; slot: number; hero: Kind }) {
+  const aiming = m.aim.value === slot;
+  return (
+    <button class={`ability ${aiming ? 'on' : ''} ${info.locked ? 'locked' : info.ready ? 'ready' : 'wait'}`} aria-label={info.name} aria-pressed={aiming}
+      data-slot={slot} title={info.blurb} onClick={() => m.cast(slot)}>
+      <AbilityIcon hero={hero} slot={slot} />
+      <span class="name">{info.locked ? `Level ${info.level}` : info.short}</span>
+      {!info.locked && info.wait > 0 && <span class="cool" style={{ height: `${Math.round(info.wait * 100)}%` }} />}
+    </button>
+  );
+}
+
+/** The hero's own button: tap to pick it up, tap twice to go to it. */
+function HeroButton({ m }: { m: Match }) {
+  const fz = m.hud.value.frenzy!;
+  const h = fz.hero, last = useRef(0);
+  const name = def(h.kind).name;
+  const press = usePress(() => {
+    const now = performance.now();
+    if (!h.alive) m.alert('herodown2', `Your ${name} is down: back in ${h.back} s`, 'warn', undefined, undefined, 5);
+    else if (now - last.current < 380) m.focusGroup(HERO);
+    else m.selectGroup(HERO);
+    last.current = now;
+  });
+  return (
+    <button class={`group hero ${m.sel.value === HERO ? 'on' : ''} ${h.alive ? '' : 'down'}`} aria-label={`Your ${name}`} data-hero={h.alive ? 'up' : 'down'} {...press}>
+      <UnitIcon kind={h.kind} size={34} />
+      <span class="who"><b>{name}</b><i data-level={h.level}>{h.alive ? `level ${h.level}` : fz.sides[m.me]?.out ? 'out' : `back in ${h.back} s`}</i></span>
+      <span class="xp"><i style={{ width: `${Math.round(h.xp * 100)}%` }} /></span>
+      {h.alive && <span class="bar"><i style={{ width: `${Math.round(h.hp * 100)}%` }} class={h.hp < 0.35 ? 'low' : ''} /></span>}
+    </button>
+  );
+}
+
 function Mini({ m, canvasRef }: { m: Match; canvasRef: { current: HTMLCanvasElement | null } }) {
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const world = (e: TargetedPointerEvent<HTMLCanvasElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) / r.width) * m.g.map.w * TILE, y: ((e.clientY - r.top) / r.height) * m.g.map.h * TILE };
+    const r = e.currentTarget.getBoundingClientRect(), box = m.miniRect();
+    // A square map takes only the middle of the box: a touch either side of it means the nearest edge.
+    const fx = Math.max(0, Math.min(1, ((e.clientX - r.left) / r.width - box.x) / box.w));
+    return { x: fx * m.g.map.w * TILE, y: ((e.clientY - r.top) / r.height) * m.g.map.h * TILE };
   };
   return (
     <canvas class="mini" ref={canvasRef} width={272} height={136} aria-label="Minimap"
@@ -193,6 +276,8 @@ interface Picked { from: number; kind: number; n: number; all: boolean }
  * join. Opened by the Groups button, by a tap on an empty group, or by a press and hold on any group.
  */
 function Organiser({ m }: { m: Match }) {
+  // In Frenzy there are two army groups: the last is the hero's own, and the third would have no button.
+  const ids = m.frenzy ? [0, 1] : [0, 1, 2, 3];
   const [picked, setPicked] = useState<Picked | null>(null);
   const outside = useRef(false);
   const open = m.sheet.value >= 0;
@@ -234,8 +319,8 @@ function Organiser({ m }: { m: Match }) {
   return (
     <div class="veil" {...veil}>
       <div class="sheet org">
-        <div class="cards">
-          {[0, 1, 2, 3].map((i) => {
+        <div class="cards" style={{ gridTemplateColumns: `repeat(${ids.length}, minmax(0, 1fr))` }}>
+          {ids.map((i) => {
             const gi = groups[i];
             const target = live && picked!.from !== i;
             const whole = live && picked!.from === i && picked!.kind === 0;
@@ -276,7 +361,7 @@ function Organiser({ m }: { m: Match }) {
         )}
         <div class="orow">
           <span class="say tight">New units join</span>
-          {[0, 1, 2, 3].map((i) => (
+          {ids.map((i) => (
             <button key={i} class={`chip ${m.hud.value.rally === i ? 'on' : ''}`} aria-label={`New units join Group ${i + 1}`} onClick={() => m.setRally(i)}>{i + 1}</button>
           ))}
           <button class="chip done" onClick={close}>Done</button>
@@ -289,12 +374,18 @@ function Organiser({ m }: { m: Match }) {
 export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { current: HTMLCanvasElement | null }; onQuit: () => void; onAgain: () => void }) {
   const [tab, setTab] = useState<'build' | 'train' | 'tech'>('train');
   const h = m.hud.value;
-  const mine = m.factions[0], theirs = m.factions[1], dino = mine === 'dino';
+  const fz = h.frenzy;
+  const mine = m.factions[0]!, theirs = m.factions[1]!, dino = mine === 'dino';
   const F = FACTIONS[mine];
   const placing = m.placing.value;
   const site = m.site.value ? m.g.byId.get(m.site.value) : undefined;
   const sel = m.sel.value;
   const over = m.over.value;
+  const out = m.outcome.value;
+  const aimed = fz && m.aim.value >= 0 ? fz.abilities[m.aim.value] : undefined;
+  // Who a tap on the map will send: the selected group, or in Frenzy the hero and, with Follow on, the army.
+  let who = sel >= 0 && (h.groups[sel]?.count ?? 0) > 0 ? `Group ${sel + 1}` : '';
+  if (fz && sel === HERO) who = [fz.hero.alive ? def(fz.hero.kind).name : '', m.follow.value ? `Group ${h.rally + 1}` : ''].filter(Boolean).join(' and ');
   useEffect(() => {
     if (placing) setTab('build');
   }, [placing !== null]);
@@ -305,21 +396,49 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
     <div class="hud">
       <div class="top">
         <span class="stat"><BlocksIcon /> <b data-stat="blocks">{h.blocks}</b></span>
-        <span class="stat"><BatteryIcon /> <b data-stat="batteries">{h.gas}</b></span>
+        {!fz && <span class="stat"><BatteryIcon /> <b data-stat="batteries">{h.gas}</b></span>}
         <span class={`stat ${capped ? 'bad' : ''}`}><span class="lbl">Supply</span> <b>{h.supply}/{h.cap}</b></span>
-        <span class={`stat ${h.workers > h.work ? 'over' : ''}`}><span class="lbl">{def(F.worker).plural}</span> <b data-stat="workers">{h.workers}/{h.work}</b></span>
-        {dino && <span class={`stat ${h.eggs >= h.eggMax && h.eggMax > 0 ? 'over' : ''}`} title="Eggs ready in your Nests"><EggIcon /> <b data-stat="eggs">{h.eggs}/{h.eggMax}</b></span>}
-        <span class="clock">{pace && <span class="pace" title={pace.name}>{pace.label}</span>}{clock(h.tick)}</span>
+        {!fz && <span class={`stat ${h.workers > h.work ? 'over' : ''}`}><span class="lbl">{def(F.worker).plural}</span> <b data-stat="workers">{h.workers}/{h.work}</b></span>}
+        {!fz && dino && <span class={`stat ${h.eggs >= h.eggMax && h.eggMax > 0 ? 'over' : ''}`} title="Eggs ready in your Nests"><EggIcon /> <b data-stat="eggs">{h.eggs}/{h.eggMax}</b></span>}
+        {fz && <span class={`stat ${fz.hall < 0.35 ? 'bad' : ''}`}><span class="lbl">Base</span> <b data-stat="base">{Math.ceil(fz.hall * 100)}%</b></span>}
+        {fz && (
+          <span class={`stat middle ${fz.overtime ? 'hot' : ''}`} title="Who holds the Watchtower in the middle">
+            <span class="lbl">Middle</span>
+            <b data-stat="middle" style={{ color: fz.middle >= 0 ? TEAM[fz.middle]!.dark : undefined }}>{fz.middle === m.me ? 'Yours' : fz.middle >= 0 ? SIDES[fz.middle] : fz.middle === -1 ? 'Nobody' : '?'}</b>
+          </span>
+        )}
+        {fz && (
+          <span class="table" aria-label="Sides still in">
+            {fz.sides.map((sd) => <i key={sd.id} class={sd.out ? 'out' : ''} style={{ background: TEAM[sd.id]!.fill }} title={`${SIDES[sd.id]}${sd.out ? ': out' : ''}`} />)}
+          </span>
+        )}
+        <span class="clock">{pace && <span class="pace" title={pace.name}>{pace.label}</span>}{fz?.overtime && <span class="pace ot">Overtime</span>}{clock(h.tick)}</span>
         <button class="pause" aria-label="Pause" onClick={() => { m.paused.value = true; m.menu.value = true; }}>II</button>
       </div>
 
       <div class="left">
-        <div class="tabs">
-          <button class={tab === 'build' ? 'on' : ''} onClick={() => setTab('build')}>Build</button>
-          <button class={tab === 'train' ? 'on' : ''} onClick={() => { setTab('train'); m.cancelPlace(); }}>{dino ? 'Hatch' : 'Train'}</button>
-          <button class={tab === 'tech' ? 'on' : ''} onClick={() => { setTab('tech'); m.cancelPlace(); }}>Tech</button>
-        </div>
-        {tab === 'train' ? (
+        {fz ? (
+          <div class="tabs two">
+            <button class={tab !== 'tech' ? 'on' : ''} onClick={() => setTab('train')}>Spawn</button>
+            <button class={tab === 'tech' ? 'on' : ''} onClick={() => setTab('tech')}>Tech</button>
+          </div>
+        ) : (
+          <div class="tabs">
+            <button class={tab === 'build' ? 'on' : ''} onClick={() => setTab('build')}>Build</button>
+            <button class={tab === 'train' ? 'on' : ''} onClick={() => { setTab('train'); m.cancelPlace(); }}>{dino ? 'Hatch' : 'Train'}</button>
+            <button class={tab === 'tech' ? 'on' : ''} onClick={() => { setTab('tech'); m.cancelPlace(); }}>Tech</button>
+          </div>
+        )}
+        {fz ? (tab !== 'tech' ? (
+          <div class="grid">
+            {fz.spawn.map((sp) => <SpawnButton key={sp.kind} m={m} info={sp} />)}
+          </div>
+        ) : (
+          <div class="list">
+            {fz.upgrades.map((u) => <UpgradeButton key={u.kind} m={m} info={u} />)}
+            <p class="note">Bought on the spot. {dino ? 'Claws' : 'Weapons'}: harder hits. {dino ? 'Hide' : 'Armour'}: less taken. Muster: the base works faster.</p>
+          </div>
+        )) : tab === 'train' ? (
           <div class="grid">
             {h.train.map((t) => <TrainButton key={t.kind} m={m} kind={t.kind} />)}
           </div>
@@ -338,13 +457,21 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
         <Mini m={m} canvasRef={miniRef} />
       </div>
 
-      <div class="right">
-        {[0, 1, 2, 3].map((i) => <GroupButton key={i} m={m} i={i} />)}
+      <div class={`right ${fz ? 'frenzy' : ''}`}>
+        {fz && <HeroButton m={m} />}
+        {fz && (
+          <div class="abilities">
+            {fz.abilities.map((a, i) => <AbilityButton key={a.name} m={m} info={a} slot={i} hero={fz.hero.kind} />)}
+          </div>
+        )}
+        {(fz ? [0, 1] : [0, 1, 2, 3]).map((i) => <GroupButton key={i} m={m} i={i} />)}
         <div class="orders">
           <button class={sel >= 0 && m.mode.value === O.Attack ? 'on' : ''} aria-pressed={sel >= 0 && m.mode.value === O.Attack} disabled={sel < 0} onClick={() => m.setMode(O.Attack)}>Attack</button>
           <button class={sel >= 0 && m.mode.value === O.Move ? 'on' : ''} aria-pressed={sel >= 0 && m.mode.value === O.Move} disabled={sel < 0} onClick={() => m.setMode(O.Move)}>Move</button>
           <button disabled={sel < 0} onClick={() => m.hold()}>Hold</button>
-          <button aria-label="Groups" onClick={() => { m.sheet.value = Math.max(0, sel); }}>Groups</button>
+          {fz
+            ? <button class={m.follow.value ? 'on' : ''} aria-pressed={m.follow.value} aria-label="Follow" title="Your first group goes wherever the hero is sent" onClick={() => m.setFollow(!m.follow.value)}>Follow</button>
+            : <button aria-label="Groups" onClick={() => { m.sheet.value = Math.max(0, sel); }}>Groups</button>}
         </div>
       </div>
 
@@ -368,8 +495,14 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
           <button class="no wide" onClick={() => m.cancelSite()}>Cancel it</button>
         </div>
       )}
-      {!placing && !site && sel >= 0 && h.groups[sel] && h.groups[sel]!.count > 0 && (
-        <div class="hint">Group {sel + 1}: tap the map to {m.mode.value === O.Move ? 'move there without stopping to fight' : 'go there, fighting on the way'}</div>
+      {aimed && (
+        <div class="bar place">
+          <button class="no" aria-label="Cancel aiming" onClick={() => { m.aim.value = -1; }}>✕</button>
+          <span>{aimed.name}: tap the map inside the ring</span>
+        </div>
+      )}
+      {!aimed && !placing && !site && sel >= 0 && who !== '' && (
+        <div class="hint">{who}: tap the map to {m.mode.value === O.Move ? 'move there without stopping to fight' : 'go there, fighting on the way'}</div>
       )}
 
       <Organiser m={m} />
@@ -391,7 +524,33 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
         </div>
       )}
 
-      {over >= 0 && (
+      {over >= 0 && fz && out && (
+        <div class="veil">
+          <div class="sheet end">
+            <h1>{out.won ? 'Victory' : out.nobody ? 'Nobody wins' : out.place === 2 ? 'Second place' : out.place === 3 ? 'Third place' : 'First out'}</h1>
+            <p>{out.won ? 'The last base standing is yours.' : out.nobody ? 'The last bases fell together.' : 'Your base is down.'} Round time {clock(m.g.tick)}.</p>
+            <table>
+              <tr><th></th><th>Hero</th><th>Felled</th><th>Lost</th><th></th></tr>
+              {m.g.players.map((pl) => (
+                <tr key={pl.id} data-side={pl.id}>
+                  <td><i class="dot" style={{ background: TEAM[pl.id]!.fill }} />{pl.id === m.me ? 'You' : SIDES[pl.id]} <span class="faint">{FACTIONS[pl.faction].name}</span></td>
+                  <td>level {Math.max(1, pl.heroLvl)}</td>
+                  <td>{pl.stats.killedUnits}</td>
+                  <td>{pl.stats.lostUnits}</td>
+                  <td>{m.g.winner === pl.id ? 'Winner' : pl.out ? 'Out' : 'Still in'}</td>
+                </tr>
+              ))}
+            </table>
+            <p class="small">{m.rivals.map((b) => `${SIDES[b.p]} went for ${b.bent === 'swarm' ? 'numbers and upgrades' : b.bent === 'heavy' ? 'the heaviest units' : 'flyers'}`).join('; ')}.</p>
+            <div class="pair">
+              <button class="chip wide" onClick={onAgain}>Play again</button>
+              <button class="chip wide" onClick={onQuit}>Menu</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {over >= 0 && !fz && m.bot && (
         <div class="veil">
           <div class="sheet end">
             <h1>{over === m.me ? 'Victory' : 'Defeat'}</h1>

@@ -5,7 +5,7 @@ import { Hud } from './Hud';
 import { attachInput } from './input';
 import { Match } from './match';
 import { Renderer, drawMini } from './render';
-import type { Faction } from '../sim/types';
+import type { Faction, Mode } from '../sim/types';
 
 declare const __BUILD__: { commit: string; date: string };
 
@@ -15,17 +15,19 @@ export const updateReady = signal<(() => void) | null>(null);
 const LEVELS = ['Easy', 'Normal'];
 const NAMES: Record<Faction, string> = { green: 'Green Army', dino: 'Dino Pack' };
 
+interface Choice { mode: Mode; me: Faction; foe: Faction | 'any' }
+
 /** What the player last chose on the menu, kept for next time where the browser allows it. */
-function remembered(): { me: Faction; foe: Faction | 'any' } {
+function remembered(): Choice {
   try {
-    const v = JSON.parse(localStorage.getItem('foothold.sides') ?? '{}') as { me?: string; foe?: string };
-    return { me: v.me === 'dino' ? 'dino' : 'green', foe: v.foe === 'green' || v.foe === 'dino' ? v.foe : 'any' };
+    const v = JSON.parse(localStorage.getItem('foothold.sides') ?? '{}') as { mode?: string; me?: string; foe?: string };
+    return { mode: v.mode === 'frenzy' ? 'frenzy' : 'classic', me: v.me === 'dino' ? 'dino' : 'green', foe: v.foe === 'green' || v.foe === 'dino' ? v.foe : 'any' };
   } catch {
-    return { me: 'green', foe: 'any' };
+    return { mode: 'classic', me: 'green', foe: 'any' };
   }
 }
 
-function Battle({ level, seed, sides, onQuit, onAgain }: { level: number; seed: number; sides: readonly [Faction, Faction]; onQuit: () => void; onAgain: () => void }) {
+function Battle({ level, seed, sides, onQuit, onAgain }: { level: number; seed: number; sides: readonly Faction[]; onQuit: () => void; onAgain: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const mini = useRef<HTMLCanvasElement | null>(null);
   const [m] = useState(() => new Match(seed, level, sides));
@@ -71,11 +73,12 @@ function Battle({ level, seed, sides, onQuit, onAgain }: { level: number; seed: 
   );
 }
 
-function Menu({ onPlay }: { onPlay: (level: number, me: Faction, foe: Faction | 'any') => void }) {
+function Menu({ onPlay }: { onPlay: (level: number, choice: Choice) => void }) {
   const [help, setHelp] = useState(false);
   const [sides, setSides] = useState(remembered);
   const update = updateReady.value;
-  const choose = (next: { me: Faction; foe: Faction | 'any' }) => {
+  const frenzy = sides.mode === 'frenzy';
+  const choose = (next: Choice) => {
     setSides(next);
     try {
       localStorage.setItem('foothold.sides', JSON.stringify(next));
@@ -85,9 +88,15 @@ function Menu({ onPlay }: { onPlay: (level: number, me: Faction, foe: Faction | 
     <div class="menu">
       <div class="card">
         <h1>FOOTHOLD</h1>
-        <p class="tag">Toy soldiers and plastic dinosaurs on a paper map. Take the map, starve them out, knock down every last base.</p>
+        <p class="tag">{frenzy
+          ? 'Four corners, a hero each, and bases that make their own armies. Every side for itself: be the last one standing.'
+          : 'Toy soldiers and plastic dinosaurs on a paper map. Take the map, starve them out, knock down every last base.'}</p>
         {!help ? (
           <>
+            <div class="modes" role="group" aria-label="Game">
+              <button class={`chip ${!frenzy ? 'on' : ''}`} aria-pressed={!frenzy} aria-label="Classic: one opponent, bases to build" onClick={() => choose({ ...sides, mode: 'classic' })}>Classic</button>
+              <button class={`chip ${frenzy ? 'on' : ''}`} aria-pressed={frenzy} aria-label="Frenzy: three opponents, a hero each" onClick={() => choose({ ...sides, mode: 'frenzy' })}>Frenzy</button>
+            </div>
             <div class="sides">
               <span class="lbl">You</span>
               {(['green', 'dino'] as const).map((f) => (
@@ -101,55 +110,81 @@ function Menu({ onPlay }: { onPlay: (level: number, me: Faction, foe: Faction | 
               ))}
             </div>
             <div class="levels">
-              {LEVELS.map((name, i) => <button key={name} class="chip big" onClick={() => onPlay(i, sides.me, sides.foe)}>{name}</button>)}
+              {LEVELS.map((name, i) => <button key={name} class="chip big" onClick={() => onPlay(i, sides)}>{name}</button>)}
             </div>
             <button class="chip wide" onClick={() => setHelp(true)}>How to play</button>
             {update && <button class="chip wide" onClick={update}>New version ready: tap to load it</button>}
           </>
         ) : (
           <>
-            <ul class="how">
-              <li><b>Left thumb, the base.</b> Train: tap a unit to queue one, press and hold to keep them coming. Build: pick a building, drag its outline onto the map, then Build.</li>
-              <li><b>Right thumb, the armies.</b> Tap a group, then tap the map or the minimap to send it. Attack fights on the way and Move doesn't stop; a group keeps whichever you set. Hold digs in.</li>
-              <li><b>Groups.</b> Tap Groups (or an empty group): tap the units you want, then the group they should join. New units join the group marked +new.</li>
-              <li><b>Map.</b> Drag to pan, pinch to zoom. Double-tap a group to jump to it. Pause, top right, also sets the speed: half or three-quarter to take your time, double to hurry.</li>
-              <li><b>Economy.</b> A base has work for about 12 Workers on Blocks. A Refinery on a battery pack puts three more on Batteries, which buy vehicles, Gunships and research. More bases mean more of both and a higher supply cap.</li>
-              <li><b>Infantry.</b> Troopers beat Runners and Lancers, and shoot down Gunships. Runners raid Workers and run down Lancers and Mortars. Lancers break Tanks, Juggernauts, Turrets and buildings.</li>
-              <li><b>Vehicles.</b> Tanks and Juggernauts blast crowds of infantry. Mortars outrange Turrets but must stand still to fire. Flak Tracks hit only flyers. Gunships fly over anything and wreck vehicles.</li>
-              <li><b>Ground.</b> High ground sees down, shoots further, and can't be seen from below. Stand a unit by a watchtower to see the road.</li>
-              <li><b>The Dino Pack.</b> Everything hatches at a Nest, which lays an egg every few seconds and holds three: each egg is a Gatherer or a fighter. A building costs the Gatherer that becomes it and goes on nesting ground near a Nest, so more eggs means more bases. Dens unlock dinosaurs.</li>
-              <li><b>Dinosaurs.</b> Raptors come two to an egg and run down Lancers and Mortars. Spitters shoot ground and air. Horns charge infantry and walls. Pteros fly, fight other flyers, and tear into whatever can't shoot up. Brontos stomp crowds and buildings flat. A Rex eats Tanks. Most must reach what they bite: give them open ground.</li>
-            </ul>
+            {frenzy ? (
+              <ul class="how">
+                <li><b>The round.</b> Four corners, every side for itself. Lose your base and you are out; the last base standing wins.</li>
+                <li><b>Left thumb, the base.</b> It makes units by itself, for as long as there is supply. Spawn: unlock a unit with Blocks, then tap it into or out of the mix. Tech: Weapons, Armour and Muster (a faster base) are bought on the spot.</li>
+                <li><b>Right thumb, the hero.</b> Tap your hero, then the map. With Follow on, your first group goes wherever the hero is sent. Abilities open at levels 1, 3 and 6: tap one, then the map if a ring appears. A fallen hero comes back at the base, and mends there.</li>
+                <li><b>Groups.</b> New units join Group 1. Press and hold a group (or tap the empty one) to split some off, and to choose which group new units join.</li>
+                <li><b>Blocks.</b> A steady trickle, a share of everything your side brings down, and more for holding the Watchtower in the middle alone. A hero learns from every enemy that falls near it.</li>
+                <li><b>Overtime.</b> From 10:00 every base crumbles, except the base of the side that holds the middle.</li>
+                <li><b>Map.</b> Drag to pan, pinch to zoom. Double-tap the hero or a group to jump to it. Pause, top right, also sets the speed: half or three-quarter to take your time, double to hurry.</li>
+                <li><b>Infantry.</b> Troopers beat Runners and Lancers, and shoot down Gunships. Runners run down Lancers and Mortars. Lancers break Tanks, Juggernauts, Turrets and bases.</li>
+                <li><b>Vehicles.</b> Tanks and Juggernauts blast crowds of infantry. Mortars outrange Turrets but must stand still to fire. Flak Tracks hit only flyers. Gunships fly over anything and wreck vehicles.</li>
+                <li><b>Dinosaurs.</b> Raptors come in pairs and run down Lancers and Mortars. Spitters shoot ground and air. Horns charge infantry and walls. Pteros fly, fight other flyers, and tear into whatever can't shoot up. Brontos stomp crowds and buildings flat. A Rex eats Tanks. Most must reach what they bite.</li>
+              </ul>
+            ) : (
+              <ul class="how">
+                <li><b>Left thumb, the base.</b> Train: tap a unit to queue one, press and hold to keep them coming. Build: pick a building, drag its outline onto the map, then Build.</li>
+                <li><b>Right thumb, the armies.</b> Tap a group, then tap the map or the minimap to send it. Attack fights on the way and Move doesn't stop; a group keeps whichever you set. Hold digs in.</li>
+                <li><b>Groups.</b> Tap Groups (or an empty group): tap the units you want, then the group they should join. New units join the group marked +new.</li>
+                <li><b>Map.</b> Drag to pan, pinch to zoom. Double-tap a group to jump to it. Pause, top right, also sets the speed: half or three-quarter to take your time, double to hurry.</li>
+                <li><b>Economy.</b> A base has work for about 12 Workers on Blocks. A Refinery on a battery pack puts three more on Batteries, which buy vehicles, Gunships and research. More bases mean more of both and a higher supply cap.</li>
+                <li><b>Infantry.</b> Troopers beat Runners and Lancers, and shoot down Gunships. Runners raid Workers and run down Lancers and Mortars. Lancers break Tanks, Juggernauts, Turrets and buildings.</li>
+                <li><b>Vehicles.</b> Tanks and Juggernauts blast crowds of infantry. Mortars outrange Turrets but must stand still to fire. Flak Tracks hit only flyers. Gunships fly over anything and wreck vehicles.</li>
+                <li><b>Ground.</b> High ground sees down, shoots further, and can't be seen from below. Stand a unit by a watchtower to see the road.</li>
+                <li><b>The Dino Pack.</b> Everything hatches at a Nest, which lays an egg every few seconds and holds three: each egg is a Gatherer or a fighter. A building costs the Gatherer that becomes it and goes on nesting ground near a Nest, so more eggs means more bases. Dens unlock dinosaurs.</li>
+                <li><b>Dinosaurs.</b> Raptors come two to an egg and run down Lancers and Mortars. Spitters shoot ground and air. Horns charge infantry and walls. Pteros fly, fight other flyers, and tear into whatever can't shoot up. Brontos stomp crowds and buildings flat. A Rex eats Tanks. Most must reach what they bite: give them open ground.</li>
+              </ul>
+            )}
             <button class="chip wide" onClick={() => setHelp(false)}>Back</button>
           </>
         )}
-        <p class="build">M3 · The second faction · {__BUILD__.commit} · {__BUILD__.date}</p>
+        <p class="build">MF · Frenzy · {__BUILD__.commit} · {__BUILD__.date}</p>
       </div>
     </div>
   );
 }
 
-interface Session { level: number; seed: number; n: number; me: Faction; foe: Faction | 'any'; sides: readonly [Faction, Faction] }
+interface Session { level: number; seed: number; n: number; choice: Choice; sides: readonly Faction[] }
+
+/**
+ * Who sits where. Classic: you and one opponent. Frenzy: you and three. "Either" is settled when the match
+ * starts, and again for each rematch: one coin for Classic, a coin a seat for Frenzy.
+ */
+function seat(choice: Choice, seed: number): Faction[] {
+  const coin = (i: number): Faction => (choice.foe !== 'any' ? choice.foe : ((seed >> i) & 1) === 0 ? 'green' : 'dino');
+  return choice.mode === 'frenzy' ? [choice.me, coin(0), coin(1), coin(2)] : [choice.me, coin(0)];
+}
 
 export function App() {
   const params = new URLSearchParams(location.search);
   const side = (v: string | null): Faction => (v === 'dino' ? 'dino' : 'green');
-  const [game, setGame] = useState<Session | null>(
-    params.has('play') ? {
-      level: Number(params.get('play') || 1), seed: Number(params.get('seed') || 7), n: 0,
-      me: side(params.get('me')), foe: side(params.get('foe')), sides: [side(params.get('me')), side(params.get('foe'))],
-    } : null,
-  );
-  // "Either" is settled when the match starts, and again for each rematch.
-  const fresh = (level: number, n: number, me: Faction, foe: Faction | 'any'): Session => {
+  const fromLink = (): Session => {
+    // A link can start a match directly: ?play=1&seed=7&me=dino&foe=green, and &mode=frenzy for four corners.
+    const mode: Mode = params.get('mode') === 'frenzy' ? 'frenzy' : 'classic';
+    const foe = params.get('foe');
+    const choice: Choice = { mode, me: side(params.get('me')), foe: foe === 'green' || foe === 'dino' ? foe : mode === 'frenzy' ? 'any' : 'green' };
+    const seed = Number(params.get('seed') || 7);
+    return { level: Number(params.get('play') || 1), seed, n: 0, choice, sides: seat(choice, seed) };
+  };
+  const [game, setGame] = useState<Session | null>(params.has('play') ? fromLink() : null);
+  const fresh = (level: number, n: number, choice: Choice): Session => {
     const seed = (Date.now() % 100000) + 1;
-    return { level, seed, n, me, foe, sides: [me, foe === 'any' ? (seed % 2 === 0 ? 'green' : 'dino') : foe] };
+    return { level, seed, n, choice, sides: seat(choice, seed) };
   };
   return (
     <>
       {game
-        ? <Battle key={game.n} level={game.level} seed={game.seed} sides={game.sides} onQuit={() => setGame(null)} onAgain={() => setGame(fresh(game.level, game.n + 1, game.me, game.foe))} />
-        : <Menu onPlay={(level, me, foe) => setGame(fresh(level, 1, me, foe))} />}
+        ? <Battle key={game.n} level={game.level} seed={game.seed} sides={game.sides} onQuit={() => setGame(null)} onAgain={() => setGame(fresh(game.level, game.n + 1, game.choice))} />
+        : <Menu onPlay={(level, choice) => setGame(fresh(level, 1, choice))} />}
       <div class="rotate"><div><b>Turn your phone sideways</b><br />Foothold plays in landscape.</div></div>
     </>
   );

@@ -2,11 +2,16 @@
 // Nothing here decides a rule; it asks src/sim and sends commands through the same door the opponent uses.
 import { computed, signal } from '@preact/signals';
 import { Bot } from '../ai/bot';
-import { DEFS, FACTIONS, RULES, def, isHall, isRefinery, isResearch, isWorker, researchCost, researchOf } from '../sim/data';
+import { FrenzyBot } from '../ai/frenzy';
+import {
+  ABILITIES, DEFS, FACTIONS, FRENZY, RULES, UNLOCK, WORK, def, frenzyUnits, isHall, isRefinery, isResearch, isWorker, levelNeeds, researchCost, researchOf,
+  type Ability,
+} from '../sim/data';
+import { hallOf, heroOf } from '../sim/frenzy';
 import { dist } from '../sim/nav';
-import { canPlace, centroid, createGame, groupUnits, hasBuilt, missing, onNestingGround, schedule, spawn, type Game } from '../sim/state';
+import { canPlace, centroid, createGame, groupUnits, hasBuilt, maxHp, missing, onLayer, onNestingGround, schedule, spawn, turned, type Game } from '../sim/state';
 import { step } from '../sim/step';
-import { makeView } from '../sim/view';
+import { makeView, type View } from '../sim/view';
 import { K, O, TICKS_PER_SEC, TILE, type Command, type Entity, type Faction, type Kind, type OrderMode } from '../sim/types';
 
 export interface Camera { x: number; y: number; zoom: number }
@@ -32,6 +37,64 @@ const isDinoKind = (kind: number) => FACTIONS.dino.buildings.includes(kind as Ki
 /** "a Barracks", "an Armory". */
 const a = (name: string) => `${'AEIOU'.includes(name[0]!) ? 'an' : 'a'} ${name}`;
 
+/** One of the hero's abilities, as its button shows it. */
+export interface AbilityInfo {
+  name: string;
+  short: string;
+  blurb: string;
+  /** The hero level that opens it. */
+  level: number;
+  locked: boolean;
+  ready: boolean;
+  /** Share of its wait still to run, 0 to 1. */
+  wait: number;
+  /** True for one that is pointed at a place on the map. */
+  aims: boolean;
+}
+
+/** A unit on Frenzy's Spawn tab. */
+export interface SpawnInfo {
+  kind: Kind;
+  unlocked: boolean;
+  /** In the mix the base is making. */
+  on: boolean;
+  /** What unlocking it costs. */
+  price: number;
+  ok: boolean;
+  why: string;
+  /** 0 to 1 while this is the unit the base is working on, else -1. */
+  progress: number;
+  /** How long the base takes over one, in seconds, at its present Muster. */
+  seconds: number;
+}
+
+export interface UpgradeInfo { kind: Kind; level: number; max: number; cost: number; ok: boolean; why: string }
+
+export interface FrenzyHud {
+  hero: {
+    kind: Kind; alive: boolean; level: number;
+    /** Health and experience toward the next level, each 0 to 1. */
+    hp: number; xp: number;
+    /** Seconds until a fallen hero is back. */
+    back: number;
+  };
+  abilities: AbilityInfo[];
+  spawn: SpawnInfo[];
+  upgrades: UpgradeInfo[];
+  /** Who holds the Watchtower in the middle: a side, -1 for nobody, -2 when you can't see it. */
+  middle: number;
+  overtime: boolean;
+  /** Your base's health, 0 to 1. */
+  hall: number;
+  sides: { id: number; faction: Faction; out: boolean }[];
+}
+
+/** How a Frenzy round ended for you. */
+export interface Outcome { won: boolean; nobody: boolean; place: number }
+
+/** What the sides are called on screen: by their colour, since two may play the same faction. */
+export const SIDES = ['Green', 'Tan', 'Blue', 'Red'] as const;
+
 export interface Hud {
   tick: number;
   blocks: number;
@@ -51,14 +114,21 @@ export interface Hud {
   /** Dino Pack: eggs ready across your Nests, and how many they could hold. */
   eggs: number;
   eggMax: number;
+  /** What only Frenzy has; null in Classic. */
+  frenzy: FrenzyHud | null;
 }
 
 export interface Toast { id: number; text: string; kind: 'warn' | 'info'; x?: number; y?: number; until: number }
 
 export interface Fx {
-  t: 'shot' | 'fall' | 'ripple' | 'puff' | 'wreck';
+  /**
+   * shot, fall, wreck, puff: a weapon firing and what it leaves. ripple: where an order was given.
+   * cast: an ability on its way (`kind` is the hero, `mode` the slot, `r` its radius in sub-units).
+   * blast: one going off. level: a hero gaining a level (`mode`). coin: Blocks paid for a kill (`mode`).
+   */
+  t: 'shot' | 'fall' | 'ripple' | 'puff' | 'wreck' | 'cast' | 'blast' | 'level' | 'coin';
   x1: number; y1: number; x2: number; y2: number;
-  kind: number; owner: number; born: number; life: number; mode?: number;
+  kind: number; owner: number; born: number; life: number; mode?: number; r?: number;
 }
 
 export interface Placing { kind: Kind; tx: number; ty: number; ok: boolean }
@@ -79,6 +149,14 @@ export const SPEEDS = [
   { value: 2, label: '2×', name: 'Double speed' },
 ] as const;
 
+function rememberedFollow(): boolean {
+  try {
+    return localStorage.getItem('foothold.follow') !== 'off';
+  } catch {
+    return true;
+  }
+}
+
 function rememberedSpeed(): number {
   try {
     const v = Number(localStorage.getItem('foothold.speed'));
@@ -88,9 +166,16 @@ function rememberedSpeed(): number {
   }
 }
 
+const HERO = FRENZY.heroGroup;
+
 export class Match {
   readonly g: Game;
-  readonly bot: Bot;
+  /** Which game this is: Frenzy (four corners, a hero each) or Classic. */
+  readonly frenzy: boolean;
+  /** Classic's one opponent; Frenzy has three and keeps them in `rivals`. */
+  readonly bot: Bot | undefined;
+  readonly rivals: FrenzyBot[] = [];
+  private readonly bots: { p: number; think(v: View): Command[] }[] = [];
   readonly me = 0;
   cam: Camera;
   viewW = 800;
@@ -116,11 +201,18 @@ export class Match {
   readonly menu = signal(false);
   /** One of `SPEEDS`; kept from match to match. */
   readonly speed = signal(rememberedSpeed());
+  /** -1 while the match runs; then the winner's side, or 100 when a Frenzy round ended for you without one. */
   readonly over = signal(-1);
+  /** Frenzy: how the round ended for you. */
+  readonly outcome = signal<Outcome | null>(null);
+  /** Frenzy: the ability waiting to be pointed at the map, or -1. */
+  readonly aim = signal(-1);
+  /** Frenzy: whether the group new units join goes wherever the hero is sent. */
+  readonly follow = signal(rememberedFollow());
   readonly toasts = signal<Toast[]>([]);
   /** When each piece last fired, by id, in `performance.now()` time: the renderer's recoil and muzzle flashes. */
   readonly fired = new Map<number, number>();
-  readonly hud = signal<Hud>({ tick: 0, blocks: 0, gas: 0, supply: 0, cap: 0, groups: [], rally: 0, train: [], build: [], research: [], workers: 0, work: 0, idleBarracks: 0, eggs: 0, eggMax: 0 });
+  readonly hud = signal<Hud>({ tick: 0, blocks: 0, gas: 0, supply: 0, cap: 0, groups: [], rally: 0, train: [], build: [], research: [], workers: 0, work: 0, idleBarracks: 0, eggs: 0, eggMax: 0, frenzy: null });
 
   private acc = 0;
   private last = 0;
@@ -132,12 +224,22 @@ export class Match {
   private running = false;
   onFrame: (() => void) | null = null;
 
-  /** `factions` is what you play and what the opponent plays. */
-  constructor(seed: number, readonly level: number, readonly factions: readonly [Faction, Faction] = ['green', 'green']) {
+  /** `factions` is what you play and then what each opponent plays: one opponent is Classic, three is Frenzy. */
+  constructor(seed: number, readonly level: number, readonly factions: readonly Faction[] = ['green', 'green']) {
     this.g = createGame(seed, undefined, factions);
-    this.bot = new Bot(1, seed + 1, { level, faction: factions[1], foe: factions[0] });
+    this.frenzy = this.g.mode === 'frenzy';
     const hq = this.g.ents.find((e) => e.owner === this.me && isHall(e.kind))!;
-    this.cam = { x: hq.x + 5 * TILE, y: hq.y - 2 * TILE, zoom: 24 };
+    if (this.frenzy) {
+      for (let p = 1; p < factions.length; p++) this.rivals.push(new FrenzyBot(p, seed + p, { level }));
+      this.bots.push(...this.rivals);
+      // Looking from your base toward the middle, wherever on the map your corner is.
+      const out = turned(this.g, this.me, 4 * TILE, -4 * TILE);
+      this.cam = { x: hq.x + out.x, y: hq.y + out.y, zoom: 21 };
+    } else {
+      this.bot = new Bot(1, seed + 1, { level, faction: factions[1], foe: factions[0] });
+      this.bots.push(this.bot);
+      this.cam = { x: hq.x + 5 * TILE, y: hq.y - 2 * TILE, zoom: 24 };
+    }
     this.refresh();
   }
 
@@ -194,15 +296,24 @@ export class Match {
   tick(): void {
     const g = this.g;
     this.prev.clear();
-    for (const e of g.ents) if (e.kind < 20) this.prev.set(e.id, { x: e.x, y: e.y });
-    for (const cmd of this.bot.think(makeView(g, this.bot.p))) schedule(g, cmd);
+    for (const e of g.ents) if (e.owner >= 0 && !DEFS[e.kind]!.building) this.prev.set(e.id, { x: e.x, y: e.y });
+    for (const bot of this.bots) for (const cmd of bot.think(makeView(g, bot.p))) schedule(g, cmd);
     step(g);
     this.absorb();
     if (g.tick % 2 === 0) {
       this.fogStamp++;
       this.refresh();
     }
-    if (g.winner >= 0 && this.over.value < 0) this.over.value = g.winner;
+    if (this.frenzy) {
+      // A Frenzy round is over for you when it is won, or when your own base is gone: the others play on without you.
+      const pl = g.players[this.me]!;
+      if (this.over.value < 0 && (g.winner !== -1 || pl.out)) {
+        const left = g.players.filter((p) => !p.out).length;
+        this.outcome.value = { won: g.winner === this.me, nobody: g.winner === -2, place: g.winner === this.me ? 1 : left + 1 };
+        this.aim.value = -1;
+        this.over.value = g.winner >= 0 ? g.winner : 100;
+      }
+    } else if (g.winner >= 0 && this.over.value < 0) this.over.value = g.winner;
     if (g.tick % 600 === 0) {
       for (const id of this.fired.keys()) if (!g.byId.has(id)) this.fired.delete(id);
     }
@@ -228,10 +339,10 @@ export class Match {
         case 'death':
           if (seen(ev.x, ev.y, def(ev.kind).air)) {
             const d = def(ev.kind);
-            const t = d.building ? 'puff' : d.cls === 0 || (ev.kind >= K.Gatherer && ev.kind <= K.Egg) ? 'fall' : 'wreck';
+            const t = d.building ? 'puff' : d.cls === 0 || d.hero || (ev.kind >= K.Gatherer && ev.kind <= K.Egg) ? 'fall' : 'wreck';
             this.fx.push({ t, x1: ev.x, y1: ev.y, x2: ev.fx, y2: ev.fy, kind: ev.kind, owner: ev.owner, born: now, life: d.building ? 1700 : t === 'wreck' ? 2600 : 1400 });
           }
-          if (ev.owner === this.me && def(ev.kind).building) this.alert('lost', `${def(ev.kind).name} destroyed`, 'warn', ev.x, ev.y, 30);
+          if (ev.owner === this.me && def(ev.kind).building && !pl.out) this.alert('lost', `${def(ev.kind).name} destroyed`, 'warn', ev.x, ev.y, 30);
           break;
         case 'hurt':
           if (ev.owner === this.me) {
@@ -240,17 +351,54 @@ export class Match {
           break;
         case 'done':
           if (ev.owner === this.me) {
-            const text = isResearch(ev.kind)
-              ? `${def(ev.kind).name} level ${pl[researchOf(ev.kind)]} researched`
-              : `${def(ev.kind).name} ready`;
+            const text = ev.kind === K.Muster ? `Muster level ${pl.muster}: the base works faster`
+              : isResearch(ev.kind) ? `${def(ev.kind).name} level ${pl[researchOf(ev.kind)]} ${this.frenzy ? 'bought' : 'researched'}`
+                : this.frenzy ? `${def(ev.kind).plural} unlocked, and in the mix` : `${def(ev.kind).name} ready`;
             this.alert(`done${ev.kind}`, text, 'info', ev.x, ev.y, 10);
           }
           break;
         case 'refused':
           if (ev.p === this.me) this.alert(`no:${ev.why}`, ev.why, 'warn', undefined, undefined, 15);
           break;
+        case 'cast': {
+          if (ev.owner === this.me || seen(ev.x1, ev.y1) || seen(ev.x2, ev.y2)) {
+            this.fx.push({ t: 'cast', x1: ev.x1, y1: ev.y1, x2: ev.x2, y2: ev.y2, kind: ev.hero, owner: ev.owner, born: now, life: Math.max(260, ev.delay * 100 + 60), mode: ev.slot, r: ev.r });
+          }
+          break;
+        }
+        case 'blast':
+          if (ev.owner === this.me || seen(ev.x, ev.y)) {
+            this.fx.push({ t: 'blast', x1: ev.x, y1: ev.y, x2: 0, y2: 0, kind: ev.hero, owner: ev.owner, born: now, life: ev.slot === 2 ? 900 : 560, mode: ev.slot, r: ev.r });
+          }
+          break;
+        case 'level':
+          if (ev.owner === this.me || seen(ev.x, ev.y)) this.fx.push({ t: 'level', x1: ev.x, y1: ev.y, x2: 0, y2: 0, kind: 0, owner: ev.owner, born: now, life: 1300, mode: ev.level });
+          if (ev.owner === this.me) {
+            const opened = ABILITIES[FACTIONS[pl.faction].hero]!.find((a) => a.level === ev.level);
+            this.alert(`lvl${ev.level}`, opened ? `Level ${ev.level}: ${opened.name} is ready` : `Your ${this.heroName()} is level ${ev.level}`, 'info', ev.x, ev.y, 0);
+          }
+          break;
+        case 'hero':
+          if (ev.owner !== this.me) break;
+          if (ev.up) this.alert('heroup', `Your ${this.heroName()} is back`, 'info', ev.x, ev.y, 0);
+          else if (!pl.out) this.alert('herodown', `Your ${this.heroName()} is down: back in ${Math.ceil((ev.back - g.tick) / TICKS_PER_SEC)} s`, 'warn', ev.x, ev.y, 0);
+          break;
+        case 'bounty':
+          if (ev.owner === this.me) this.fx.push({ t: 'coin', x1: ev.x, y1: ev.y, x2: 0, y2: 0, kind: 0, owner: ev.owner, born: now, life: 900, mode: ev.amount });
+          break;
+        case 'out':
+          if (ev.owner !== this.me) this.alert(`out${ev.owner}`, `${SIDES[ev.owner]} is out${ev.by === this.me ? ': your doing' : ''}`, 'info', undefined, undefined, 0);
+          break;
+        case 'overtime':
+          this.alert('overtime', 'Overtime: hold the middle or your base crumbles', 'warn', (g.map.w * TILE) / 2, (g.map.h * TILE) / 2, 0);
+          break;
       }
     }
+  }
+
+  /** What your hero is called. */
+  heroName(): string {
+    return def(FACTIONS[this.g.players[this.me]!.faction].hero).name;
   }
 
   alert(key: string, text: string, kind: 'warn' | 'info', x?: number, y?: number, gapTicks = 60): void {
@@ -273,7 +421,7 @@ export class Match {
       for (const u of us) {
         kinds.set(u.kind, (kinds.get(u.kind) ?? 0) + 1);
         hp += u.hp;
-        max += def(u.kind).hp;
+        max += maxHp(u);
         if (!u.arrived) moving = true;
       }
       // An emptied group forgets Move: whoever fills it next starts out fighting on the way.
@@ -284,6 +432,13 @@ export class Match {
         count: us.length, hp: max ? hp / max : 0, hurt: g.tick < this.hurtUntil[i]! && us.length > 0, moving,
         kinds: [...kinds.entries()].sort((a, b) => a[0] - b[0]).map(([kind, n]) => ({ kind, n })),
       });
+    }
+    if (this.frenzy) {
+      this.hud.value = {
+        tick: g.tick, blocks: pl.blocks, gas: 0, supply: pl.supply, cap: pl.cap, groups, rally: pl.rally,
+        train: [], build: [], research: [], workers: 0, work: 0, idleBarracks: 0, eggs: 0, eggMax: 0, frenzy: this.frenzyHud(),
+      };
+      return;
     }
     const f = FACTIONS[pl.faction];
     const dino = pl.faction === 'dino';
@@ -350,7 +505,7 @@ export class Match {
       else if (e.kind === K.Barracks && e.built && e.queue.length === 0) idleBarracks++;
       else if (isRefinery(e.kind) && e.built && (g.byId.get(e.pile)?.amount ?? 0) > 0 && byHQ(e)) work += RULES.perRefinery;
     }
-    this.hud.value = { tick: g.tick, blocks: pl.blocks, gas: pl.gas, supply: pl.supply, cap: pl.cap, groups, rally: pl.rally, train, build, research, workers, work, idleBarracks, eggs, eggMax };
+    this.hud.value = { tick: g.tick, blocks: pl.blocks, gas: pl.gas, supply: pl.supply, cap: pl.cap, groups, rally: pl.rally, train, build, research, workers, work, idleBarracks, eggs, eggMax, frenzy: null };
     const p = this.placing.value;
     if (p) {
       const ok = canPlace(g, me, p.kind, p.tx, p.ty);
@@ -363,10 +518,53 @@ export class Match {
     }
   }
 
+  /** What Frenzy's panels show: the hero and its abilities, the mix, the upgrades, the middle. */
+  private frenzyHud(): FrenzyHud {
+    const g = this.g, pl = g.players[this.me]!;
+    const f = FACTIONS[pl.faction];
+    const h = heroOf(g, pl), hall = hallOf(g, this.me);
+    const level = Math.max(1, pl.heroLvl);
+    const abilities: AbilityInfo[] = ABILITIES[f.hero]!.map((a, slot) => {
+      const left = Math.max(0, pl.cds[slot]! - g.tick);
+      return {
+        name: a.name, short: a.short, blurb: a.blurb, level: a.level, locked: level < a.level,
+        ready: h !== undefined && level >= a.level && left === 0 && h.daze <= g.tick, wait: Math.min(1, left / a.cd), aims: a.range > 0,
+      };
+    });
+    const next = pl.repeat[pl.turn % Math.max(1, pl.repeat.length)];
+    const rate = FRENZY.musterRate[pl.muster]!;
+    const spawn: SpawnInfo[] = frenzyUnits(pl.faction).map((kind) => {
+      const unlocked = pl.unlocked.includes(kind), on = pl.repeat.includes(kind);
+      const price = UNLOCK[kind] ?? 0;
+      let why = '';
+      if (!unlocked && pl.blocks < price) why = 'Not enough Blocks';
+      else if (unlocked && on && pl.repeat.length === 1) why = 'The base must make something';
+      return { kind, unlocked, on, price, ok: why === '', why, progress: kind === next ? Math.min(1, pl.bank / WORK[kind]!) : -1, seconds: WORK[kind]! / rate / TICKS_PER_SEC };
+    });
+    const upgrade = (kind: Kind, lvl: number, costs: readonly number[]): UpgradeInfo => {
+      const cost = costs[Math.min(lvl, costs.length - 1)]!;
+      const why = lvl >= costs.length ? `${def(kind).name} is at its top level` : pl.blocks < cost ? 'Not enough Blocks' : '';
+      return { kind, level: lvl, max: costs.length, cost, ok: why === '', why };
+    };
+    let middle = -2;
+    for (const e of g.ents) if (e.kind === K.Tower && onLayer(g, pl.vis, e.x, e.y)) middle = e.busy - 1;
+    return {
+      hero: {
+        kind: f.hero, alive: h !== undefined, level,
+        hp: h ? h.hp / maxHp(h) : 0, xp: level >= FRENZY.levelMax ? 1 : pl.heroXp / levelNeeds(level),
+        back: pl.heroBack > 0 ? Math.ceil((pl.heroBack - g.tick) / TICKS_PER_SEC) : 0,
+      },
+      abilities, spawn,
+      upgrades: [upgrade(f.research[0]!, pl.weapons, FRENZY.researchCost), upgrade(f.research[1]!, pl.armour, FRENZY.researchCost), upgrade(K.Muster, pl.muster, FRENZY.musterCost)],
+      middle, overtime: g.tick >= FRENZY.overtime, hall: hall ? hall.hp / maxHp(hall) : 0,
+      sides: g.players.map((q) => ({ id: q.id, faction: q.faction, out: q.out })),
+    };
+  }
+
   /** Test hook: drops a unit onto the map, so speed tests can stage a large battle. */
   debugSpawn(kind: Kind, owner: number, tx: number, ty: number): void {
     const u = spawn(this.g, kind, owner, Math.round(tx * TILE), Math.round(ty * TILE));
-    if (!def(kind).building) u.group = owner === this.me ? 3 : 0;
+    if (!def(kind).building) u.group = owner === this.me && !this.frenzy ? 3 : 0;
   }
 
   // ---------------------------------------------------------------- commands from the player
@@ -389,8 +587,80 @@ export class Match {
     this.alert(`rep${kind}${on}`, on ? `Keeping ${def(kind).plural} coming` : `Stopped repeating ${def(kind).plural}`, 'info', undefined, undefined, 0);
   }
 
+  // ---------------------------------------------------------------- Frenzy: the base and the hero
+
+  /** A tap on a unit of the Spawn tab: unlock it, or put it in the mix, or take it out. */
+  spawnTap(kind: Kind): void {
+    const info = this.hud.value.frenzy?.spawn.find((x) => x.kind === kind);
+    if (!info) return;
+    if (!info.ok) return this.alert(`why${kind}`, info.why, 'warn', undefined, undefined, 5);
+    if (!info.unlocked) this.issue({ t: 'unlock', p: this.me, kind });
+    else this.issue({ t: 'repeat', p: this.me, kind, on: !info.on });
+  }
+
+  setFollow(on: boolean): void {
+    this.follow.value = on;
+    try {
+      localStorage.setItem('foothold.follow', on ? 'on' : 'off');
+    } catch {
+      // Private browsing: the choice still holds for this match.
+    }
+  }
+
+  /** Your hero, if it is standing. */
+  hero(): Entity | undefined {
+    return this.frenzy ? heroOf(this.g, this.g.players[this.me]!) : undefined;
+  }
+
+  ability(slot: number): Ability | undefined {
+    return ABILITIES[FACTIONS[this.g.players[this.me]!.faction].hero]?.[slot];
+  }
+
+  /** A tap on an ability button. One that needs no target goes off; one that does waits for a tap on the map. */
+  cast(slot: number): void {
+    const info = this.hud.value.frenzy?.abilities[slot], a = this.ability(slot), h = this.hero();
+    if (!info || !a) return;
+    if (this.aim.value === slot) {
+      this.aim.value = -1;
+      return;
+    }
+    const why = !h ? `Your ${this.heroName()} is down` : info.locked ? `${a.name} opens at level ${a.level}` : !info.ready ? (h.daze > this.g.tick ? 'Stunned' : `${a.name} is not ready yet`) : '';
+    if (why || !h) return this.alert(`why:${slot}`, why, 'warn', undefined, undefined, 5);
+    if (a.range > 0) {
+      this.placing.value = null;
+      this.aim.value = slot;
+    } else {
+      this.aim.value = -1;
+      this.issue({ t: 'cast', p: this.me, slot, x: h.x, y: h.y });
+    }
+  }
+
+  /** Points the waiting ability at a place on the map. A tap beyond its reach lands at the end of its reach, on the way there. */
+  castAt(x: number, y: number): void {
+    const slot = this.aim.value, a = this.ability(slot), h = this.hero();
+    if (!a || !h) {
+      this.aim.value = -1;
+      return;
+    }
+    let tx = Math.round(x), ty = Math.round(y);
+    const far = Math.hypot(tx - h.x, ty - h.y);
+    if (far > a.range) {
+      // A little inside the ring, so that rounding can never put it a hair outside.
+      const k = (a.range - 3) / far;
+      tx = Math.round(h.x + (tx - h.x) * k);
+      ty = Math.round(h.y + (ty - h.y) * k);
+    }
+    const g = this.g;
+    tx = Math.max(0, Math.min(g.map.w * TILE - 1, tx));
+    ty = Math.max(0, Math.min(g.map.h * TILE - 1, ty));
+    if (a.kind === 'leap' && g.nav.blockedAt(tx, ty)) return this.alert('land', "Can't land there", 'warn', undefined, undefined, 5);
+    this.aim.value = -1;
+    this.issue({ t: 'cast', p: this.me, slot, x: tx, y: ty });
+  }
+
   selectGroup(i: number): void {
     this.site.value = 0;
+    this.aim.value = -1;
     this.sel.value = this.sel.value === i ? -1 : i;
   }
 
@@ -410,17 +680,32 @@ export class Match {
     this.modes.value = this.modes.value.map((old, i) => (i === group ? mode : old));
   }
 
-  hold(): void {
+  /**
+   * The groups an order to the selected one goes to. In Frenzy, with Follow on, an order to the hero is also
+   * an order to the group new units join: one tap moves everything.
+   */
+  private ordered(): number[] {
     const i = this.sel.value;
-    if (i < 0) return;
-    this.issue({ t: 'order', p: this.me, group: i, mode: O.Hold, x: 0, y: 0 });
+    if (i < 0) return [];
+    if (!this.frenzy || i !== HERO || !this.follow.value) return [i];
+    // While the hero is down the army still answers; and even with nobody in it yet, whatever the base
+    // turns out next heads for where the group was last sent.
+    const army = this.g.players[this.me]!.rally;
+    return this.hero() ? [i, army] : [army];
+  }
+
+  hold(): void {
+    for (const i of this.ordered()) this.issue({ t: 'order', p: this.me, group: i, mode: O.Hold, x: 0, y: 0 });
   }
 
   orderTo(x: number, y: number): boolean {
     const i = this.sel.value;
-    if (i < 0 || groupUnits(this.g, this.me, i).length === 0) return false;
+    if (i < 0) return false;
+    const groups = this.ordered();
+    const waits = this.frenzy && groups.includes(this.g.players[this.me]!.rally);
+    if (!waits && groupUnits(this.g, this.me, i).length === 0) return false;
     const mode = this.mode.value === O.Move ? O.Move : O.Attack;
-    this.issue({ t: 'order', p: this.me, group: i, mode, x: Math.round(x), y: Math.round(y) });
+    for (const k of groups) this.issue({ t: 'order', p: this.me, group: k, mode, x: Math.round(x), y: Math.round(y) });
     this.fx.push({ t: 'ripple', x1: x, y1: y, x2: 0, y2: 0, kind: 0, owner: this.me, born: performance.now(), life: 520, mode });
     return true;
   }
@@ -610,6 +895,10 @@ export class Match {
   /** A tap at a point on the map, in sub-units. */
   tap(x: number, y: number): void {
     const g = this.g;
+    if (this.aim.value >= 0) {
+      this.castAt(x, y);
+      return;
+    }
     const p = this.placing.value;
     if (p) {
       const d = def(p.kind);
@@ -636,7 +925,9 @@ export class Match {
         hit = e;
       }
     }
-    if (hit && hit.group !== this.sel.value) {
+    // A tap on one of your own picks its group up, unless that group already answers to this tap (the one
+    // selected, or the army that follows the hero): then it is an order like any other.
+    if (hit && hit.group !== this.sel.value && !this.ordered().includes(hit.group)) {
       this.sel.value = hit.group;
       return;
     }
@@ -647,7 +938,16 @@ export class Match {
 
   /** A tap on the minimap: an order when a group is selected, else a camera jump. */
   tapMini(x: number, y: number): void {
-    if (this.placing.value || this.sel.value < 0 || !this.orderTo(x, y)) this.lookAt(x, y);
+    if (this.placing.value || this.aim.value >= 0 || this.sel.value < 0 || !this.orderTo(x, y)) this.lookAt(x, y);
+  }
+
+  /**
+   * Where the map sits inside the minimap's box, as shares of the box's width: the whole of it for a map
+   * twice as wide as it is tall, and the middle of it for a square one.
+   */
+  miniRect(): { x: number; w: number } {
+    const w = Math.min(1, this.g.map.w / this.g.map.h / 2);
+    return { x: (1 - w) / 2, w };
   }
 
   lookAt(x: number, y: number): void {

@@ -14,12 +14,22 @@ export const K = {
   Nest: 30, Dig: 31, Den: 32, Wallow: 33, Roost: 34, BonePit: 35, Cave: 36, Volcano: 37,
   /** Neutral things on the map: Blocks, a battery pack, a watchtower. */
   Pile: 40, Cell: 41, Tower: 42,
+  /** Frenzy's heroes: one a side, steered by hand. */
+  Captain: 50, Alpha: 51,
   /** Research, queued at the Armory or the Bone Pit like a unit. */
   Weapons: 100, Armour: 101, Claws: 102, Hide: 103,
+  /** Frenzy only: the base turns out units faster. */
+  Muster: 104,
 } as const;
 export type Kind = (typeof K)[keyof typeof K];
 
 export type Faction = 'green' | 'dino';
+
+/**
+ * The two ways to play. Classic: two sides, Workers, buildings, the long game. Frenzy: four corners, bases
+ * that make their own units, a hero each, every side for itself.
+ */
+export type Mode = 'classic' | 'frenzy';
 
 /** Armour class. Counters work by class, so they hold across factions. */
 export const C = { Light: 0, Armoured: 1, Air: 2, Structure: 3 } as const;
@@ -85,12 +95,14 @@ export interface Def {
   /** Supply cap this building provides. */
   provides: number;
   building: boolean;
+  /** A Frenzy hero: one a side, in a group of its own, with levels and abilities. */
+  hero: boolean;
 }
 
 export interface Entity {
   id: number;
   kind: Kind;
-  /** 0 or 1; -1 for neutral piles. */
+  /** The side it belongs to (0 or 1; 0 to 3 in Frenzy), or -1 for neutral things. */
   owner: number;
   x: number;
   y: number;
@@ -153,6 +165,18 @@ export interface Entity {
   // Nests
   /** Eggs laid and waiting to be hatched. */
   eggs: number;
+
+  // Frenzy
+  /** A hero's level, 1 to 10; 0 for everything else. */
+  lvl: number;
+  /** Stunned until this tick: it neither moves nor fights. */
+  daze: number;
+  /** Rallied until this tick: it moves and shoots faster. */
+  haste: number;
+  /** The tick on which a called-up unit goes home; 0 for a unit that stays. */
+  ttl: number;
+  /** The side that brought it down, or -1: set on the tick it falls. */
+  by: number;
 }
 
 export interface GroupState {
@@ -184,6 +208,8 @@ export interface Stats {
 export interface Player {
   id: number;
   faction: Faction;
+  /** Out of the match: its last Headquarters or Nest has fallen. */
+  out: boolean;
   blocks: number;
   /** Batteries. */
   gas: number;
@@ -206,6 +232,24 @@ export interface Player {
   /** Enemy buildings this player remembers. */
   seen: Map<number, Ghost>;
   stats: Stats;
+
+  // Frenzy. In Frenzy `repeat` is the mix the base makes, in turn.
+  /** Unit kinds this side may put in its mix. */
+  unlocked: Kind[];
+  /** Muster level, 0 to 3: how fast the base works. */
+  muster: number;
+  /** Work the base has done toward its next unit, in tenths of a Block of worth. */
+  bank: number;
+  /** How many units the base has turned out: which of the mix comes next. */
+  turn: number;
+  /** The hero: its entity id while it stands (0 while it is down), its level and experience. */
+  hero: number;
+  heroLvl: number;
+  heroXp: number;
+  /** The tick on which a fallen hero comes back; 0 while it stands. */
+  heroBack: number;
+  /** For each ability, the tick from which it can be used again. */
+  cds: number[];
 }
 
 export type Command =
@@ -216,14 +260,31 @@ export type Command =
   | { t: 'repeat'; p: number; kind: Kind; on: boolean }
   | { t: 'order'; p: number; group: number; mode: OrderMode; x: number; y: number }
   | { t: 'assign'; p: number; from: number; to: number; kind: number; count: number }
-  | { t: 'rally'; p: number; group: number };
+  | { t: 'rally'; p: number; group: number }
+  /** Frenzy: pay once for the right to put a unit in the mix. */
+  | { t: 'unlock'; p: number; kind: Kind }
+  /** Frenzy: the hero uses ability `slot` (0 to 2), at a point if the ability takes one. */
+  | { t: 'cast'; p: number; slot: number; x: number; y: number };
 
 export type GameEvent =
   | { t: 'shot'; from: number; to: number; kind: Kind; x1: number; y1: number; x2: number; y2: number; owner: number }
   | { t: 'death'; kind: Kind; owner: number; x: number; y: number; fx: number; fy: number }
   | { t: 'hurt'; owner: number; x: number; y: number; kind: Kind }
   | { t: 'done'; owner: number; kind: Kind; x: number; y: number }
-  | { t: 'refused'; p: number; why: string };
+  | { t: 'refused'; p: number; why: string }
+  /** A hero used an ability: from where it stood to where it pointed (the same place for one that takes no target). */
+  | { t: 'cast'; owner: number; hero: Kind; slot: number; x1: number; y1: number; x2: number; y2: number; r: number; delay: number }
+  /** An ability went off here. */
+  | { t: 'blast'; owner: number; hero: Kind; slot: number; x: number; y: number; r: number }
+  | { t: 'level'; owner: number; level: number; x: number; y: number }
+  /** A hero fell (`up` false) or came back. */
+  | { t: 'hero'; owner: number; up: boolean; x: number; y: number; back: number }
+  /** Blocks paid to a side for something it brought down. */
+  | { t: 'bounty'; owner: number; amount: number; x: number; y: number }
+  /** A side is out of the match, and who put it out (-1 for nobody). */
+  | { t: 'out'; owner: number; by: number }
+  /** Frenzy's overtime has begun: every base but the middle-holder's starts to crumble. */
+  | { t: 'overtime' };
 
 export interface BaseSite {
   id: number;
@@ -234,7 +295,7 @@ export interface BaseSite {
   piles: { tx: number; ty: number; amount: number }[];
   /** Battery packs: top-left tile of each two-by-two pack. */
   cells: { tx: number; ty: number; amount: number }[];
-  /** 0 or 1: the side of the map this base sits on. */
+  /** The side that starts here if it is a main: 0 or 1, or 0 to 3 on a four-cornered map. */
   side: number;
   /** 0 main, 1 natural, 2 third, 3 rich. */
   tier: number;
@@ -242,6 +303,8 @@ export interface BaseSite {
 
 export interface GameMap {
   name: string;
+  /** How many sides the map seats: 2, each the other turned half a circle, or 4, each the last turned a quarter. */
+  seats: number;
   w: number;
   h: number;
   /** 1 where terrain is impassable. */
@@ -251,6 +314,8 @@ export interface GameMap {
   bases: BaseSite[];
   /** Watchtowers: whoever alone stands beside one sees the country around it. */
   towers: { tx: number; ty: number }[];
+  /** Frenzy: what each side starts with beside its base. Top-left tiles for the Turrets; sub-units for the hero. */
+  posts: { side: number; turrets: { tx: number; ty: number }[]; hero: { x: number; y: number } }[];
   /** Decoration for the renderer, in tile coordinates. */
   roads: { x: number; y: number }[][];
   labels: { text: string; x: number; y: number; rot: number; small?: boolean }[];

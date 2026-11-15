@@ -3,13 +3,19 @@ import { replay, selfPlay } from '../src/app/selfplay';
 import type { Faction } from '../src/sim/types';
 
 type Lab = { selfPlay: typeof selfPlay; replay: typeof replay };
-type Sides = readonly [Faction, Faction];
+type Sides = readonly Faction[];
 
 // The rules engine promises that the same seed and the same orders give the same match on every device.
 // Node plays a match here; the browser then replays it from the seed and the list of orders alone, and
 // plays its own from scratch. All three must end on the same checksum. Once with two Green Armies, once
-// with the Dino Pack against the Green Army, so both factions' rules are covered.
-for (const [name, sides] of [['two Green Armies', ['green', 'green']], ['the Dino Pack against the Green Army', ['dino', 'green']]] as [string, Sides][]) {
+// with the Dino Pack against the Green Army, so both factions' rules are covered, and once as a Frenzy round
+// of four with two of each, for the heroes, the abilities and the base that makes its own army.
+const MATCHES: [string, Sides][] = [
+  ['two Green Armies', ['green', 'green']],
+  ['the Dino Pack against the Green Army', ['dino', 'green']],
+  ['a Frenzy round of four', ['green', 'dino', 'dino', 'green']],
+];
+for (const [name, sides] of MATCHES) {
   test(`this browser plays the identical match to Node, order for order: ${name}`, async ({ page: p }) => {
     test.setTimeout(120_000);
     const ticks = 9000;
