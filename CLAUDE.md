@@ -120,10 +120,11 @@ most three taste questions.
   (`researchOf`).
 - Frenzy's rules, all in `src/sim` (`frenzy.ts`, numbers in `FRENZY`, `UNLOCK`, `WORK` and `ABILITIES` in
   `data.ts`): `createGame` with four factions makes a Frenzy round on `fourCorners()`. The ground is level
-  (nothing in `map.high`, Kyle's call); each base has a Turret in line on either side of it and two
-  Collectors (`K.Collector`) behind it, in the corner (`map.posts`). No Workers, no building, no Batteries:
+  (nothing in `map.high`, Kyle's call), but each corner is walled along its two inner sides with one gap
+  toward the middle (rock, also Kyle's call); inside, each base has a Turret in line on either side of it
+  and two Collectors (`K.Collector`) behind it, in the corner (`map.posts`). No Workers, no building, no Batteries:
   `build`, `train` and `cancel` are ignored. A base (the hall, `lvl = 1`) does `musterRate[muster]` work a
-  tick against `WORK[kind]` and turns out the mix (`pl.repeat`) in turn, waiting when supply
+  tick against `WORK[kind]` (it starts slowly, Kyle's call, and Muster speeds it up to three times that) and turns out the mix (`pl.repeat`) in turn, waiting when supply
   (`FRENZY.supply`) is full. `FACTIONS[f].frenzy` lists what a base can make: the first is free and fights
   hand to hand (Kyle's call: Bayonets, `K.Bayonet`, a unit only Frenzy has, and Raptors), `unlock` buys
   another for the mix (Troopers included), `repeat` takes it in or out (never the last one). Blocks come

@@ -1,4 +1,4 @@
-# Balance report: MF · Frenzy, second build
+# Balance report: MF · Frenzy, third build
 
 Measured on Nov 15, 2026 with the bot lab: the computer opponent in every seat, no screen attached.
 
@@ -10,10 +10,11 @@ npx tsx lab/hashes.ts              # twelve Classic checksums, the same before a
 npx tsx lab/speed.ts
 ```
 
-This report has two parts. The first is Frenzy as it stands after Kyle's five changes to the first build:
-Turrets in line with the base, level ground, Collectors behind each base that bring in the Blocks and sell
-the upgrades, a basic unit that fights hand to hand, and a hero that goes its own way. Every figure in it was
-measured again on the new rules. The second part is Classic as it was measured for M3: **Classic's rules did
+This report has two parts. The first is Frenzy as it stands after Kyle's five changes to the first build
+(Turrets in line with the base, level ground, Collectors behind each base that bring in the Blocks and sell
+the upgrades, a basic unit that fights hand to hand, and a hero that goes its own way) and his two changes
+to the second: the walls back around each base, and a slower start. Every figure in it was measured again
+on the new rules. The second part is Classic as it was measured for M3: **Classic's rules did
 not change.** Twelve Classic matches give the same checksum, order for order, as they did before Frenzy was
 added, and every Classic lab run below was repeated on Nov 15 and came out the same to the last figure.
 
@@ -24,12 +25,14 @@ much and why.
 
 **At a table of two Green Armies and two Dino Packs, a Green Army wins 47% of 216 rounds and a Dino Pack
 53%.** The target is that neither faction wins more than 55%. Two hundred rounds pin that to about three and
-a half points either way. The first build stood at 52% and 48%.
+a half points either way. The second build stood at 47% too, the first at 52%.
 
-**A Dino Pack is the first side out in 59% of those rounds**, where an even game would give 50%. In the
-first build it was 72%. A Dino Pack is still the likelier to go first, but by much less.
+**A Dino Pack is the first side out in 57% of those rounds**, where an even game would give 50%. In the
+second build it was 59%, in the first 72%.
 
-**Rounds are a little shorter:** the median round ends at 13:17, where the first build's ended at 14:37.
+**Rounds run a little longer than in the second build:** the median round ends at 14:12, where the second
+build's ended at 13:17 and the first build's at 14:37. A base now starts slower and has walls again, and
+both make a side harder to put out early: the first side goes out at a median of 6:52, against 6:01.
 
 **The opponents never go for a Collector.** In 216 rounds no side lost a Collector while its base still
 stood, and in six rounds looked at closely none was so much as scratched. Opponents march on the base, which
@@ -37,27 +40,28 @@ stands between them and the Collectors, and a base that falls takes its side out
 danger only when you send your own army at one. Whether the opponents should raid yours is a question for
 Kyle.
 
-A warning that the lab gave about itself, twice now: the first 72 of these 216 rounds, taken alone, say the
-Green Army wins 54%, and the same 72 in the first build said 63%. Seventy rounds can sit ten points from the
-truth. Every tuning change was judged on the same 216 seeds before and after.
+A warning that the lab keeps giving about itself: the first 72 of these 216 rounds, taken alone, say the
+Green Army wins 44%; in the second build the same 72 said 54%, and in the first 63%, while all three
+builds' 216 rounds said 47% to 52%. Seventy rounds can sit ten points from the truth. Every tuning change
+was judged on the same 216 seeds before and after.
 
 ## Frenzy: what was checked, and where it stands
 
 | Check | Target | Result | Status |
 | --- | --- | --- | --- |
-| Fair to every corner | No corner of the map is favoured | Exactly so, on the new map. Four copies of one opponent with the same dice stay the same round seen from every corner on every tick, for each faction and each bent (six rounds of up to 10 minutes); eight rounds with mixed factions and bents, replayed with the seats moved one, two and three corners round, are the same round turned, unit for unit | Met |
+| Fair to every corner | No corner of the map is favoured | Exactly so, on the walled map. Four copies of one opponent with the same dice stay the same round seen from every corner on every tick, for each faction and each bent (six rounds of up to 10 minutes); eight rounds with mixed factions and bents, replayed with the seats moved one, two and three corners round, are the same round turned, unit for unit | Met |
 | Faction balance | At a mixed table neither faction wins more than 55% of rounds | Green Army 47%, Dino Pack 53%, of 216 | Met |
-| Who goes out first | Each faction is the first side out in about half of mixed rounds | A Dino Pack in 59% of 216 (72% in the first build) | Closer; not met |
-| Round length | 10 to 15 minutes, and every round ends | Median 13:17; one in ten under 8:09; nine in ten under 15:30; none of 216 unfinished at 25:00. Four Green Armies: median 14:38. Four Dino Packs: median 11:24 | Met |
-| No best seat | Each seat wins about a quarter | 28%, 28%, 20%, 24% of 216 (the rules are exactly fair, so this is dice) | Met |
-| No best bent | Each of the opponent's three leanings wins about a quarter of the seats it takes | Heaviest units 29%, flyers 26%, numbers and upgrades 20% (15% in the first build) | Close; numbers and upgrades is still the lowest |
-| No one-unit army wins | An army of one unit wins less than its fair share of 25% | Bayonets, Troopers, Lancers, Tanks, Gunships, Raptors, Spitters, Horns, Pteros: each won 0 of 24 against three ordinary opponents | Met |
-| It pushes back | An idle player is attacked, and knocked out | On Normal an idle Green Army is first hit at 3:04 and out at 6:24 (medians), and is the first side out in 15 of 24 rounds; an idle Dino Pack is hit at 2:34, out at 5:27, and first out in 15 of 24. Neither ever wins | Met |
-| Easy is easier | A Normal opponent beats Easy ones, and an Easy one loses to Normal ones | One Normal opponent among three Easy ones wins 77% of 48 rounds, where a fair share is 25%; one Easy among three Normal wins none of 48 | Met |
+| Who goes out first | Each faction is the first side out in about half of mixed rounds | A Dino Pack in 57% of 216 (59% in the second build, 72% in the first) | Closer; not met |
+| Round length | 10 to 15 minutes, and every round ends | Median 14:12; one in ten under 9:12; nine in ten under 15:43; none of 216 unfinished at 25:00. Four Green Armies: median 14:52. Four Dino Packs: median 11:43 | Met, at the long end |
+| No best seat | Each seat wins about a quarter | 27%, 21%, 23%, 29% of 216 (the rules are exactly fair, so this is dice) | Met |
+| No best bent | Each of the opponent's three leanings wins about a quarter of the seats it takes | Flyers 27%, heaviest units 25%, numbers and upgrades 22% (15% in the first build). Among four Dino Packs, numbers and upgrades wins 7% | Met at mixed tables; not among four Dino Packs |
+| No one-unit army wins | An army of one unit wins less than its fair share of 25% | Against three ordinary opponents, all Lancers won 1 of 24; Bayonets, Troopers, Tanks, Gunships, Raptors, Spitters, Horns and Pteros each won none | Met |
+| It pushes back | An idle player is attacked, and knocked out | On Normal an idle Green Army is first hit at 3:55 and out at 6:20 (medians), and is the first side out in 17 of 24 rounds; an idle Dino Pack is hit at 2:16, out at 6:35, and first out in 15 of 24. Neither ever wins | Met |
+| Easy is easier | A Normal opponent beats Easy ones, and an Easy one loses to Normal ones | One Normal opponent among three Easy ones wins 83% of 48 rounds, where a fair share is 25%; one Easy among three Normal wins 1 of 48 | Met |
 | Same match twice | The same seed and orders give the identical round in Node, Chromium and WebKit | A Frenzy round of four (two of each faction, nine minutes or more, about two thousand orders) joins the two Classic matches: Chromium, at three phone sizes, replays the Node round from its seed and orders to the same checksum and plays its own from scratch to the same checksum. WebKit runs the same on GitHub before each deploy | Met |
 | Fair fog | No opponent can read what its units don't see | A test checks, with four at the table, that every enemy in each side's view is one that side can see | Met |
 | Whole numbers | The rules use whole numbers only | A test plays a Frenzy round and checks every number in the state | Met |
-| Phone speed | 60 frames a second on a throttled phone profile | With the processor slowed fourfold and all four sides at full supply fighting around the Watchtower (136 to 144 units, four heroes, abilities going off), five runs: 2 to 2.5 ms a tick and 3 to 6 ms a frame of game code; the worst tick in twenty 5 to 12 ms and the worst frame in twenty 12 to 22 ms. The first build, measured beside it on the same machine the same day: 2 to 2.5 ms a tick and 2 to 7 ms a frame, worst in twenty 6 to 9 and 10 to 15. The two builds are the same within that machine's noise. Without a screen, a tick of the rules in the same battle takes 0.5 to 0.6 ms (worst in twenty 2 to 3). Frenzy caps a side at 40 supply, so it never puts as many units on the field as Classic's 200 | Game code is inside budget at the median; in the thickest brawl one frame in twenty may run late on a slow phone. True frame rate needs a real phone |
+| Phone speed | 60 frames a second on a throttled phone profile | Measured for the second build, with the processor slowed fourfold and all four sides at full supply fighting around the Watchtower (136 to 144 units, four heroes, abilities going off), five runs: 2 to 2.5 ms a tick and 3 to 6 ms a frame of game code; the worst tick in twenty 5 to 12 ms and the worst frame in twenty 12 to 22 ms, the same as the first build within that machine's noise. The third build adds only walls, which are drawn once into the map, and without a screen a tick of the rules in that battle still takes 0.3 to 0.5 ms (worst in twenty 1 to 3). Frenzy caps a side at 40 supply, so it never puts as many units on the field as Classic's 200 | Game code is inside budget at the median; in the thickest brawl one frame in twenty may run late on a slow phone. True frame rate needs a real phone |
 | Thumb-sized | Every control at least 44 px | Checked by 105 touch tests on three screen sizes, the shortest 340 px tall, 36 of them Frenzy's: the menu, both tabs with the seven upgrade tiles, the hero and its abilities, aiming, Attack and Move, the organiser, the pause sheet and the result screen | Met |
 | Classic unchanged | Frenzy must not alter Classic | Twelve Classic matches (three for each pairing of factions) give the same checksum as before Frenzy; all 63 Classic rules tests still pass | Met |
 
@@ -65,22 +69,22 @@ truth. Every tuning change was judged on the same 216 seeds before and after.
 
 From the 216 mixed rounds, Normal opponents in every seat:
 
-- **The opening.** Every side has its first unit in five seconds or less: a Bayonet at 4.2 seconds, a pair
-  of Raptors at 3.4. The opponents first march from home at a median of 1:05, to the middle or at a
-  neighbour.
-- **Heroes.** A hero is level 4 at 5:00 (median) and the winner's ends at level 10, the top. Abilities open
+- **The opening.** Every side has its first unit in under seven seconds: a pair of Raptors at 5.7 seconds,
+  a Bayonet at 6.6. The opponents first march from home at a median of 0:56, to the middle or at a
+  neighbour, with a handful of units.
+- **Heroes.** A hero is level 4 at 5:00 (median) and the winner's ends at level 9 of 10. Abilities open
   at levels 1, 3 and 6, so the second is open well before 5:00 and the third arrives in the second half of a
   round.
-- **The first side out** leaves at a median of 6:01; one round in ten loses a side before 3:02.
-- **The end.** The median round ends at 13:17, in overtime. A whole base takes 4:35 to crumble, so a round
-  cannot run far past 15:00 unless somebody holds the middle. One round in ten is over before 8:09, with no
+- **The first side out** leaves at a median of 6:52; one round in ten loses a side before 4:36.
+- **The end.** The median round ends at 14:12, in overtime. A whole base takes 4:35 to crumble, so a round
+  cannot run far past 15:00 unless somebody holds the middle. One round in ten is over before 9:12, with no
   overtime at all.
-- **What gets made,** per side per round: for a Dino Pack about 63 Raptors, 45 Spitters, 13 Horns, 13 Rexes
-  and 12 Pteros; for a Green Army about 32 Lancers, 23 Bayonets, 15 Troopers, 12 Juggernauts, 9 Flak
+- **What gets made,** per side per round: for a Dino Pack about 52 Raptors, 40 Spitters, 13 Rexes, 12 Pteros
+  and 12 Horns; for a Green Army about 29 Lancers, 21 Bayonets, 15 Troopers, 11 Juggernauts, 9 Flak
   Tracks, 8 Tanks and 6 Gunships. **Runners, Mortars and Brontos are almost never made** (fewer than one a
   round): the opponent has no use for them in Frenzy, which says they may have no use for you either.
 - **What gets bought.** The winner ends a round with nearly everything: on average 3.9 of 4 levels each
-  of Weapons and Armour, 3.0 of 3 of Muster, 3.9 of 4 of Haul, and 2.6, 2.6 and 2.4 of 3 of Might, Grit and
+  of Weapons and Armour, 3.0 of 3 of Muster, 3.9 of 4 of Haul, and 2.7, 2.7 and 2.5 of 3 of Might, Grit and
   Tempo. All seven upgrades together cost 9,200 Blocks. So late Blocks do have somewhere to go, and a round
   that runs to overtime just about empties the shop.
 
@@ -88,34 +92,34 @@ From the 216 mixed rounds, Normal opponents in every seat:
 
 | Table | Rounds | Median length | First side out | Bents: share of seats won |
 | --- | --- | --- | --- | --- |
-| Two Green Armies and two Dino Packs, every seating | 216 | 13:17 | 6:01 | heaviest units 29%, flyers 26%, numbers and upgrades 20% |
-| Four Green Armies | 24 | 14:38 | 6:52 | heaviest units 26%, flyers 25%, numbers and upgrades 23% |
-| Four Dino Packs | 24 | 11:24 | 6:43 | heaviest units 35%, flyers 25%, numbers and upgrades 13% |
+| Two Green Armies and two Dino Packs, every seating | 216 | 14:12 | 6:52 | flyers 27%, heaviest units 25%, numbers and upgrades 22% |
+| Four Green Armies | 24 | 14:52 | 8:00 | flyers 31%, numbers and upgrades 27%, heaviest units 18% |
+| Four Dino Packs | 24 | 11:43 | 7:29 | flyers 34%, heaviest units 32%, numbers and upgrades 7% |
 
-Four Green Armies still tend to go the distance, but less than they did: one round in ten is over by 8:11,
-where in the first build nine in ten ended between 14:23 and 15:51. Four Dino Packs settle it soonest, and
-among them a swarm is the weak leaning.
+With the walls back, four Green Armies go the distance again: nine rounds in ten end between 13:45 and
+15:51, which is bases crumbling, as in the first build. Four Dino Packs settle it soonest, and among them a
+swarm is the weak leaning by a long way.
 
 ## Frenzy: Easy, Normal and an idle player
 
 | | Result |
 | --- | --- |
-| One Normal opponent among three Easy ones | Wins 77% of 48 rounds (a fair share is 25%); first out in 10% |
-| One Easy opponent among three Normal ones | Wins none of 48; first out in 35% |
-| An idle Green Army against three Normal opponents | First hit at 3:04, out at 6:24 (medians). Of 24 rounds: second once, third 8 times, first out 15 |
-| An idle Dino Pack against three Normal opponents | First hit at 2:34, out at 5:27. Of 24: second 3 times, third 6, first out 15 |
-| An idle Green Army against three Easy opponents | First hit at 4:52, out at 6:56. Of 24: second 4 times, third 6, first out 14 |
-| An idle Dino Pack against three Easy opponents | First hit at 3:49, out at 6:43. Of 24: third 9 times, first out 15 |
+| One Normal opponent among three Easy ones | Wins 83% of 48 rounds (a fair share is 25%); first out in 13% |
+| One Easy opponent among three Normal ones | Wins 1 of 48; first out in 33% |
+| An idle Green Army against three Normal opponents | First hit at 3:55, out at 6:20 (medians). Of 24 rounds: third 7 times, first out 17 |
+| An idle Dino Pack against three Normal opponents | First hit at 2:16, out at 6:35. Of 24: third 9 times, first out 15 |
+| An idle Green Army against three Easy opponents | First hit at 4:59, out at 6:37. Of 24: second once, third 7 times, first out 16 |
+| An idle Dino Pack against three Easy opponents | First hit at 4:46, out at 6:54. Of 24: third 5 times, first out 19 |
 
 An Easy opponent keeps its army at home for about the first two minutes, marches with less, takes no notice
 of what the others are making, uses its hero's abilities one chance in five, and stops its upgrades early:
 one level each of Muster, Haul, Might and Grit, two each of Weapons and Armour, and no Tempo. The missing
 upgrades are what make it easy, because in a four-way fight the side that hangs back does well.
 
-An idle player still comes second or third in nine or ten rounds of 24, for the same reason: three opponents
-are busy with each other. But an idle base no longer lasts until it crumbles. In the first build an idle
-Green Army against Easy opponents stood until 14:34; now it is out at 6:56. A base on level ground can be
-walked up to from every side. Hard and Brutal are M4.
+An idle player still comes third in 5 to 9 rounds of 24, for the same reason: three opponents are busy with
+each other. But it almost never comes second, and an idle base no longer lasts until it crumbles: in the
+first build an idle Green Army against Easy opponents stood until 14:34, and now it is out at 6:37. Hard and
+Brutal are M4.
 
 ## Frenzy: the numbers
 
@@ -127,27 +131,27 @@ All of it lives in `src/sim/data.ts` (`FRENZY`, `UNLOCK`, `WORK`, `ABILITIES`).
 | Collectors | Two behind each base, 2,500 health each, unarmed, not rebuilt. Bringing one down pays 150. Upgrades can be bought while at least one stands |
 | Bounties | A quarter of a fallen unit's worth, to the side that did it the most harm on that tick. A hero pays 60 and 15 more for each of its levels. A base pays 300 |
 | Supply | 40, fixed. A unit the base has finished waits at the door until there is room |
-| A base | 5,500 health (a Classic Headquarters has 1,200 and a Nest 1,100). Two Turrets or Volcanoes, one on either side of it, of 1,500 health (Classic: 280 and 260) that reach a tile and a half further than Classic ones and hit three times as hard. The ground is level everywhere |
-| Upgrades for the army and the base | Weapons and Armour (Claws and Hide): four levels at 150, 300, 450 and 600 Blocks. Muster: three levels at 150, 300 and 450; the base works 1.3, 1.6 and 2 times as fast |
+| A base | 5,500 health (a Classic Headquarters has 1,200 and a Nest 1,100). Two Turrets or Volcanoes, one on either side of it, of 1,500 health (Classic: 280 and 260) that reach a tile and a half further than Classic ones and hit three times as hard. The ground is level everywhere; each corner is walled along its two inner sides, leaving one way in, six tiles wide, toward the middle |
+| Upgrades for the army and the base | Weapons and Armour (Claws and Hide): four levels at 150, 300, 450 and 600 Blocks. Muster: three levels at 150, 300 and 450. A base starts at 6 work a tick; Muster takes it to 10, 14 and 18, so 1.67, 2.33 and 3 times as fast |
 | Haul | Four levels at 200, 350, 500 and 650. Each adds 1 Block a second to each Collector: 6, 8, 10 and 12 a second with both standing. The first level pays for itself in 1:40, the last in 5:25 |
 | Upgrades for the hero | Three levels each at 200, 400 and 600. Might: 15% a level on its hits and on the damage of its abilities. Grit: 20% a level on its health. Tempo: abilities ready 12% sooner a level |
 | Overtime | From 10:00 every base loses 20 health a second, except the base of the side holding the middle alone. Nobody is paid for a base that crumbles |
 | Experience | A hero within nine tiles learns from every enemy that falls: a fifth of its worth; 80 and 20 a level for a hero; 250 for a base. Level n takes 100 × n. Each level adds 14% health and 12% damage; the top is level 10 |
 | A fallen hero | Back at its base after 13 seconds at level 1 and 3 more for each level. Within six tiles of its own base it mends 3% of its health a second |
 
-| Unit | Unlock | The base makes one every | | Unit | Unlock | The base makes one every |
+| Unit | Unlock | The base makes one every (no Muster, all of it) | | Unit | Unlock | The base makes one every (no Muster, all of it) |
 | --- | --- | --- | --- | --- | --- | --- |
-| Bayonet | free | 4.2 s | | Raptor | free | 3.4 s, a pair |
-| Trooper | 100 | 4.2 s | | Spitter | 100 | 4.2 s |
-| Lancer | 100 | 6.0 s | | Horn | 300 | 8.0 s |
-| Runner | 100 | 5.0 s | | Ptero | 350 | 10.5 s |
-| Flak Track | 200 | 10.5 s | | Bronto | 500 | 16.5 s |
-| Tank | 400 | 14.0 s | | Rex | 800 | 24.5 s |
-| Mortar | 400 | 14.0 s | | | | |
-| Gunship | 500 | 17.5 s | | | | |
-| Juggernaut | 800 | 27.0 s | | | | |
+| Bayonet | free | 6.6 s, 2.2 s | | Raptor | free | 5.7 s, 1.9 s, a pair |
+| Trooper | 100 | 6.7 s, 2.2 s | | Spitter | 100 | 7.0 s, 2.3 s |
+| Lancer | 100 | 9.5 s, 3.2 s | | Horn | 300 | 13.3 s, 4.4 s |
+| Runner | 100 | 8.0 s, 2.7 s | | Ptero | 350 | 17.5 s, 5.8 s |
+| Flak Track | 200 | 16.7 s, 5.6 s | | Bronto | 500 | 27.5 s, 9.2 s |
+| Tank | 400 | 22.2 s, 7.4 s | | Rex | 800 | 40.8 s, 13.6 s |
+| Mortar | 400 | 22.2 s, 7.4 s | | | | |
+| Gunship | 500 | 27.7 s, 9.2 s | | | | |
+| Juggernaut | 800 | 42.8 s, 14.3 s | | | | |
 
-Times are for a base with no Muster. With several units in the mix the base makes them in turn.
+With several units in the mix the base makes them in turn.
 
 The Bayonet exists only in Frenzy: 80 health (a Trooper has 45), 9 damage every 0.8 seconds at arm's
 length, a little faster on its feet than a Trooper and faster still while closing. It hits infantry in full,
@@ -200,6 +204,13 @@ For the second build, on the same 216 seeds each time:
 9. **The opponents learnt the shop.** Each buys Haul early, the army's upgrades through the middle of a
    round and its hero's late, and nothing once its Collectors are down. Easy stops early, as above.
 
+For the third build, again on the same 216 seeds:
+
+10. **The walls cost the Green Army four points.** Walls alone took it from 47% to 43%; the slower start
+    on top made it 42%, which is the same within the lab's noise.
+11. **Green units about 5% quicker** to come out, at every Muster level, put it back at 47%. That is the
+    same lever as step 6, at about a third of the step that overshot to 63%.
+
 ## Frenzy: open items
 
 - **The opponents never raid Collectors.** They can fall, a raid on one pays, and a side with none is
@@ -207,16 +218,21 @@ For the second build, on the same 216 seeds each time:
   base itself, and the base ends a side outright. If Collectors should be something you have to defend, the
   opponents need to be taught to go for them, and a Collector wants less health so that a raid is quicker
   than a siege.
-- **A Dino Pack is still the first side out more often** than a Green Army, 59% to 41%. It was 72%.
-- **Numbers and upgrades is still the lowest leaning** for the opponent (20% of the seats it takes, against
-  29% and 26%), and among four Dino Packs it wins only 13%. A swarm at 40 supply is worth less than a heavy
+- **A Dino Pack is still the first side out more often** than a Green Army, 57% to 43%. It was 59% in the
+  second build and 72% in the first.
+- **Numbers and upgrades is still the lowest leaning** for the opponent (22% of the seats it takes, against
+  27% and 25%), and among four Dino Packs it wins only 7%. A swarm at 40 supply is worth less than a heavy
   army at 40 supply.
 - **Runners, Mortars and Brontos go unmade.** Runners have no Workers to raid, Mortars must stand still in a
-  brawl that never does, and Brontos have no walls to break.
+  brawl that never does, and Brontos, the Dino Pack's building-breakers, find few buildings to break.
 - **The Green opponent makes more Lancers than Bayonets.** It treats the Bayonet as a front line to put in
   front of shooters, not as its army. A player may find a different answer.
-- **Hanging back still pays** in a four-way fight: an idle player comes second or third in nine or ten
-  rounds of 24. The middle's income and overtime are the pull the other way.
+- **Hanging back still pays** in a four-way fight: an idle player comes third in 5 to 9 rounds of 24. The middle's income and overtime are the pull the other way.
+- **Rounds sit at the long end** of 10 to 15 minutes (median 14:12), and four Green Armies nearly always
+  play on until bases crumble. If that feels slow, a slightly quicker start or an earlier overtime are one
+  number each.
+- **The walls' gap is out of the Turrets' reach.** The Turrets stand beside the base, as asked, and cover
+  the base and the Collectors; an attacker comes through the gap unshot and meets them inside.
 - True frame rate, which needs a real phone.
 
 ---

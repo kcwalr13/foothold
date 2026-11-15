@@ -365,8 +365,12 @@ export const FRENZY = {
    * not in front of it, two Classic Turrets would not slow an early rush at all.
    */
   turretPower: 300,
-  /** Work a base does each tick, by Muster level. What each unit takes is in `WORK`. */
-  musterRate: [10, 13, 16, 20] as readonly number[],
+  /**
+   * Work a base does each tick, by Muster level. What each unit takes is in `WORK`. A base starts slowly (a
+   * Bayonet every 7 seconds, a pair of Raptors every 5.7), so the first armies are small and the first Muster
+   * is worth buying: it gives two thirds as much again.
+   */
+  musterRate: [6, 10, 14, 18] as readonly number[],
   /**
    * Price of each Muster level, and of each level of Weapons and Armour (Blocks only: Frenzy has no Batteries).
    * Frenzy has four levels of each where Classic has two: late in a round Blocks must still buy something.
@@ -439,7 +443,7 @@ export const UNLOCK: Record<number, number> = {
  * prices would give: with no eggs to bank in Frenzy, numbers are how it keeps up.
  */
 export const WORK: Record<number, number> = {
-  [K.Bayonet]: 420, [K.Trooper]: 420, [K.Lancer]: 600, [K.Runner]: 500, [K.Flak]: 1050, [K.Tank]: 1400, [K.Mortar]: 1400, [K.Gunship]: 1750, [K.Jugger]: 2700,
+  [K.Bayonet]: 396, [K.Trooper]: 400, [K.Lancer]: 570, [K.Runner]: 480, [K.Flak]: 1000, [K.Tank]: 1330, [K.Mortar]: 1330, [K.Gunship]: 1660, [K.Jugger]: 2570,
   [K.Raptor]: 340, [K.Spitter]: 420, [K.Horn]: 800, [K.Ptero]: 1050, [K.Bronto]: 1650, [K.Rex]: 2450,
 };
 

@@ -120,7 +120,7 @@ function Menu({ onPlay }: { onPlay: (level: number, choice: Choice) => void }) {
             {frenzy ? (
               <ul class="how">
                 <li><b>The round.</b> Four corners, every side for itself. Lose your base and you are out; the last base standing wins.</li>
-                <li><b>Left thumb, the base.</b> It makes units by itself, for as long as there is supply: Bayonets or Raptors to begin with, who fight hand to hand. Spawn: unlock a unit with Blocks, then tap it into or out of the mix.</li>
+                <li><b>Left thumb, the base.</b> It stands inside walls with one way out, and makes units by itself for as long as there is supply, slowly at first: Bayonets or Raptors to begin with, who fight hand to hand. Muster on the Tech tab speeds it up. Spawn: unlock a unit with Blocks, then tap it into or out of the mix.</li>
                 <li><b>Collectors.</b> The two behind your base bring in your Blocks, and sell everything on the Tech tab: Weapons and Armour for the army, Muster for a faster base, Haul for more Blocks, and Might, Grit and Tempo for your hero. Lose one and half your Blocks stop; lose both and nothing can be bought. Tap a Collector to open Tech.</li>
                 <li><b>Right thumb, the hero.</b> Tap your hero, then the map. It goes on its own; switch Follow on and your first group goes wherever it is sent. Abilities open at levels 1, 3 and 6: tap one, then the map if a ring appears. A fallen hero comes back at the base, and mends there.</li>
                 <li><b>Attack and Move.</b> Attack fights on the way and Move doesn't stop. Whichever you press stays lit, for the hero and every group, until you press the other. Hold digs in.</li>

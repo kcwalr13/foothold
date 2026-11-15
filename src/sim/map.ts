@@ -84,8 +84,8 @@ export function twinRidges(): GameMap {
 /**
  * Four Corners, Frenzy's map: a square, the same seen from every corner. Side 0 starts bottom-left and the
  * others follow a quarter turn at a time: top-left, top-right, bottom-right. The ground is level everywhere. Each
- * base faces the middle with a Turret in line on either side and two Collectors behind it, in the corner; a
- * Watchtower stands on the middle tile.
+ * base stands inside walls with one wide way out, facing the middle, with a Turret in line on either side of it
+ * and two Collectors behind it, in the corner; a Watchtower stands on the middle tile.
  */
 export function fourCorners(): GameMap {
   const n = 63, s = n * TILE;
@@ -104,14 +104,18 @@ export function fourCorners(): GameMap {
   const block = (x0: number, y0: number, x1: number, y1: number) => {
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(rock, x, y, 1);
   };
-  // The ground is level everywhere: a base stands in its corner in the open, with no height to hide behind.
+  // The ground is level everywhere, but each base has walls. Side 0's corner is walled along its top and its
+  // right side, and the two walls stop short of where they would meet: that gap, six tiles of each, is the
+  // one way in and out, facing the middle. (The first build's cliffs, without the high ground behind them.)
+  block(0, 46, 10, 46);
+  block(16, 52, 16, 62);
   // A pillar on the way from each base to the middle splits the approach in two.
   block(22, 38, 24, 40);
   // An outcrop half-way along each edge, between neighbours: a narrow way along the edge, a wide one inside.
   block(28, 51, 34, 56);
 
   // Everything else is laid out for side 0, in the bottom-left corner, and turned for the rest. The base
-  // sits on the line from its corner to the middle. Its two Turrets stand level with it, one either side,
+  // sits inside its walls, on the line from its corner to the middle. Its two Turrets stand level with it, one either side,
   // on the line across. Its two Collectors stand behind it, between the base and the corner. The hero
   // waits in front.
   const hall = { tx: 6, ty: 53 };

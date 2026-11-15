@@ -49,10 +49,10 @@ Classic:
 
 Frenzy:
 
-- **Left thumb, the base.** It makes units by itself while there is supply: Bayonets or Raptors to begin
-  with, who fight hand to hand. Spawn: unlock a unit with Blocks, then tap it into or out of the mix.
+- **Left thumb, the base.** It stands inside walls with one way out, and makes units by itself while there
+  is supply: slowly at first, Bayonets or Raptors, who fight hand to hand. Spawn: unlock a unit with Blocks, then tap it into or out of the mix.
 - **Collectors.** The two behind your base bring in your Blocks and sell everything on the Tech tab, on the
-  spot: Weapons and Armour for the army, Muster for a faster base, Haul for more Blocks, and Might, Grit and
+  spot: Weapons and Armour for the army, Muster for a faster base (up to three times as fast), Haul for more Blocks, and Might, Grit and
   Tempo for your hero. Lose one and half your Blocks stop; lose both and nothing can be bought.
 - **Right thumb, the hero.** Tap your hero, then the map. It goes on its own; switch Follow on and your first
   group goes wherever it is sent. Abilities open at levels 1, 3 and 6: tap one, then the map if a ring

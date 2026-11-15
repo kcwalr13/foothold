@@ -3,6 +3,7 @@ import { quarterBreak } from '../../lab/quarter';
 import { ABILITIES, FACTIONS, FRENZY, UNLOCK, WORK, abilityCd, abilityPower, def, frenzyUnits, frenzyUpgrades, heroDmg, heroHp, income, levelNeeds, respawnTicks, upgradeCosts, worth } from './data';
 import { collectorsOf, heroOf, hallOf, middleHolder } from './frenzy';
 import { fourCorners } from './map';
+import { INF } from './nav';
 import { createGame, hash, maxHp, schedule, spawn, visibleTo, type Game } from './state';
 import { land, step } from './step';
 import { makeView } from './view';
@@ -48,11 +49,28 @@ describe('Frenzy: the map', () => {
     }
   });
 
-  it('stands each base on level ground, its Turrets in line either side of it and its Collectors behind', () => {
+  it('stands each base on level ground inside walls, its Turrets in line either side of it and its Collectors behind', () => {
     const g = createGame(1, undefined, MIXED);
     const m = g.map, mid = (m.w * TILE) / 2;
     // No high ground anywhere: nothing to hide behind, nothing that outranges from above.
     expect(m.high.every((v) => v === 0)).toBe(true);
+    // Walls: side 0's corner is closed along its top and its right side, with one gap toward the middle.
+    const n = m.w, rockAt = (x: number, y: number) => m.rock[y * n + x] === 1;
+    for (let x = 0; x <= 10; x++) expect(rockAt(x, 46)).toBe(true);
+    for (let y = 52; y < n; y++) expect(rockAt(16, y)).toBe(true);
+    for (let x = 11; x <= 16; x++) expect(rockAt(x, 46)).toBe(false);
+    for (let y = 46; y <= 51; y++) expect(rockAt(16, y)).toBe(false);
+    // Everything of a base's stands inside them, and a walker from the base reaches the middle through the gap.
+    for (const e of g.ents) if (e.owner === 0) expect(e.x < 16 * TILE && e.y > 47 * TILE).toBe(true);
+    const d = g.nav.field(-1, () => [31 * n + 31]);
+    for (let k = 0; k < 4; k++) {
+      // The hero's post, in front of each base: reachable, but only the long way, out through the gap.
+      const post = m.posts[k]!.hero, tx = Math.trunc(post.x / TILE), ty = Math.trunc(post.y / TILE);
+      expect(d[ty * n + tx]!).toBeLessThan(INF);
+    }
+    // From side 0's base, a step past its right-hand wall is a long walk round by the gap.
+    const home = g.nav.field(-2, () => [52 * n + 11]);
+    expect(home[56 * n + 17]! - home[56 * n + 15]!).toBeGreaterThan(40);
     const far = (e: Entity) => Math.hypot(e.x - mid, e.y - mid);
     for (const pl of g.players) {
       const hall = hallOf(g, pl.id)!;
@@ -286,13 +304,14 @@ describe('Frenzy: the base', () => {
     for (const kind of [K.Muster, K.Weapons]) schedule(g, { t: 'research', p: 0, kind });
     run(g, 1);
     expect(refusals(g)).toEqual(['Muster is at its top level', 'Weapons is at its top level']);
-    // Twice the work a tick: twice the Bayonets.
+    // Three times the work a tick at the top level: three times the Bayonets, give or take the one under way.
     const slow = createGame(1, undefined, GREEN);
     run(g, 499);
     run(slow, 500);
     const fast = mine(g, 0, K.Bayonet).length, plain = mine(slow, 0, K.Bayonet).length;
-    expect(fast).toBeGreaterThanOrEqual(2 * plain);
-    expect(fast).toBeLessThanOrEqual(2 * plain + 1);
+    const ratio = FRENZY.musterRate[3]! / FRENZY.musterRate[0]!;
+    expect(ratio).toBeGreaterThanOrEqual(2);
+    expect(Math.abs(fast - plain * ratio)).toBeLessThanOrEqual(1.5);
   });
 
   it('sells the same list to both factions: the army\'s, the base\'s and the hero\'s own, each with its levels and prices', () => {
@@ -596,7 +615,8 @@ describe('Frenzy: the hero', () => {
     expect([back.lvl, back.hp, back.group]).toEqual([3, heroHp(K.Captain, 3), FRENZY.heroGroup]);
     expect(pl.heroBack).toBe(0);
     const post = g.map.posts[0]!.hero;
-    expect([back.x, back.y]).toEqual([post.x, post.y]);
+    // At its post (give or take a nudge from a unit standing beside it on the tick it arrives).
+    expect(Math.abs(back.x - post.x) + Math.abs(back.y - post.y)).toBeLessThanOrEqual(TILE / 4);
     expect(respawnTicks(6)).toBeGreaterThan(respawnTicks(3));
   });
 
