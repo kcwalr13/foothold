@@ -30,7 +30,7 @@ export const SCHEME_LINES: Record<Faction, Record<Scheme, string>> = {
   green: {
     rush: 'soldiers before economy, and an early attack',
     expand: 'a second base before an army',
-    armour: 'an early Factory, and Tanks and Mortars at about 7:00',
+    armour: 'an early Factory, and a push as soon as its Tanks and Mortars were out',
     air: 'an early Airfield, and Gunships sent after your Workers',
     raider: 'Runner packs at every expansion while it took more of the map',
     fortress: 'Turrets and Mortars at home until its Juggernauts arrived',
@@ -38,10 +38,10 @@ export const SCHEME_LINES: Record<Faction, Record<Scheme, string>> = {
   dino: {
     rush: 'Raptors before Gatherers, and an early attack',
     expand: 'a second Nest before an army',
-    armour: 'an early Wallow, and Horns and Brontos at about 7:00',
+    armour: 'an early Wallow, and a charge as soon as its Horns and Brontos were out',
     air: 'an early Roost, and Pteros sent after your Workers',
     raider: 'Raptor packs at every expansion while it took more of the map',
-    fortress: 'Volcanoes and Spitters at home until its Rexes arrived',
+    fortress: 'a Volcano more at home and an early Great Cave for its Rexes',
   },
 };
 const SCHEME_OPENING: Record<Scheme, Plan> = { rush: 'rush', expand: 'greedy', armour: 'standard', air: 'standard', raider: 'greedy', fortress: 'standard' };
@@ -226,15 +226,28 @@ export class Bot {
     this.level = Math.min(2, opts.level ?? 1);
     this.trick = opts.trick;
     // One of the six plans, weighted by who is playing whom. Easy never rushes and never raids: a newcomer gets
-    // a few minutes to find the controls. A Green Army rarely rushes, raids or turtles against a Dino Pack: a
-    // Nest's banked eggs hatch a dozen Raptors at once, Raptors run down Runners, and a Dino Pack outgrows a
-    // Fortress waiting for its Juggernauts. In a Dino mirror every army is full of Spitters, so the sky is a
-    // poor bet, and a Den that sits at home is outgrown the same way.
+    // a few minutes to find the controls. Against a Dino Pack a Green Army does best by hitting it before its
+    // eggs pay off or by out-growing it, so it rushes and expands more and pushes with armour or from the air
+    // less; it rarely raids or turtles, since Raptors run down Runners and a Dino Pack outgrows a Fortress
+    // waiting for its Juggernauts. In a Dino mirror every army is full of Spitters, so the sky is a poor bet,
+    // and a Den that sits at home is outgrown the same way.
     const intoEggs = opts.faction === 'green' && opts.foe === 'dino';
     const spitters = opts.faction === 'dino' && opts.foe === 'dino';
     const weights: Record<Scheme, number> = this.level === 0
       ? { rush: 0, expand: 2, armour: 2, air: 1, raider: 0, fortress: 2 }
-      : { rush: intoEggs ? 1 : 2, expand: 2, armour: 2, air: spitters ? 1 : 2, raider: intoEggs ? 0.5 : 2, fortress: intoEggs || spitters ? 0.5 : 2 };
+      : intoEggs ? { rush: 2, expand: 3, armour: 1, air: 1, raider: 0.5, fortress: 0.5 }
+      : { rush: 2, expand: 2, armour: 2, air: spitters ? 1 : 2, raider: 2, fortress: spitters ? 0.5 : 2 };
+    // Hard knows which plans pay in which pairing, as a practised player does, and leans on them.
+    if (this.level === 2) {
+      const lean: Record<string, Partial<Record<Scheme, number>>> = {
+        greengreen: { expand: 2, air: 1.5, fortress: 1.5, raider: 0.5, rush: 0.5 },
+        greendino: { rush: 1.5, armour: 1.5 },
+        dinogreen: { expand: 1.5, armour: 1.5, air: 0.5 },
+        dinodino: { expand: 1.5, raider: 1.5, armour: 0.5, fortress: 0.5 },
+      };
+      const l = lean[`${opts.faction ?? 'green'}${opts.foe ?? 'green'}`] ?? {};
+      for (const k of SCHEMES) weights[k] *= l[k] ?? 1;
+    }
     const total = SCHEMES.reduce((s, k) => s + weights[k], 0);
     let roll = this.rnd() * total, picked: Scheme = 'armour';
     for (const k of SCHEMES) {
@@ -928,12 +941,13 @@ export class Bot {
     const highTurrets = v.ghosts.filter((gh) => (gh.kind === K.Turret || gh.kind === K.Volcano) && isHigh(gh)).length;
     const climb = this.allIn || v.supply >= RULES.supplyMax - 4 || armyValue >= this.enemySeen * 2.2 + highTurrets * 300 + 400;
     const pickTarget = (from: Pt): Pt | null => {
-      // A rush's first push goes for the Workers at the enemy's main, past whatever guards the nearer base,
-      // until it stands among their Blocks and sees nobody left to hit there.
+      // A rush's first push goes for Workers until it stands among their Blocks and sees nobody left to hit
+      // there: at the natural if the enemy has taken it (that is where greed is punished), at the main if not.
       if (this.plan === 'rush' && this.allIn && this.firstAttack >= 0 && t - this.firstAttack < 1200) {
-        const main = this.pileCentre(theirs[0]!);
-        const there = within(from, main, 5);
-        if (!there || v.enemies.some((e) => isWorker(e.kind) && within(e, main, 8))) return main;
+        const tookNat = v.ghosts.some((gh) => isHall(gh.kind) && within(gh, this.siteCentre(theirs[1]!), 4));
+        const prey = this.pileCentre(theirs[tookNat ? 1 : 0]!);
+        const there = within(from, prey, 5);
+        if (!there || v.enemies.some((e) => isWorker(e.kind) && within(e, prey, 8))) return prey;
       }
       const known = v.ghosts.filter((gh) => climb || !isHigh(gh));
       // Prefer the nearest Headquarters, then anything else.
@@ -978,9 +992,10 @@ export class Bot {
           // goes only against an enemy it has seen next to nothing of. After that it wants a clear lead over
           // what it has seen, or a full supply bar.
           const hunch = this.level === 0 || trick !== undefined || (this.plan === 'rush' && this.firstAttack < 0);
-          // Against another Dino Pack a Horn charge may go from five and a half minutes, once its Horns are out:
-          // a Dino Pack's greed has to be punished early.
-          const early = !hunch && t < (pusher && dino && v.foe === 'dino' ? 3300 : 4200);
+          // An Armour push may go from five and a half minutes, once its heavies are out: on a map this size a
+          // fast expansion has to be punished early or not at all. A Horn charge does the same to another Dino
+          // Pack; against a Green Army it waits like the others.
+          const early = !hunch && t < (pusher && (!dino || v.foe === 'dino') ? 3300 : 4200);
           // An Armour push goes at about seven minutes once its heavies are out, on a smaller edge: that is
           // the push. A Raider's main army waits for a bigger edge, its raids doing the work meanwhile.
           const heavies = dino ? count(K.Horn) + count(K.Bronto) + count(K.Rex) : count(K.Tank) + count(K.Mortar) + count(K.Jugger);
@@ -988,7 +1003,10 @@ export class Bot {
           const edge = hunch ? 1.15 : early ? 3 : pushing ? 1.2 : raider ? 2 : 1.5;
           // A Fortress stays behind its walls until its Juggernauts are out, or its supply bar is full. A Den does
           // not wait for its Rexes: a Dino Pack that sits still is outgrown by one that doesn't.
-          const holding = fortress && !dino && !maxed && count(K.Jugger) < 2;
+          // Easy never gets that far up the tree, so its Fortress does not wait; nor does one that has had a
+          // good look and seen next to nothing of the enemy's army.
+          const passive = t - this.lookedAt < 600 && this.enemySeen < 150 && armyValue >= 800;
+          const holding = fortress && !dino && this.level >= 1 && !maxed && !passive && count(K.Jugger) < 2;
           // Early on it also wants to have looked lately: no walking across the map on a guess.
           const blind = early && t - this.lookedAt > 600;
           if (!tooSoon && !blind && !holding && ((maxed && !early) || armyValue >= Math.max(this.waveAt, trick ? 0 : this.enemySeen * edge) + turretTax)) {
@@ -999,7 +1017,7 @@ export class Bot {
             this.lastOrder = -999;
             if (this.firstAttack < 0) this.firstAttack = t;
             // A big army opens a second front: a detachment goes for another base at the same time.
-            if (this.level >= 1 && !trick && armyValue >= 1000) this.frontAt = t;
+            if (this.level >= 1 && !trick && armyValue >= (this.level === 2 ? 700 : 1000)) this.frontAt = t;
           } else if (t - this.lastOrder >= 100 && army.some((e) => !within(e, stage, 6))) {
             order(ARMY, O.Attack, stage);
             this.lastOrder = t;
@@ -1079,6 +1097,7 @@ export class Bot {
         this.scoutsSent++;
         this.scoutLeg = 0;
         this.scoutSince = -999;
+
       } else if (this.raid.state === 'home' && front && raiders.length < frontNeed) {
         // The detachment for a second front is taken from the army as it sets out: its fast units, or its flyers.
         const kind = flying ? FLYER : RUNNER;

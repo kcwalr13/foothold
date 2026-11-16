@@ -3,10 +3,11 @@
 A real-time strategy game for a phone held in landscape: toy soldiers on a paper map. You run an economy,
 place buildings, and command armies in groups against a computer opponent that plays by the same rules.
 
-This is milestone **MF · Frenzy**: two factions you can play or play against in any pairing, and two ways to
-play them.
+This is milestone **M4 · A real opponent**, being built: two factions you can play or play against in any
+pairing, two ways to play them, and a Classic opponent with six named plans a side and four levels.
 
-- **Classic** is one opponent on Twin Ridges: gather, build, take the map, knock down every last base.
+- **Classic** is one opponent on Twin Ridges (144 by 72 tiles): gather, build, take the map, knock down every
+  last base, or make the opponent concede.
 - **Frenzy** is four corners and every side for itself, after Footman Frenzy. Your base makes its army by
   itself; you choose what goes into the mix, buy upgrades at the Collectors behind it, and steer a hero with
   three abilities. Collectors pay, kills pay, the Watchtower in the middle pays, and a side whose base falls
@@ -20,14 +21,17 @@ play them.
   near a Nest. Eight buildings, six dinosaurs from Raptors to the Rex.
 
 Both share two resources (Blocks and Batteries), research, high ground, watchtowers, fog of war, and an
-opponent with three openings and three tech paths. In Frenzy each has a hero: the Captain (Grenade, Rally,
+opponent with six plans of its own (a rush, a fast expansion, an armour push, an air raid, a raider and a
+fortress, each named on the result screen) that opens second fronts and concedes a lost match. In Frenzy each has a hero: the Captain (Grenade, Rally,
 Air strike) and the Alpha (Pounce, Roar, Call the Pack). The design lives in the design doc linked from
 `CLAUDE.md`.
 
 ## Play
 
 Open the build on your phone, turn it sideways, and add it to the home screen. After the first visit it runs
-with no connection. On the menu, pick Classic or Frenzy, your side and the opponents', then Easy or Normal.
+with no connection. On the menu, pick Classic or Frenzy, your side and the opponents', then the level: Easy,
+Normal or Hard (the same rules for both sides, a sharper opponent each step), or in Classic Brutal, which
+plays as Hard and collects a quarter more on every load.
 
 Classic:
 
@@ -74,7 +78,8 @@ npm run dev          # local server
 npm test             # rules-engine tests (Vitest)
 npm run build        # type-check and build to dist/
 npm run e2e          # phone-sized touch tests (Playwright) against the build
-npx tsx lab/league.ts 12     # Green mirror: every opening and tech path against every other, plus one-trick bots
+npx tsx lab/league.ts 12     # Green mirror: every plan against every other, plus one-trick bots
+npx tsx lab/plans.ts 4       # the six plans of each faction against each other, in all three pairings
 npx tsx lab/league.ts 12 1 dino   # the same for a Dino mirror
 npx tsx lab/factions.ts 12   # Green Army against Dino Pack: the headline win rate, the grids, one-trick bots
 npx tsx lab/levels.ts 8      # the difficulty levels against each other and against simple play, both factions

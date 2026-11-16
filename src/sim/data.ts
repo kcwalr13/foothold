@@ -11,7 +11,7 @@ const base = {
 export const DEFS: Record<number, Def> = {
   // ---------------------------------------------------------------- Green Army units
   [K.Worker]: {
-    ...base, kind: K.Worker, name: 'Worker', plural: 'Workers', short: 'Worker', cls: C.Light, hp: 40, cost: 50, time: 100, supply: 1,
+    ...base, kind: K.Worker, name: 'Worker', plural: 'Workers', short: 'Worker', cls: C.Light, hp: 40, cost: 50, time: 80, supply: 1,
     speed: 62, radius: t(0.26), sight: 6, madeAt: K.HQ,
   },
   [K.Trooper]: {

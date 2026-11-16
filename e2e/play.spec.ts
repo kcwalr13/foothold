@@ -135,7 +135,7 @@ test('place a building by dragging its outline, then cancel one under constructi
   expect(await state<number>(p, '(m) => m.g.players[0].blocks')).toBe(450);
   // An outline over the Headquarters turns red and refuses.
   await p.getByRole('button', { name: 'Build Barracks' }).tap();
-  await p.evaluate(() => { (window as Any).__fh.movePlace(6, 37); });
+  await p.evaluate(() => { (window as Any).__fh.movePlace(6, 56); });
   expect(await state<boolean>(p, '(m) => m.placing.value.ok')).toBe(false);
   await p.getByRole('button', { name: 'Confirm build' }).tap();
   await run(p, 3);
@@ -180,15 +180,15 @@ test('select a group, send it with a tap on the map and on the minimap; Move sta
   const move = p.getByRole('button', { name: 'Move', exact: true }), attack = p.getByRole('button', { name: 'Attack', exact: true });
   await move.tap();
   await expect(move).toHaveAttribute('aria-pressed', 'true');
-  await p.touchscreen.tap(mini.x + mini.width * (30 / 96), mini.y + mini.height * (38 / 48));
+  await p.touchscreen.tap(mini.x + mini.width * (45 / 144), mini.y + mini.height * (57 / 72));
   await run(p, 2);
   expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 2 });
   await expect(move).toHaveAttribute('aria-pressed', 'true');
   await expect(p.locator('.hint')).toContainText('without stopping to fight');
-  await p.touchscreen.tap(mini.x + mini.width * (24 / 96), mini.y + mini.height * (40 / 48));
+  await p.touchscreen.tap(mini.x + mini.width * (31 / 144), mini.y + mini.height * (59 / 72));
   await run(p, 2);
   expect(await state<{ mode: number; x: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 2 });
-  expect(await state<number>(p, '(m) => m.g.players[0].groups[0].x')).toBeLessThan(27 * 256);
+  expect(await state<number>(p, '(m) => m.g.players[0].groups[0].x')).toBeLessThan(34 * 256);
   // It sticks: deselect and it is still lit, and can still be pressed; select again, still Move. Only
   // pressing Attack switches it back.
   await p.getByRole('button', { name: 'Group 1' }).tap();
@@ -199,7 +199,7 @@ test('select a group, send it with a tap on the map and on the minimap; Move sta
   await expect(move).toHaveAttribute('aria-pressed', 'true');
   await attack.tap();
   await expect(attack).toHaveAttribute('aria-pressed', 'true');
-  await p.touchscreen.tap(mini.x + mini.width * (30 / 96), mini.y + mini.height * (38 / 48));
+  await p.touchscreen.tap(mini.x + mini.width * (45 / 144), mini.y + mini.height * (57 / 72));
   await run(p, 2);
   expect(await state<{ mode: number }>(p, '(m) => m.g.players[0].groups[0]')).toMatchObject({ mode: 1 });
   await p.getByRole('button', { name: 'Hold', exact: true }).tap();
@@ -289,9 +289,9 @@ test('a Refinery snaps onto a battery pack, takes three Workers and fills the Ba
   // It starts on the pack beside the Headquarters.
   expect(await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value')).toMatchObject({ tx: 6, ty: 62, ok: true });
   // Dragged onto open ground it turns red; dragged back near the pack it snaps on.
-  await p.evaluate(() => { (window as Any).__fh.movePlace(14, 36); });
+  await p.evaluate(() => { (window as Any).__fh.movePlace(14, 55); });
   expect(await state<boolean>(p, '(m) => m.placing.value.ok')).toBe(false);
-  await p.evaluate(() => { (window as Any).__fh.movePlace(8, 42); });
+  await p.evaluate(() => { (window as Any).__fh.movePlace(8, 61); });
   expect(await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value')).toMatchObject({ tx: 6, ty: 62, ok: true });
   await p.screenshot({ path: info.outputPath('refinery.png') });
   await p.getByRole('button', { name: 'Confirm build' }).tap();
@@ -572,9 +572,10 @@ test('drag pans, the wheel zooms, and the whole map fits between the panels', as
   expect(c1.x).toBeGreaterThan(c0.x);
   expect(c1.y).toBeGreaterThan(c0.y);
   await p.mouse.wheel(0, 4000);
+  await p.mouse.wheel(0, 4000);
   const fit = await state<{ zoom: number; min: number; left: number; right: number; w: number }>(p, `(m) => {
-    m.cam.x = 48 * 256; m.cam.y = 24 * 256; m.clampCam();
-    return { zoom: m.cam.zoom, min: m.minZoom(), left: m.toScreen(0, 0).x, right: m.toScreen(96 * 256, 0).x, w: m.viewW };
+    m.cam.x = m.g.map.w * 128; m.cam.y = m.g.map.h * 128; m.clampCam();
+    return { zoom: m.cam.zoom, min: m.minZoom(), left: m.toScreen(0, 0).x, right: m.toScreen(m.g.map.w * 256, 0).x, w: m.viewW };
   }`);
   expect(fit.zoom).toBeCloseTo(fit.min, 5);
   expect(fit.left).toBeGreaterThanOrEqual(172);
