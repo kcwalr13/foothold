@@ -25,8 +25,8 @@ most three taste questions.
 - The sim and the opponent are fair to both sides, exactly: a match in which both sides run the same opponent
   with the same dice is a mirror image of itself on every tick, and any match replayed with the two opponents'
   seats swapped is the same match turned half a circle (`fair to both sides` in the tests; `npx tsx lab/fair.ts`
-  runs nine mirrors for each faction and eighteen seat swaps across all three pairings, and names the first tick
-  and unit that differ). To keep it so:
+  runs a mirror for each of the six plans of each faction and eighteen seat swaps across all three pairings, and
+  names the first tick and unit that differ). To keep it so:
   - while units are being moved, a unit reads another entity's `px`/`py` (where it stood when the tick's moves
     began), never its `x`/`y`; pushes are summed into `qx`/`qy` and applied afterwards;
   - anything laid out by offsets (formation slots, the way stacked units part) is turned half a circle for player 1;
@@ -54,8 +54,9 @@ most three taste questions.
   - abilities ordered on the same tick are all checked before any takes effect (`castOk`), and those that
     land later wait in `g.casts` and are resolved together: leaps, then packs, then blasts;
   - everything that falls on a tick is paid for and learnt from before any side is put out (`frenzyDeaths`).
-  Classic must not change when Frenzy does: its matches are the same, hash for hash, as before Frenzy
-  existed: `npx tsx lab/hashes.ts` prints twelve checksums to compare before and after any change to `src/sim`.
+  Classic must not change when Frenzy does: `npx tsx lab/hashes.ts` prints twelve checksums to compare before
+  and after any change to `src/sim`. (They last changed on purpose with M4: the opponent's six plans and the
+  bigger map.)
 - Every change to a match is a `Command` (`src/sim/types.ts`), scheduled for the next tick. The player and the
   opponent use the same commands; the sim validates every field, because a command may one day come from
   another phone.
@@ -162,10 +163,21 @@ most three taste questions.
   Tempo; the Captain (Grenade, Rally, Air strike) and the Alpha (Pounce, Roar, Call the Pack); Follow; the
   middle; Overtime; the sides are Green (you), Tan, Blue
   and Red.
-- The opponent's openings are `rush`, `standard` (safe expansion) and `greedy` (fast expansion); its tech paths
-  are `infantry`, `armour` and `air`, for both factions (`PATHS` and `DINO_PATHS`). One `Bot` class plays both;
-  it is told who is playing whom (`faction`, `foe`) and weights its choice by that. The six named plans in the
-  design doc are M4.
+- Classic's map is Twin Ridges (`twinRidges()` in `map.ts`), 144 by 72 tiles since M4 (it was 96 by 48): Kyle
+  asked for more room. Each base is laid out about its Headquarters as it always was, so a load is the same
+  walk. The pathfinder packs a tile index into the low 16 bits of its heap (`SLOT` in `nav.ts`), so a map may
+  have up to 65536 tiles; a building's field is keyed above `w * h`, where no tile's can be.
+- The opponent plays one of six plans a match (`SCHEMES`: `rush`, `expand`, `armour`, `air`, `raider`,
+  `fortress`), each named per faction (`SCHEME_NAMES`: Rush, Fast expand, Armour push, Air raid, Raider,
+  Fortress; Stampede, Big nest, Horn charge, Sky raid, Pack hunt, Den) and said on the result screen with
+  `SCHEME_LINES`. A plan sets an opening (`rush`, `standard` or `greedy`: `SCHEME_OPENING`), a tech path
+  (`infantry`, `armour`, `air`, or the Fortress's own `FORT_PATH` and `DINO_FORT_PATH`) and a few habits in
+  `think` (`fortress`, `raider`, `pusher`). One `Bot` class plays both factions; it is told who is playing whom
+  (`faction`, `foe`) and weights its pick by that. Levels are Easy 0, Normal 1, Hard 2 and Brutal 3; Brutal is
+  Hard's opponent with `RULES.brutalBonus` percent more on every load (`Player.bonus`, set by `createGame`, the
+  one rule that differs between the sides, and said on the menu). A big army that sets out opens a second front
+  (`frontAt`: a detachment goes for another base), and an opponent that can't win back a match concedes it (a
+  `concede` command, Classic only; two sides conceding on the same tick both lose, `winner` -2).
 - Frenzy's opponent is `FrenzyBot` (`src/ai/frenzy.ts`), under the same rule: a `View` in, commands out. Its
   bents are `swarm`, `heavy` and `air`; it counter-picks its mix from what it has seen, keeps new units at
   home as a reserve while its army is out, and picks whom to go for by who is hurt and who is near, not by

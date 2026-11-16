@@ -34,12 +34,13 @@ function drawSheet(map: GameMap): HTMLCanvasElement {
   const rnd = seeded(7);
   x.fillStyle = PAPER;
   x.fillRect(0, 0, c.width, c.height);
-  // Paper grain and a few old stains.
-  for (let i = 0; i < 5200; i++) {
+  // Paper grain and a few old stains, as thick on a big sheet as on a small one.
+  const grain = Math.max(5200, Math.round((5200 * map.w * map.h) / (96 * 48)));
+  for (let i = 0; i < grain; i++) {
     x.fillStyle = `rgba(${rnd() < 0.5 ? '120,96,60' : '255,250,235'},${0.03 + rnd() * 0.05})`;
     x.fillRect(rnd() * c.width, rnd() * c.height, 1 + rnd() * 2, 1 + rnd() * 2);
   }
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < Math.max(7, Math.round((7 * map.w * map.h) / (96 * 48))); i++) {
     const g = x.createRadialGradient(0, 0, 0, 0, 0, 60 + rnd() * 120);
     g.addColorStop(0, 'rgba(160,125,70,0.07)');
     g.addColorStop(1, 'rgba(160,125,70,0)');

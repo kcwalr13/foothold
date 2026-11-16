@@ -6,10 +6,12 @@ const HQ_SIZE = 4;
 
 /**
  * Twin Ridges: one short, narrow road through the middle (the Pass) and two long, open roads around it.
- * Player 0 starts bottom-left on a plateau with one ramp; player 1 starts top-right.
+ * Player 0 starts bottom-left on a plateau with one ramp; player 1 starts top-right. Since M4 it is half as
+ * wide and half as tall again as it was (144 by 72 tiles): the same shape, with more ground between things.
+ * Each base is laid out about its Headquarters as before, so a load of Blocks is the same walk it always was.
  */
 export function twinRidges(): GameMap {
-  const w = 96, h = 48;
+  const w = 144, h = 72;
   const rock = new Uint8Array(w * h);
   const high = new Uint8Array(w * h);
   /** Sets a tile and its twin on the far side of the map. */
@@ -20,16 +22,16 @@ export function twinRidges(): GameMap {
   const put = (x0: number, y0: number, x1: number, y1: number) => {
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(rock, x, y, 1);
   };
-  // The main's plateau: cliffs above and to the right, with one ramp (rows 37 to 40) down to the natural.
-  put(0, 30, 24, 31);
-  put(23, 32, 24, 36);
-  put(23, 41, 24, 47);
-  for (let y = 32; y <= 47; y++) for (let x = 0; x <= 22; x++) set(high, x, y, 1);
+  // The main's plateau: cliffs above and to the right, with one ramp (rows 56 to 61) down to the natural.
+  put(0, 46, 31, 47);
+  put(30, 48, 31, 55);
+  put(30, 62, 31, 71);
+  for (let y = 48; y <= 71; y++) for (let x = 0; x <= 29; x++) set(high, x, y, 1);
   // The ridge north-west of the Pass; its twin sits south-east. A ridge is high ground inside a ring of cliff,
   // with one ramp on the side away from the Pass.
-  const rx0 = 30, ry0 = 10, rx1 = 45, ry1 = 22;
+  const rx0 = 46, ry0 = 14, rx1 = 69, ry1 = 33;
   const onRidge = (x: number, y: number) => x >= rx0 && x <= rx1 && y >= ry0 && y <= ry1
-    && Math.min(x - rx0, rx1 - x) + Math.min(y - ry0, ry1 - y) >= 2;
+    && Math.min(x - rx0, rx1 - x) + Math.min(y - ry0, ry1 - y) >= 3;
   for (let y = ry0; y <= ry1; y++) for (let x = rx0; x <= rx1; x++) {
     if (!onRidge(x, y)) continue;
     let inner = true;
@@ -37,12 +39,12 @@ export function twinRidges(): GameMap {
     if (inner) set(high, x, y, 1);
     else set(rock, x, y, 1);
   }
-  for (let y = 15; y <= 17; y++) set(rock, rx0, y, 0);
+  for (let y = 22; y <= 25; y++) set(rock, rx0, y, 0);
 
   const near: Omit<BaseSite, 'id' | 'side'>[] = [
-    { name: 'Main', tier: 0, hx: 6, hy: 37, cells: [{ tx: 6, ty: 43, amount: 2500 }], piles: [33, 35, 37, 39, 41, 43].map((ty) => ({ tx: 2, ty, amount: 1500 })) },
-    { name: 'Natural', tier: 1, hx: 30, hy: 40, cells: [{ tx: 36, ty: 41, amount: 2500 }], piles: [26, 28, 30, 32, 34, 36].map((tx) => ({ tx, ty: 46, amount: 1500 })) },
-    { name: 'Third', tier: 2, hx: 6, hy: 21, cells: [{ tx: 12, ty: 22, amount: 2500 }], piles: [17, 19, 21, 23, 25, 27].map((ty) => ({ tx: 2, ty, amount: 1500 })) },
+    { name: 'Main', tier: 0, hx: 6, hy: 56, cells: [{ tx: 6, ty: 62, amount: 2500 }], piles: [52, 54, 56, 58, 60, 62].map((ty) => ({ tx: 2, ty, amount: 1500 })) },
+    { name: 'Natural', tier: 1, hx: 40, hy: 61, cells: [{ tx: 46, ty: 62, amount: 2500 }], piles: [36, 38, 40, 42, 44, 46].map((tx) => ({ tx, ty: 67, amount: 1500 })) },
+    { name: 'Third', tier: 2, hx: 6, hy: 31, cells: [{ tx: 12, ty: 32, amount: 2500 }], piles: [27, 29, 31, 33, 35, 37].map((ty) => ({ tx: 2, ty, amount: 1500 })) },
     {
       name: 'Rich', tier: 3, hx: 6, hy: 5, cells: [{ tx: 12, ty: 6, amount: 3000 }, { tx: 6, ty: 11, amount: 3000 }],
       piles: [
@@ -62,21 +64,21 @@ export function twinRidges(): GameMap {
     });
   }
   // One watchtower on each long road, half-way along.
-  const towers = [{ tx: 47, ty: 5 }, { tx: w - 1 - 47, ty: h - 1 - 5 }];
+  const towers = [{ tx: 71, ty: 6 }, { tx: w - 1 - 71, ty: h - 1 - 6 }];
 
   const flip = (pts: { x: number; y: number }[]) => pts.map((p) => ({ x: w - p.x, y: h - p.y }));
-  const north = [{ x: 13, y: 8 }, { x: 28, y: 5.5 }, { x: 48, y: 5 }, { x: 58, y: 6 }];
-  const west = [{ x: 31, y: 39 }, { x: 27, y: 30 }, { x: 14, y: 24 }, { x: 10, y: 11 }];
+  const north = [{ x: 15, y: 9 }, { x: 40, y: 7.5 }, { x: 72, y: 6.5 }, { x: 88, y: 8 }];
+  const west = [{ x: 44, y: 58 }, { x: 40, y: 44 }, { x: 20, y: 37 }, { x: 14, y: 14 }];
   const roads = [
-    [{ x: 33, y: 39 }, { x: 44, y: 28 }, { x: 48, y: 24 }, { x: 52, y: 20 }, { x: 63, y: 9 }],
+    [{ x: 49, y: 58 }, { x: 66, y: 42 }, { x: 72, y: 36 }, { x: 78, y: 30 }, { x: 95, y: 14 }],
     north, flip(north), west, flip(west),
   ];
   const labels = [
-    { text: 'The Pass', x: 48.6, y: 22.2, rot: -0.78 },
-    { text: 'North Road', x: 36, y: 3.4, rot: -0.05 },
-    { text: 'South Road', x: 60, y: 45.4, rot: -0.05 },
-    { text: 'Watchtower', x: 47.6, y: 7.6, rot: 0.03, small: true },
-    { text: 'Watchtower', x: 48.4, y: 40.4, rot: 0.03, small: true },
+    { text: 'The Pass', x: 72.9, y: 33.6, rot: -0.78 },
+    { text: 'North Road', x: 52, y: 4.4, rot: -0.04 },
+    { text: 'South Road', x: 92, y: 69.4, rot: -0.04 },
+    { text: 'Watchtower', x: 71.6, y: 9.2, rot: 0.03, small: true },
+    { text: 'Watchtower', x: 72.4, y: 63.4, rot: 0.03, small: true },
   ];
   return { name: 'Twin Ridges', seats: 2, w, h, rock, high, bases, towers, posts: [], roads, labels };
 }

@@ -33,12 +33,12 @@ describe('the map', () => {
     const m = g.map;
     const from = m.bases[0]!;
     const field = g.nav.field(99998, () => [(from.hy + 5) * m.w + from.hx + 5]);
-    const top = 16 * m.w + 37; // the middle of the north-west ridge
+    const top = 23 * m.w + 57; // the middle of the north-west ridge
     expect(m.high[top]).toBe(1);
     expect(field[top]).toBeLessThan(0xffff);
-    expect(field[(m.h - 1 - 16) * m.w + (m.w - 1 - 37)]).toBeLessThan(0xffff);
+    expect(field[(m.h - 1 - 23) * m.w + (m.w - 1 - 57)]).toBeLessThan(0xffff);
     expect(m.high[(from.hy + 1) * m.w + from.hx + 1]).toBe(1);
-    expect(m.high[38 * m.w + 23]).toBe(0); // the ramp itself is low
+    expect(m.high[58 * m.w + 30]).toBe(0); // the ramp itself is low
     const nat = m.bases[1]!;
     expect(m.high[(nat.hy + 1) * m.w + nat.hx + 1]).toBe(0);
   });
@@ -108,6 +108,34 @@ describe('a Brutal opponent', () => {
   });
 });
 
+describe('conceding', () => {
+  it('ends a Classic match on the next tick, for the other side; two sides conceding together both lose', () => {
+    const g = createGame(1);
+    run(g, 50);
+    schedule(g, { t: 'concede', p: 1 });
+    step(g);
+    expect(g.winner).toBe(0);
+    const h = createGame(1);
+    schedule(h, { t: 'concede', p: 0 });
+    schedule(h, { t: 'concede', p: 1 });
+    step(h);
+    expect(h.winner).toBe(-2);
+  });
+  it('is not a way out of a Frenzy round, and a concession from nobody is nothing', () => {
+    const g = createGame(3, undefined, ['green', 'dino', 'green', 'dino']);
+    schedule(g, { t: 'concede', p: 2 });
+    schedule(g, { t: 'concede', p: 7 });
+    run(g, 5);
+    expect(g.winner).toBe(-1);
+    expect(g.players.some((p) => p.out)).toBe(false);
+    const h = createGame(1);
+    schedule(h, { t: 'concede', p: 2 });
+    schedule(h, { t: 'concede', p: -1 });
+    run(h, 5);
+    expect(h.winner).toBe(-1);
+  });
+});
+
 describe('Batteries', () => {
   const rich = () => {
     const g = createGame(1);
@@ -118,21 +146,21 @@ describe('Batteries', () => {
 
   it('a Refinery goes on a battery pack and nowhere else', () => {
     const g = rich();
-    expect(canPlace(g, 0, K.Refinery, 6, 43)).toBe(true);
-    expect(canPlace(g, 0, K.Refinery, 13, 34)).toBe(false);
-    expect(canPlace(g, 0, K.Barracks, 6, 43)).toBe(false);
-    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 13, ty: 34 });
-    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 6, ty: 43 });
-    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 6, ty: 43 });
+    expect(canPlace(g, 0, K.Refinery, 6, 62)).toBe(true);
+    expect(canPlace(g, 0, K.Refinery, 13, 53)).toBe(false);
+    expect(canPlace(g, 0, K.Barracks, 6, 62)).toBe(false);
+    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 13, ty: 53 });
+    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 6, ty: 62 });
+    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 6, ty: 62 });
     run(g, 2);
     expect(g.ents.filter((e) => e.kind === K.Refinery).length).toBe(1);
-    expect(canPlace(g, 0, K.Refinery, 6, 43)).toBe(false);
+    expect(canPlace(g, 0, K.Refinery, 6, 62)).toBe(false);
   });
 
   it('takes three Workers and brings Batteries in', () => {
     const g = rich();
     g.players[0]!.gas = 0;
-    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 6, ty: 43 });
+    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 6, ty: 62 });
     run(g, def(K.Refinery).time + 400);
     const r = g.ents.find((e) => e.kind === K.Refinery)!;
     expect(r.built).toBe(true);
@@ -149,35 +177,35 @@ describe('Batteries', () => {
 
   it('the pack outlives its Refinery, cancelled or destroyed', () => {
     const g = rich();
-    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 6, ty: 43 });
+    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 6, ty: 62 });
     run(g, 2);
     const site = g.ents.find((e) => e.kind === K.Refinery)!;
     schedule(g, { t: 'cancel', p: 0, id: site.id });
     run(g, 2);
     expect(g.players[0]!.blocks).toBe(5000);
-    expect(canPlace(g, 0, K.Refinery, 6, 43)).toBe(true);
-    expect(g.nav.isBlocked(6, 43)).toBe(true);
-    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 6, ty: 43 });
+    expect(canPlace(g, 0, K.Refinery, 6, 62)).toBe(true);
+    expect(g.nav.isBlocked(6, 62)).toBe(true);
+    schedule(g, { t: 'build', p: 0, kind: K.Refinery, tx: 6, ty: 62 });
     run(g, def(K.Refinery).time + 100);
     const r = g.ents.find((e) => e.kind === K.Refinery)!;
     expect(r.built).toBe(true);
     r.hp = 0;
     run(g, 2);
     expect(g.ents.some((e) => e.kind === K.Refinery)).toBe(false);
-    expect(canPlace(g, 0, K.Refinery, 6, 43)).toBe(true);
+    expect(canPlace(g, 0, K.Refinery, 6, 62)).toBe(true);
     run(g, 200);
     expect(g.ents.filter((e) => e.owner === 0 && e.kind === K.Worker && e.cargo === 1 && e.carry === 0).length).toBe(0);
   });
 
   it('new buildings and units need what comes before them, and cost Batteries', () => {
     const g = rich();
-    schedule(g, { t: 'build', p: 0, kind: K.Factory, tx: 13, ty: 34 });
+    schedule(g, { t: 'build', p: 0, kind: K.Factory, tx: 13, ty: 53 });
     run(g, 2);
     expect(g.ents.some((e) => e.kind === K.Factory)).toBe(false);
     const at = (tx: number, ty: number) => [(tx + 1.5) * TILE, (ty + 1.5) * TILE] as const;
-    spawn(g, K.Barracks, 0, ...at(13, 34));
-    spawn(g, K.Factory, 0, ...at(17, 34));
-    schedule(g, { t: 'build', p: 0, kind: K.Heavy, tx: 13, ty: 42 });
+    spawn(g, K.Barracks, 0, ...at(13, 53));
+    spawn(g, K.Factory, 0, ...at(17, 53));
+    schedule(g, { t: 'build', p: 0, kind: K.Heavy, tx: 13, ty: 61 });
     run(g, 2);
     expect(g.ents.some((e) => e.kind === K.Heavy)).toBe(false); // no Armory yet
     schedule(g, { t: 'train', p: 0, kind: K.Jugger });
@@ -190,8 +218,8 @@ describe('Batteries', () => {
     schedule(g, { t: 'train', p: 0, kind: K.Tank });
     run(g, 2);
     expect(f.queue.length).toBe(1);
-    spawn(g, K.Armory, 0, ...at(13, 42));
-    spawn(g, K.Heavy, 0, ...at(17, 42));
+    spawn(g, K.Armory, 0, ...at(13, 61));
+    spawn(g, K.Heavy, 0, ...at(17, 61));
     g.players[0]!.gas = 1000;
     schedule(g, { t: 'train', p: 0, kind: K.Jugger });
     run(g, 2);
@@ -203,7 +231,7 @@ describe('Batteries', () => {
     schedule(g, { t: 'research', p: 0, kind: K.Weapons });
     run(g, 2);
     expect(g.players[0]!.blocks).toBe(5000); // no Armory
-    const lab = spawn(g, K.Armory, 0, 14.5 * TILE, 35.5 * TILE);
+    const lab = spawn(g, K.Armory, 0, 14.5 * TILE, 54.5 * TILE);
     schedule(g, { t: 'research', p: 0, kind: K.Weapons });
     schedule(g, { t: 'research', p: 0, kind: K.Weapons });
     schedule(g, { t: 'research', p: 0, kind: K.Trooper });
@@ -224,8 +252,8 @@ describe('Batteries', () => {
       const h = createGame(1);
       h.players[0]!.weapons = weapons;
       h.players[1]!.armour = armour;
-      for (let i = 0; i < 10; i++) spawn(h, K.Trooper, 0, 45 * TILE, (38 + i * 0.6) * TILE);
-      const tank = spawn(h, K.Tank, 1, 49 * TILE, 41 * TILE);
+      for (let i = 0; i < 10; i++) spawn(h, K.Trooper, 0, 55 * TILE, (46 + i * 0.6) * TILE);
+      const tank = spawn(h, K.Tank, 1, 59 * TILE, 49 * TILE);
       tank.mode = O.Hold;
       run(h, 50);
       return def(K.Tank).hp - tank.hp;
@@ -241,25 +269,25 @@ describe('building', () => {
   it('goes anywhere on open ground, blocks movement, and can be cancelled for a refund', () => {
     const g = createGame(1);
     g.players[0]!.blocks = 1000;
-    expect(canPlace(g, 0, K.Barracks, 13, 34)).toBe(true);
-    expect(canPlace(g, 0, K.Barracks, 5, 36)).toBe(false); // on the Headquarters
-    expect(canPlace(g, 0, K.Barracks, 22, 34)).toBe(false); // on the cliff
-    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 13, ty: 34 });
+    expect(canPlace(g, 0, K.Barracks, 13, 53)).toBe(true);
+    expect(canPlace(g, 0, K.Barracks, 5, 55)).toBe(false); // on the Headquarters
+    expect(canPlace(g, 0, K.Barracks, 29, 50)).toBe(false); // on the cliff
+    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 13, ty: 53 });
     run(g, 2);
     const site = g.ents.find((e) => e.kind === K.Barracks)!;
     expect(site.built).toBe(false);
-    expect(g.nav.isBlocked(14, 35)).toBe(true);
+    expect(g.nav.isBlocked(14, 54)).toBe(true);
     expect(g.players[0]!.blocks).toBe(1000 - def(K.Barracks).cost);
     schedule(g, { t: 'cancel', p: 0, id: site.id });
     run(g, 2);
     expect(g.players[0]!.blocks).toBe(1000);
-    expect(g.nav.isBlocked(14, 35)).toBe(false);
+    expect(g.nav.isBlocked(14, 54)).toBe(false);
   });
 
   it('a Worker walks over and finishes it, then goes back to hauling', () => {
     const g = createGame(1);
     g.players[0]!.blocks = 1000;
-    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 13, ty: 34 });
+    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 13, ty: 53 });
     run(g, def(K.Barracks).time + 80);
     const b = g.ents.find((e) => e.kind === K.Barracks)!;
     expect(b.built).toBe(true);
@@ -271,14 +299,16 @@ describe('building', () => {
   it('a Turret needs a Barracks first, and a wall of buildings closes a ramp', () => {
     const g = createGame(1);
     g.players[0]!.blocks = 5000;
-    schedule(g, { t: 'build', p: 0, kind: K.Turret, tx: 15, ty: 40 });
+    schedule(g, { t: 'build', p: 0, kind: K.Turret, tx: 15, ty: 59 });
     run(g, 2);
     expect(g.ents.some((e) => e.kind === K.Turret)).toBe(false);
-    // The ramp is four tiles tall: two Barracks side by side in front of it leave no way through.
-    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 20, ty: 36 });
-    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 20, ty: 39 });
+    // The ramp is six tiles tall: three Barracks side by side in front of it leave no way through.
+    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 27, ty: 55 });
+    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 27, ty: 58 });
+    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 27, ty: 61 });
     run(g, 2);
-    const inside = 39 * g.map.w + 10, outside = 39 * g.map.w + 30;
+    expect(g.ents.filter((e) => e.kind === K.Barracks).length).toBe(3);
+    const inside = 58 * g.map.w + 12, outside = 58 * g.map.w + 38;
     const field = g.nav.field(88888, () => [inside]);
     expect(field[outside]).toBe(0xffff);
   });
@@ -288,17 +318,17 @@ describe('orders', () => {
   it('a group attack-moves across the map and arrives', () => {
     const g = createGame(1);
     g.players[0]!.blocks = 5000;
-    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 13, ty: 34 });
+    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 13, ty: 53 });
     run(g, def(K.Barracks).time + 80);
     for (let i = 0; i < 4; i++) schedule(g, { t: 'train', p: 0, kind: K.Trooper });
     run(g, def(K.Trooper).time * 4 + 20);
     const troopers = () => g.ents.filter((e) => e.owner === 0 && e.kind === K.Trooper);
     expect(troopers().length).toBe(4);
-    schedule(g, { t: 'order', p: 0, group: 0, mode: O.Move, x: 48 * TILE, y: 42 * TILE });
-    run(g, 500);
+    schedule(g, { t: 'order', p: 0, group: 0, mode: O.Move, x: 72 * TILE, y: 40 * TILE });
+    run(g, 700);
     for (const u of troopers()) {
-      expect(Math.abs(u.x - 48 * TILE)).toBeLessThan(3 * TILE);
-      expect(Math.abs(u.y - 42 * TILE)).toBeLessThan(3 * TILE);
+      expect(Math.abs(u.x - 72 * TILE)).toBeLessThan(3 * TILE);
+      expect(Math.abs(u.y - 40 * TILE)).toBeLessThan(3 * TILE);
       expect(u.arrived).toBe(true);
     }
   });
@@ -424,9 +454,9 @@ describe('the full arsenal', () => {
 
   it('a Gunship flies straight over the cliff, and Lancers can do nothing about it', () => {
     const g = createGame(1);
-    const ship = spawn(g, K.Gunship, 0, 12 * TILE, 35 * TILE);
+    const ship = spawn(g, K.Gunship, 0, 12 * TILE, 54 * TILE);
     ship.group = 1;
-    schedule(g, { t: 'order', p: 0, group: 1, mode: O.Move, x: 40 * TILE, y: 35 * TILE });
+    schedule(g, { t: 'order', p: 0, group: 1, mode: O.Move, x: 40 * TILE, y: 54 * TILE });
     let overRock = false;
     for (let i = 0; i < 120; i++) {
       step(g);
@@ -434,8 +464,8 @@ describe('the full arsenal', () => {
     }
     expect(overRock).toBe(true);
     expect(Math.abs(ship.x - 40 * TILE)).toBeLessThan(TILE);
-    expect(Math.abs(ship.y - 35 * TILE)).toBeLessThan(TILE);
-    const lancers = [0, 1, 2].map((i) => spawn(g, K.Lancer, 1, 42 * TILE, (34 + i) * TILE));
+    expect(Math.abs(ship.y - 54 * TILE)).toBeLessThan(TILE);
+    const lancers = [0, 1, 2].map((i) => spawn(g, K.Lancer, 1, 42 * TILE, (53 + i) * TILE));
     run(g, 200);
     expect(ship.hp).toBe(def(K.Gunship).hp);
     expect(lancers.every((l) => l.hp <= 0)).toBe(true);
@@ -445,8 +475,8 @@ describe('the full arsenal', () => {
 describe('high ground and watchtowers', () => {
   it('from below you cannot see up; from above you see down and shoot further', () => {
     const g = createGame(1);
-    const up = spawn(g, K.Trooper, 0, 21 * TILE + 128, 38 * TILE + 128);
-    const down = spawn(g, K.Trooper, 1, 27 * TILE + 128, 38 * TILE + 128);
+    const up = spawn(g, K.Trooper, 0, 28 * TILE + 128, 52 * TILE + 128);
+    const down = spawn(g, K.Trooper, 1, 34 * TILE + 128, 52 * TILE + 128);
     up.mode = O.Hold;
     down.mode = O.Hold;
     run(g, 2);
@@ -457,16 +487,16 @@ describe('high ground and watchtowers', () => {
     expect(down.hp).toBeLessThan(def(K.Trooper).hp);
     expect(up.hp).toBe(def(K.Trooper).hp);
     // A flyer overhead shows the high ground to everyone below, and then they can shoot back.
-    spawn(g, K.Gunship, 1, 26 * TILE, 36 * TILE).mode = O.Hold;
+    spawn(g, K.Gunship, 1, 33 * TILE, 50 * TILE).mode = O.Hold;
     run(g, 2);
     expect(visibleTo(g, 1, up)).toBe(true);
   });
 
   it('a flyer is seen from any height', () => {
     const g = createGame(1);
-    const ship = spawn(g, K.Gunship, 1, 37 * TILE, 16 * TILE); // over the north-west ridge
+    const ship = spawn(g, K.Gunship, 1, 57 * TILE, 20 * TILE); // over the north-west ridge
     ship.mode = O.Hold;
-    const below = spawn(g, K.Trooper, 0, 37 * TILE, 8 * TILE);
+    const below = spawn(g, K.Trooper, 0, 57 * TILE, 11 * TILE);
     below.mode = O.Hold;
     run(g, 2);
     expect(g.map.high[tileIndex(g, ship.x, ship.y)]).toBe(1);
@@ -503,7 +533,7 @@ describe('the Dino Pack', () => {
     const g = dino();
     g.players[0]!.blocks = 3000;
     g.players[0]!.gas = 3000;
-    order(g, { t: 'build', p: 0, kind: K.Den, tx: 13, ty: 34 });
+    order(g, { t: 'build', p: 0, kind: K.Den, tx: 13, ty: 53 });
     run(g, 500);
     expect(mine(g, K.Den)[0]?.built).toBe(true);
     return g;
@@ -558,7 +588,7 @@ describe('the Dino Pack', () => {
   it('a Gatherer becomes the building, which then grows by itself', () => {
     const g = dino();
     g.players[0]!.blocks = 500;
-    order(g, { t: 'build', p: 0, kind: K.Den, tx: 13, ty: 34 });
+    order(g, { t: 'build', p: 0, kind: K.Den, tx: 13, ty: 53 });
     const den = mine(g, K.Den)[0]!;
     expect(den.built).toBe(false);
     expect(g.players[0]!.blocks).toBe(500 - def(K.Den).cost);
@@ -578,7 +608,7 @@ describe('the Dino Pack', () => {
   it('cancelling a Dino building gives the Gatherer back', () => {
     const g = dino();
     g.players[0]!.blocks = 500;
-    order(g, { t: 'build', p: 0, kind: K.Den, tx: 13, ty: 34 });
+    order(g, { t: 'build', p: 0, kind: K.Den, tx: 13, ty: 53 });
     run(g, 150);
     expect(mine(g, K.Gatherer).length).toBe(7);
     order(g, { t: 'cancel', p: 0, id: mine(g, K.Den)[0]!.id });
@@ -621,7 +651,7 @@ describe('the Dino Pack', () => {
     g.players[0]!.gas = 3000;
     order(g, { t: 'train', p: 0, kind: K.Raptor });
     expect(g.events.some((e) => e.t === 'refused' && e.why === 'Needs a Den')).toBe(true);
-    order(g, { t: 'build', p: 0, kind: K.Wallow, tx: 13, ty: 34 });
+    order(g, { t: 'build', p: 0, kind: K.Wallow, tx: 13, ty: 53 });
     expect(g.events.some((e) => e.t === 'refused' && e.why === 'Needs a Den first')).toBe(true);
     const g2 = withDen();
     const supply = g2.players[0]!.supply, blocks = g2.players[0]!.blocks;
@@ -644,7 +674,7 @@ describe('the Dino Pack', () => {
     const g = withDen();
     const pack = g.ents.filter((e) => e.kind === K.Cell).sort((a, b) => (a.x - mine(g, K.Nest)[0]!.x) ** 2 + (a.y - mine(g, K.Nest)[0]!.y) ** 2 - (b.x - mine(g, K.Nest)[0]!.x) ** 2 - (b.y - mine(g, K.Nest)[0]!.y) ** 2)[0]!;
     order(g, { t: 'build', p: 0, kind: K.Dig, tx: pack.x / TILE - 1, ty: pack.y / TILE - 1 });
-    order(g, { t: 'build', p: 0, kind: K.BonePit, tx: 9, ty: 32 });
+    order(g, { t: 'build', p: 0, kind: K.BonePit, tx: 9, ty: 51 });
     order(g, { t: 'research', p: 0, kind: K.Weapons });
     order(g, { t: 'research', p: 0, kind: K.Claws });
     expect(g.events.some((e) => e.t === 'refused' && e.why === 'Needs a Bone Pit')).toBe(true);
@@ -661,8 +691,8 @@ describe('the Dino Pack', () => {
 
   it('teeth must reach: a Raptor bites what it touches, a building at any wall, and gains no range from a cliff', () => {
     const g = createGame(1, undefined, ['dino', 'green']);
-    const r = spawn(g, K.Raptor, 0, 46 * TILE, 30 * TILE);
-    const t = spawn(g, K.Trooper, 1, 46 * TILE + TILE * 3, 30 * TILE);
+    const r = spawn(g, K.Raptor, 0, 56 * TILE, 38 * TILE);
+    const t = spawn(g, K.Trooper, 1, 56 * TILE + TILE * 3, 38 * TILE);
     t.mode = O.Hold;
     r.group = 3;
     step(g);
@@ -674,9 +704,9 @@ describe('the Dino Pack', () => {
     // A Raptor at the corner of a Barracks can bite it.
     const g2 = createGame(1, undefined, ['dino', 'green']);
     g2.players[1]!.blocks = 1000;
-    const b = spawn(g2, K.Barracks, 1, 47 * TILE + TILE / 2, 30 * TILE + TILE / 2);
-    g2.nav.setRect(46, 29, 3, 1);
-    const r2 = spawn(g2, K.Raptor, 0, 45 * TILE + TILE / 2, 28 * TILE + TILE / 2);
+    const b = spawn(g2, K.Barracks, 1, 57 * TILE + TILE / 2, 38 * TILE + TILE / 2);
+    g2.nav.setRect(56, 37, 3, 1);
+    const r2 = spawn(g2, K.Raptor, 0, 55 * TILE + TILE / 2, 36 * TILE + TILE / 2);
     r2.group = 3;
     run(g2, 40);
     expect(b.hp).toBeLessThan(def(K.Barracks).hp);
@@ -684,9 +714,9 @@ describe('the Dino Pack', () => {
 
   it('a Horn charges the last few steps, and a Bronto stomp hurts everything around its target', () => {
     const g = createGame(1, undefined, ['dino', 'green']);
-    const h = spawn(g, K.Horn, 0, 44 * TILE, 30 * TILE);
+    const h = spawn(g, K.Horn, 0, 54 * TILE, 38 * TILE);
     h.group = 3;
-    const far = spawn(g, K.Trooper, 1, 49 * TILE, 30 * TILE);
+    const far = spawn(g, K.Trooper, 1, 59 * TILE, 38 * TILE);
     far.mode = O.Hold;
     far.hp = 9999;
     step(g);
@@ -694,9 +724,9 @@ describe('the Dino Pack', () => {
     run(g, 4);
     expect((h.x - x0) / 4).toBeGreaterThan(def(K.Horn).speed);
     const g2 = createGame(1, undefined, ['dino', 'green']);
-    const br = spawn(g2, K.Bronto, 0, 46 * TILE, 30 * TILE);
+    const br = spawn(g2, K.Bronto, 0, 56 * TILE, 38 * TILE);
     br.group = 3;
-    const ts = [0, 1, 2].map((i) => spawn(g2, K.Trooper, 1, 47 * TILE + i * 150, 30 * TILE + (i - 1) * 120));
+    const ts = [0, 1, 2].map((i) => spawn(g2, K.Trooper, 1, 57 * TILE + i * 150, 38 * TILE + (i - 1) * 120));
     for (const t of ts) t.mode = O.Hold;
     run(g2, 45);
     expect(ts.filter((t) => t.hp < def(K.Trooper).hp).length).toBe(3);
@@ -808,13 +838,13 @@ describe('the Dino unit table', () => {
 
 describe('fair to both sides', () => {
   it('a fight between two mirrored armies is a mirror to the last shot, whichever side was made first', () => {
-    const W = 96 * TILE, H = 48 * TILE;
     for (const first of [0, 1]) {
       const g = createGame(1);
+      const W = g.map.w * TILE, H = g.map.h * TILE, cx = g.map.w / 2, cy = g.map.h / 2;
       const pairs: [ReturnType<typeof spawn>, ReturnType<typeof spawn>][] = [];
       const kinds: Kind[] = [K.Trooper, K.Trooper, K.Lancer, K.Tank, K.Runner, K.Trooper, K.Mortar, K.Trooper, K.Lancer, K.Tank, K.Jugger, K.Trooper];
       kinds.forEach((kind, i) => {
-        const x = Math.round((38 + (i % 4) * 0.8) * TILE), y = Math.round((30 + Math.floor(i / 4) * 0.8) * TILE);
+        const x = Math.round((cx - 10 + (i % 4) * 0.8) * TILE), y = Math.round((cy + 6 + Math.floor(i / 4) * 0.8) * TILE);
         const a = first === 0 ? spawn(g, kind, 0, x, y) : undefined;
         const b = spawn(g, kind, 1, W - x, H - y);
         const a2 = a ?? spawn(g, kind, 0, x, y);
@@ -822,8 +852,8 @@ describe('fair to both sides', () => {
         b.group = 3;
         pairs.push([a2, b]);
       });
-      schedule(g, { t: 'order', p: 0, group: 3, mode: O.Attack, x: W - 40 * TILE, y: H - 31 * TILE });
-      schedule(g, { t: 'order', p: 1, group: 3, mode: O.Attack, x: 40 * TILE, y: 31 * TILE });
+      schedule(g, { t: 'order', p: 0, group: 3, mode: O.Attack, x: W - (cx - 8) * TILE, y: H - (cy + 7) * TILE });
+      schedule(g, { t: 'order', p: 1, group: 3, mode: O.Attack, x: (cx - 8) * TILE, y: (cy + 7) * TILE });
       let fought = false;
       for (let t = 0; t < 600; t++) {
         step(g);
@@ -839,17 +869,17 @@ describe('fair to both sides', () => {
 
   it('a whole match between two copies of one opponent stays a mirror image of itself', () => {
     // Same plan, same dice, opposite ends of the map: ten minutes of building, scouting, flying and fighting
-    // in which neither side may ever be a single step or hit point ahead. `npx tsx lab/fair.ts` runs all nine.
-    for (const [plan, tech] of [['standard', 'infantry'], ['greedy', 'air']] as const) {
-      const r = firstBreak(plan, tech, 6000);
-      expect(r.tick < 0 ? 'a mirror' : `${plan}/${tech} breaks at tick ${r.tick}: ${r.detail.join('; ')}`).toBe('a mirror');
+    // in which neither side may ever be a single step or hit point ahead. `npx tsx lab/fair.ts` runs all twelve.
+    for (const scheme of ['raider', 'air'] as const) {
+      const r = firstBreak(scheme, 6000);
+      expect(r.tick < 0 ? 'a mirror' : `${scheme} breaks at tick ${r.tick}: ${r.detail.join('; ')}`).toBe('a mirror');
     }
   });
 
   it('two different opponents play the same match whichever end of the map each starts at', () => {
     // A rush against a safe expansion into Tanks, and then the same two with their seats swapped: every unit
     // of the second match must stand, tick for tick, where the first match's stands turned half a circle.
-    const r = seatSwap({ plan: 'rush', tech: 'infantry', dice: 1006 }, { plan: 'standard', tech: 'armour', dice: 2006 }, 6, 7000);
+    const r = seatSwap({ scheme: 'rush', dice: 1006 }, { scheme: 'armour', dice: 2006 }, 6, 7000);
     expect(r.tick < 0 ? 'the same match' : `differs at tick ${r.tick}: ${r.detail.join('; ')}`).toBe('the same match');
     expect(r.ticks).toBeGreaterThan(3000);
   });

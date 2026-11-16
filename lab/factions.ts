@@ -1,8 +1,9 @@
-// Green Army against Dino Pack, the computer on both sides: every opening against every other and every tech
-// path against every other, with each faction taking each seat. The design's target is that neither faction
-// wins more than 55% of these. Then each faction's one-trick builds against the other faction's Normal opponent.
+// Green Army against Dino Pack, the computer on both sides. The headline: each side picks its own plan, as it
+// does against a player. Then every one of the six named plans against every other, with each faction taking
+// each seat. The design's target is that neither faction wins more than 55% of the headline. Then each
+// faction's one-trick builds against the other faction's Normal opponent.
 // Run: npx tsx lab/factions.ts [seeds] [level]
-import { PLANS, TECHS, TRICKS } from '../src/ai/bot';
+import { SCHEMES, SCHEME_NAMES, TRICKS } from '../src/ai/bot';
 import type { Faction } from '../src/sim/types';
 import { mmss, type Result } from './match';
 import { playAll, type Job } from './pool';
@@ -66,69 +67,57 @@ function summary(name: string, rs: Played[]): void {
 const t0 = Date.now();
 let k = 0;
 // Every match gets a seed of its own, and each pairing is played from both seats in turn.
-const planCells: Omit<Played, 'r'>[] = [], planJobs: Job[] = [];
-for (let s = 1; s <= seeds; s++) {
-  PLANS.forEach((a, i) => PLANS.forEach((b, j) => {
+const per = Math.max(2, Math.round(seeds / 2));
+const schemeCells: Omit<Played, 'r'>[] = [], schemeJobs: Job[] = [];
+for (let s = 1; s <= per; s++) {
+  SCHEMES.forEach((a, i) => SCHEMES.forEach((b, j) => {
     const dinoSeat = (s + i + j) % 2;
-    planCells.push({ dino: a, green: b, dinoSeat });
-    planJobs.push(job(s * 103 + 9 + 1021 * k++, dinoSeat, { plan: a, level }, { plan: b, level }));
+    schemeCells.push({ dino: a, green: b, dinoSeat });
+    schemeJobs.push(job(s * 103 + 9 + 1021 * k++, dinoSeat, { scheme: a, level }, { scheme: b, level }));
   }));
 }
-const techCells: Omit<Played, 'r'>[] = [], techJobs: Job[] = [];
-for (let s = 1; s <= seeds; s++) {
-  TECHS.forEach((a, i) => TECHS.forEach((b, j) => {
-    const dinoSeat = (s + i + j) % 2;
-    techCells.push({ dino: a, green: b, dinoSeat });
-    techJobs.push(job(s * 223 + 3 + 1031 * k++, dinoSeat, { plan: 'standard', tech: a, level }, { plan: 'standard', tech: b, level }));
-  }));
-}
-// The headline: both sides pick their own opening and tech path, as they do against a player.
+// The headline: both sides pick their own plan, as they do against a player.
 const openCells: Omit<Played, 'r'>[] = [], openJobs: Job[] = [];
 for (let i = 0; i < seeds * 18; i++) {
   openCells.push({ dino: '', green: '', dinoSeat: i % 2 });
   openJobs.push(job(i * 37 + 11 + 1049 * k++, i % 2, { level }, { level }));
 }
-const played = await playAll([...planJobs, ...techJobs, ...openJobs]);
-const byPlan: Played[] = planCells.map((c, i) => ({ ...c, r: played[i]! }));
-const byTech: Played[] = techCells.map((c, i) => ({ ...c, r: played[planCells.length + i]! }));
+const played = await playAll([...schemeJobs, ...openJobs]);
+const byScheme: Played[] = schemeCells.map((c, i) => ({ ...c, r: played[i]! }));
 const asPlayed: Played[] = openCells.map((c, i) => {
-  const r = played[planCells.length + techCells.length + i]!;
-  return { dinoSeat: c.dinoSeat, dino: `${r.plans[c.dinoSeat]} ${r.techs[c.dinoSeat]}`, green: `${r.plans[1 - c.dinoSeat]} ${r.techs[1 - c.dinoSeat]}`, r };
+  const r = played[schemeCells.length + i]!;
+  return { dinoSeat: c.dinoSeat, dino: r.schemes[c.dinoSeat]!, green: r.schemes[1 - c.dinoSeat]!, r };
 });
-summary(`Dino Pack against Green Army as the opponent plays it (each side picks its own opening and tech path), level ${level}`, asPlayed);
+summary(`Dino Pack against Green Army as the opponent plays it (each side picks its own plan), level ${level}`, asPlayed);
 for (const f of ['dino', 'green'] as const) {
   const tally = new Map<string, [number, number]>();
   for (const x of asPlayed) {
     if (x.r.winner < 0) continue;
-    for (const key of x[f].split(' ')) {
-      const e = tally.get(key) ?? [0, 0];
-      e[1]++;
-      if (dinoWon(x) === (f === 'dino')) e[0]++;
-      tally.set(key, e);
-    }
+    const e = tally.get(x[f]) ?? [0, 0];
+    e[1]++;
+    if (dinoWon(x) === (f === 'dino')) e[0]++;
+    tally.set(x[f], e);
   }
-  console.log(`  ${f === 'dino' ? 'Dino Pack' : 'Green Army'} wins by its own choice: ${[...PLANS, ...TECHS].map((key) => `${key} ${pct(tally.get(key)?.[0] ?? 0, tally.get(key)?.[1] ?? 0).trim()} of ${tally.get(key)?.[1] ?? 0}`).join(', ')}`);
+  console.log(`  ${f === 'dino' ? 'Dino Pack' : 'Green Army'} wins by its own plan: ${SCHEMES.map((key) => `${SCHEME_NAMES[f][key]} ${pct(tally.get(key)?.[0] ?? 0, tally.get(key)?.[1] ?? 0).trim()} of ${tally.get(key)?.[1] ?? 0}`).join(', ')}`);
 }
-summary(`Dino Pack against Green Army, openings (tech paths at random), level ${level}`, byPlan);
-grid('Win rate of the Dino Pack, by its opening (rows) and the Green Army\'s (columns):', PLANS, byPlan);
-summary('Dino Pack against Green Army, tech paths (both sides open with the safe expansion)', byTech);
-grid('Win rate of the Dino Pack, by its tech path (rows) and the Green Army\'s (columns):', TECHS, byTech);
-const all = [...byPlan, ...byTech].filter((x) => x.r.winner >= 0);
-console.log(`\nThe two grids together, ${all.length} finished matches: the Dino Pack wins ${pct(all.filter(dinoWon).length, all.length).trim()}, the Green Army ${pct(all.length - all.filter(dinoWon).length, all.length).trim()}`);
+summary(`Dino Pack against Green Army, every plan against every other, level ${level}`, byScheme);
+grid('Win rate of the Dino Pack, by its plan (rows) and the Green Army\'s (columns):', SCHEMES, byScheme);
+const all = byScheme.filter((x) => x.r.winner >= 0);
+console.log(`\nEvery plan against every other, ${all.length} finished matches: the Dino Pack wins ${pct(all.filter(dinoWon).length, all.length).trim()}, the Green Army ${pct(all.length - all.filter(dinoWon).length, all.length).trim()}`);
 console.log(`(${((Date.now() - t0) / 1000).toFixed(0)}s)`);
 
 if (!quiet) {
   console.log('\nOne-trick bots against the other faction\'s Normal opponent (win rate of the trick):');
   const rows: { f: Faction; trick: string; plan: string; first: number; n: number }[] = [];
   const jobs: Job[] = [];
-  const per = Math.max(4, Math.floor(seeds / 2));
+  const each = Math.max(2, Math.floor(seeds / 4));
   for (const f of ['green', 'dino'] as const) {
     const foe: Faction = f === 'green' ? 'dino' : 'green';
-    for (const trick of TRICKS[f]) for (const plan of PLANS) {
-      rows.push({ f, trick, plan, first: jobs.length, n: per * 2 });
-      for (let s = 1; s <= per; s++) {
-        jobs.push({ seed: s * 59 + 3 + 1039 * k++, a: { trick, level: 1 }, b: { plan, level: 1 }, maxTicks: 18000, factions: [f, foe] });
-        jobs.push({ seed: s * 59 + 4 + 1039 * k++, a: { plan, level: 1 }, b: { trick, level: 1 }, maxTicks: 18000, factions: [foe, f] });
+    for (const trick of TRICKS[f]) for (const scheme of SCHEMES) {
+      rows.push({ f, trick, plan: SCHEME_NAMES[foe][scheme], first: jobs.length, n: each * 2 });
+      for (let s = 1; s <= each; s++) {
+        jobs.push({ seed: s * 59 + 3 + 1039 * k++, a: { trick, level: 1 }, b: { scheme, level: 1 }, maxTicks: 18000, factions: [f, foe] });
+        jobs.push({ seed: s * 59 + 4 + 1039 * k++, a: { scheme, level: 1 }, b: { trick, level: 1 }, maxTicks: 18000, factions: [foe, f] });
       }
     }
   }

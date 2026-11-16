@@ -120,14 +120,14 @@ test('place a building by dragging its outline, then cancel one under constructi
   await expect(p.locator('.bar.place')).toContainText('drag the outline');
   await noSmallButtons(p);
   const from = await state<{ x: number; y: number; tx: number; ty: number }>(p, `(m) => { const pl = m.placing.value; const s = m.toScreen((pl.tx + 1.5) * 256, (pl.ty + 1.5) * 256); return { x: s.x, y: s.y, tx: pl.tx, ty: pl.ty }; }`);
-  const to = await state<{ x: number; y: number }>(p, '(m) => m.toScreen(17.5 * 256, 35.5 * 256)');
+  const to = await state<{ x: number; y: number }>(p, '(m) => m.toScreen(17.5 * 256, 54.5 * 256)');
   await p.mouse.move(from.x, from.y);
   await p.mouse.down();
   await p.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 4 });
   await p.mouse.move(to.x, to.y, { steps: 4 });
   await p.mouse.up();
   const placed = await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value');
-  expect(placed).toMatchObject({ tx: 16, ty: 34, ok: true });
+  expect(placed).toMatchObject({ tx: 16, ty: 53, ok: true });
   await p.screenshot({ path: info.outputPath('placing.png') });
   await p.getByRole('button', { name: 'Confirm build' }).tap();
   await run(p, 3);
@@ -155,7 +155,7 @@ test('select a group, send it with a tap on the map and on the minimap; Move sta
   await p.evaluate(() => {
     const m = (window as Any).__fh;
     m.g.players[0].blocks = 3000;
-    m.issue({ t: 'build', p: 0, kind: 21, tx: 13, ty: 34 });
+    m.issue({ t: 'build', p: 0, kind: 21, tx: 13, ty: 53 });
   });
   await run(p, 400);
   await p.evaluate(() => {
@@ -213,7 +213,7 @@ test('make groups in the organiser: tap the units, then the group they should jo
     const m = (window as Any).__fh;
     for (let i = 0; i < 8; i++) m.debugSpawn(2, 0, 15 + (i % 4), 40 + Math.floor(i / 4));
     for (let i = 0; i < 3; i++) m.debugSpawn(4, 0, 15 + i, 42);
-    for (let i = 0; i < 2; i++) m.debugSpawn(5, 0, 15 + i, 43);
+    for (let i = 0; i < 2; i++) m.debugSpawn(5, 0, 15 + i, 62);
     for (const e of m.g.ents) if (e.owner === 0 && e.group === 3) e.group = 0;
   });
   await run(p, 2);
@@ -287,12 +287,12 @@ test('a Refinery snaps onto a battery pack, takes three Workers and fills the Ba
   await p.getByRole('button', { name: 'Build Refinery' }).tap();
   await expect(p.locator('.bar.place')).toContainText('battery pack');
   // It starts on the pack beside the Headquarters.
-  expect(await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value')).toMatchObject({ tx: 6, ty: 43, ok: true });
+  expect(await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value')).toMatchObject({ tx: 6, ty: 62, ok: true });
   // Dragged onto open ground it turns red; dragged back near the pack it snaps on.
   await p.evaluate(() => { (window as Any).__fh.movePlace(14, 36); });
   expect(await state<boolean>(p, '(m) => m.placing.value.ok')).toBe(false);
   await p.evaluate(() => { (window as Any).__fh.movePlace(8, 42); });
-  expect(await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value')).toMatchObject({ tx: 6, ty: 43, ok: true });
+  expect(await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value')).toMatchObject({ tx: 6, ty: 62, ok: true });
   await p.screenshot({ path: info.outputPath('refinery.png') });
   await p.getByRole('button', { name: 'Confirm build' }).tap();
   await run(p, 700);
@@ -302,7 +302,7 @@ test('a Refinery snaps onto a battery pack, takes three Workers and fills the Ba
   await expect(p.locator('[data-stat="workers"]')).toContainText('/15');
   // With the only pack in reach taken, a second Refinery starts on the next nearest.
   await p.getByRole('button', { name: 'Build Refinery' }).tap();
-  expect(await state<{ tx: number; ty: number }>(p, '(m) => m.placing.value')).not.toMatchObject({ tx: 6, ty: 43 });
+  expect(await state<{ tx: number; ty: number }>(p, '(m) => m.placing.value')).not.toMatchObject({ tx: 6, ty: 62 });
 });
 
 test('the panels say what a unit needs, and research runs at the Armory', async ({ page: p }, info) => {
@@ -317,8 +317,8 @@ test('the panels say what a unit needs, and research runs at the Armory', async 
   await expect(p.locator('.toast.warn')).toContainText('Needs a Factory');
   await p.evaluate(() => {
     const m = (window as Any).__fh;
-    m.debugSpawn(21, 0, 13.5, 34.5);
-    m.debugSpawn(24, 0, 17.5, 34.5);
+    m.debugSpawn(21, 0, 13.5, 53.5);
+    m.debugSpawn(24, 0, 17.5, 53.5);
   });
   await run(p, 2);
   await p.getByRole('button', { name: 'Train Juggernaut' }).tap();
@@ -330,7 +330,7 @@ test('the panels say what a unit needs, and research runs at the Armory', async 
   await p.getByRole('button', { name: 'Tech', exact: true }).tap();
   await p.getByRole('button', { name: 'Research Weapons' }).tap();
   await expect(p.locator('.toast.warn', { hasText: 'Armory' })).toContainText('Needs an Armory');
-  await p.evaluate(() => { (window as Any).__fh.debugSpawn(26, 0, 13.5, 43.5); });
+  await p.evaluate(() => { (window as Any).__fh.debugSpawn(26, 0, 13.5, 62.5); });
   await run(p, 2);
   await p.getByRole('button', { name: 'Research Weapons' }).tap();
   await run(p, 100);
@@ -487,8 +487,8 @@ test('a Gatherer becomes the building, and only on nesting ground', async ({ pag
   expect(await state<boolean>(p, '(m) => m.placing.value.ok')).toBe(false);
   await p.getByRole('button', { name: 'Confirm build' }).tap();
   await expect(p.locator('.toast.warn')).toContainText('nesting ground');
-  await p.evaluate(() => { (window as Any).__fh.movePlace(13, 34); });
-  expect(await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value')).toMatchObject({ tx: 13, ty: 34, ok: true });
+  await p.evaluate(() => { (window as Any).__fh.movePlace(13, 53); });
+  expect(await state<{ tx: number; ty: number; ok: boolean }>(p, '(m) => m.placing.value')).toMatchObject({ tx: 13, ty: 53, ok: true });
   await p.screenshot({ path: info.outputPath('nesting-ground.png') });
   await p.getByRole('button', { name: 'Confirm build' }).tap();
   await run(p, 3);
@@ -518,7 +518,7 @@ test('every dinosaur and Dino building is drawn, near and far, with nothing goin
     m.g.players[0].explored.fill(1);
     m.g.players[0].gas = 2000;
     m.g.players[0].blocks = 2000;
-    [32, 33, 34, 35, 36, 37, 31].forEach((k, i) => m.debugSpawn(k, 0, 12.5 + (i % 4) * 4, 31.5 + Math.floor(i / 4) * 12));
+    [32, 33, 34, 35, 36, 37, 31].forEach((k, i) => m.debugSpawn(k, 0, 12.5 + (i % 4) * 4, 50.5 + Math.floor(i / 4) * 12));
     [10, 11, 12, 13, 14, 15, 16].forEach((k, i) => {
       m.debugSpawn(k, 0, 12 + (i % 4) * 1.5, 37.5 + Math.floor(i / 4) * 1.5);
       m.debugSpawn(k, 1, 18.5 + (i % 4) * 1.5, 37.5 + Math.floor(i / 4) * 1.5);

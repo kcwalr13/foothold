@@ -14,7 +14,8 @@ export interface Side { kind: Kind; n: number }
 export function fight(a: Side[], b: Side[], hold: 0 | 1 | -1 = -1): { left: [number, number]; ticks: number } {
   const g = createGame(1);
   const W = g.map.w * TILE, H = g.map.h * TILE;
-  const AX = 41.5, AY = 26;
+  // Just off the middle of the map, in the Pass, the far side the mirror image.
+  const AX = g.map.w / 2 - 6.5, AY = g.map.h / 2 + 2;
   const put = (side: Side[], owner: number) => {
     let i = 0;
     for (const s of side) for (let k = 0; k < s.n; k++) {

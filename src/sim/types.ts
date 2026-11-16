@@ -285,7 +285,9 @@ export type Command =
   /** Frenzy: pay once for the right to put a unit in the mix. */
   | { t: 'unlock'; p: number; kind: Kind }
   /** Frenzy: the hero uses ability `slot` (0 to 2), at a point if the ability takes one. */
-  | { t: 'cast'; p: number; slot: number; x: number; y: number };
+  | { t: 'cast'; p: number; slot: number; x: number; y: number }
+  /** Classic only: the side gives the match up, and the other wins it. */
+  | { t: 'concede'; p: number };
 
 export type GameEvent =
   | { t: 'shot'; from: number; to: number; kind: Kind; x1: number; y1: number; x2: number; y2: number; owner: number }

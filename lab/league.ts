@@ -1,8 +1,9 @@
-// The bot league: every opening against every other, and every tech path against every other,
-// on both sides of the map, over many seeds. Then the one-trick builds against the Normal opponent.
+// The bot league: each side picking its own plan as it does against a player, then every one of the six named
+// plans against every other, on both sides of the map, over many seeds. Then the one-trick builds against the
+// Normal opponent.
 // Both sides play the same faction: the Green Army unless `dino` is given. Green against Dino is lab/factions.ts.
 // Run: npx tsx lab/league.ts [seeds] [level] [green|dino]
-import { PLANS, TECHS, TRICKS } from '../src/ai/bot';
+import { SCHEMES, SCHEME_NAMES, TRICKS, type Scheme } from '../src/ai/bot';
 import type { Faction } from '../src/sim/types';
 import { mmss, type Result } from './match';
 import { playAll, type Job } from './pool';
@@ -67,41 +68,48 @@ function summary(name: string, rs: Result[]): void {
 }
 
 const t0 = Date.now();
-type Plan = (typeof PLANS)[number];
-type Tech = (typeof TECHS)[number];
 // Every match gets a seed of its own, so no two pairings share the same roll of the dice.
 let k = 0;
-const planPairs: { a: Plan; b: Plan }[] = [], techPairs: { a: Tech; b: Tech }[] = [], jobs: Job[] = [];
-for (let s = 1; s <= seeds; s++) {
-  for (const a of PLANS) for (const b of PLANS) {
-    planPairs.push({ a, b });
-    jobs.push({ seed: s * 101 + 7 + 1009 * k++, a: { plan: a, level }, b: { plan: b, level }, maxTicks: 18000, factions: sides });
+const named = (x: Scheme) => SCHEME_NAMES[faction][x];
+const pairs: { a: string; b: string }[] = [], jobs: Job[] = [];
+const per = Math.max(2, Math.round(seeds / 3));
+for (let s = 1; s <= per; s++) {
+  for (const a of SCHEMES) for (const b of SCHEMES) {
+    pairs.push({ a: named(a), b: named(b) });
+    jobs.push({ seed: s * 101 + 7 + 1009 * k++, a: { scheme: a, level }, b: { scheme: b, level }, maxTicks: 18000, factions: sides });
   }
 }
-for (let s = 1; s <= seeds; s++) {
-  for (const a of TECHS) for (const b of TECHS) {
-    techPairs.push({ a, b });
-    jobs.push({ seed: s * 211 + 5 + 1013 * k++, a: { plan: 'standard', tech: a, level }, b: { plan: 'standard', tech: b, level }, maxTicks: 18000, factions: sides });
+// As the opponent plays it: both sides pick their own plan.
+const free: Job[] = [];
+for (let i = 0; i < seeds * 9; i++) free.push({ seed: i * 211 + 5 + 1013 * k++, a: { level }, b: { level }, maxTicks: 18000, factions: sides });
+const played = await playAll([...free, ...jobs]);
+const asPlayed = played.slice(0, free.length);
+const byScheme = pairs.map((x, i) => ({ ...x, r: played[free.length + i]! }));
+summary(`${NAME} mirror as the opponent plays it (each side picks its own plan), level ${level}`, asPlayed);
+const tally = new Map<string, [number, number]>();
+for (const r of asPlayed) {
+  if (r.winner < 0) continue;
+  for (const side of [0, 1]) {
+    const e = tally.get(r.schemes[side]!) ?? [0, 0];
+    e[1]++;
+    if (r.winner === side) e[0]++;
+    tally.set(r.schemes[side]!, e);
   }
 }
-const played = await playAll(jobs);
-const byPlan = planPairs.map((x, i) => ({ ...x, r: played[i]! }));
-const byTech = techPairs.map((x, i) => ({ ...x, r: played[planPairs.length + i]! }));
-summary(`${NAME} mirror. Openings (tech paths at random), level ${level}`, byPlan.map((x) => x.r));
-table('Win rate of the row opening against the column opening:', PLANS, byPlan);
-summary('Tech paths (both sides open with the safe expansion)', byTech.map((x) => x.r));
-table('Win rate of the row tech path against the column tech path:', TECHS, byTech);
+console.log(`  wins by its own plan: ${SCHEMES.map((x) => `${named(x)} ${pct(tally.get(x)?.[0] ?? 0, tally.get(x)?.[1] ?? 0).trim()} of ${tally.get(x)?.[1] ?? 0}`).join(', ')}`);
+summary(`Every plan against every other, level ${level}`, byScheme.map((x) => x.r));
+table('Win rate of the row plan against the column plan:', SCHEMES.map(named), byScheme);
 console.log(`\n(${((Date.now() - t0) / 1000).toFixed(0)}s)`);
 
 if (!quiet) {
   console.log('\nOne-trick bots against the Normal opponent (win rate of the trick):');
-  const per = Math.max(4, Math.floor(seeds / 2));
+  const each = Math.max(2, Math.floor(seeds / 4));
   const rows: { trick: string; plan: string; first: number }[] = [], trickJobs: Job[] = [];
-  for (const trick of TRICKS[faction]) for (const plan of PLANS) {
-    rows.push({ trick, plan, first: trickJobs.length });
-    for (let s = 1; s <= per; s++) {
-      trickJobs.push({ seed: s * 53 + 3 + 1019 * k++, a: { trick, level: 1 }, b: { plan, level: 1 }, maxTicks: 18000, factions: sides });
-      trickJobs.push({ seed: s * 53 + 4 + 1019 * k++, a: { plan, level: 1 }, b: { trick, level: 1 }, maxTicks: 18000, factions: sides });
+  for (const trick of TRICKS[faction]) for (const scheme of SCHEMES) {
+    rows.push({ trick, plan: named(scheme), first: trickJobs.length });
+    for (let s = 1; s <= each; s++) {
+      trickJobs.push({ seed: s * 53 + 3 + 1019 * k++, a: { trick, level: 1 }, b: { scheme, level: 1 }, maxTicks: 18000, factions: sides });
+      trickJobs.push({ seed: s * 53 + 4 + 1019 * k++, a: { scheme, level: 1 }, b: { trick, level: 1 }, maxTicks: 18000, factions: sides });
     }
   }
   const rs = await playAll(trickJobs);
@@ -111,10 +119,10 @@ if (!quiet) {
     for (const row of rows.filter((x) => x.trick === trick)) {
       let pw = 0;
       // The trick sits in seat 0 for even jobs and seat 1 for odd ones.
-      for (let i = 0; i < per * 2; i++) if (rs[row.first + i]!.winner === i % 2) pw++;
+      for (let i = 0; i < each * 2; i++) if (rs[row.first + i]!.winner === i % 2) pw++;
       w += pw;
-      n += per * 2;
-      perPlan.push(`${row.plan} ${pct(pw, per * 2)}`);
+      n += each * 2;
+      perPlan.push(`${row.plan} ${pct(pw, each * 2)}`);
     }
     console.log(`${trick.padEnd(9)} ${pct(w, n)}   (${perPlan.join(', ')})`);
   }

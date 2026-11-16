@@ -12,6 +12,10 @@ export interface Result {
   ticks: number;
   plans: [string, string];
   techs: [string, string];
+  /** Each side's named plan. */
+  schemes: [string, string];
+  /** The loser gave the match up rather than lose its last hall. */
+  conceded: boolean;
   /** Supply in fighting units at the end, and the most each side ever had. */
   peak: [number, number];
   /** What each side trained, by unit name. */
@@ -38,7 +42,7 @@ export function playMatch(
   const peak: [number, number] = [0, 0];
   const made: [Record<string, number>, Record<string, number>] = [{}, {}];
   const known = new Set<number>();
-  while (g.winner < 0 && g.tick < maxTicks) {
+  while (g.winner === -1 && g.tick < maxTicks) {
     for (const bot of bots) for (const cmd of bot.think(makeView(g, bot.p))) schedule(g, cmd);
     step(g);
     watch?.(g);
@@ -62,6 +66,8 @@ export function playMatch(
     seed, winner: g.winner, ticks: g.tick,
     plans: [a.trick ?? bots[0]!.plan, b.trick ?? bots[1]!.plan],
     techs: [bots[0]!.tech, bots[1]!.tech],
+    schemes: [bots[0]!.scheme, bots[1]!.scheme],
+    conceded: g.players.some((pl) => pl.out),
     peak, made,
     gathered: [g.players[0]!.stats.gathered, g.players[1]!.stats.gathered],
     batteries: [g.players[0]!.stats.gathered2, g.players[1]!.stats.gathered2],

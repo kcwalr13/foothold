@@ -319,7 +319,7 @@ export class Match {
         this.aim.value = -1;
         this.over.value = g.winner >= 0 ? g.winner : 100;
       }
-    } else if (g.winner >= 0 && this.over.value < 0) this.over.value = g.winner;
+    } else if (g.winner !== -1 && this.over.value < 0) this.over.value = g.winner >= 0 ? g.winner : 100;
     if (g.tick % 600 === 0) {
       for (const id of this.fired.keys()) if (!g.byId.has(id)) this.fired.delete(id);
     }

@@ -3,6 +3,8 @@
 import { TILE } from './types';
 
 export const INF = 0xffff;
+/** The heap holds cost and tile in one number, the tile in the low part: room for maps of up to 65536 tiles. */
+const SLOT = 1 << 16;
 
 /** Whole-number square root. */
 export function isqrt(n: number): number {
@@ -39,6 +41,7 @@ export class Nav {
   private heap: number[] = [];
 
   constructor(readonly w: number, readonly h: number, rock: Uint8Array) {
+    if (w * h > SLOT) throw new Error(`a ${w} by ${h} map is more tiles than the pathfinder has room for`);
     this.blocked = rock.slice();
   }
 
@@ -123,7 +126,7 @@ export class Nav {
     }
     while (this.heap.length > 0) {
       const top = this.pop();
-      const cost = Math.floor(top / 8192), i = top % 8192;
+      const cost = Math.floor(top / SLOT), i = top % SLOT;
       if (cost > d[i]!) continue;
       const x = i % w, y = (i - x) / w;
       for (let k = 0; k < 8; k++) {
@@ -135,7 +138,7 @@ export class Nav {
         const nc = cost + (k < 4 ? 10 : 14);
         if (nc < d[ni]!) {
           d[ni] = nc;
-          this.push(nc * 8192 + ni);
+          this.push(nc * SLOT + ni);
         }
       }
     }

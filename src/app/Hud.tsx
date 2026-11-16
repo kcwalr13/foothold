@@ -7,6 +7,7 @@ import { SIDES, SPEEDS, type AbilityInfo, type Match, type SpawnInfo, type Upgra
 import { toyIcon } from './icons';
 import { TEAM } from './toys';
 import { UnitGuide } from './Guide';
+import { SCHEME_LINES, SCHEME_NAMES } from '../ai/bot';
 
 const HERO = FRENZY.heroGroup;
 
@@ -591,7 +592,7 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
         <div class="veil">
           <div class="sheet end">
             <h1>{over === m.me ? 'Victory' : 'Defeat'}</h1>
-            <p>{over === m.me ? `Their last ${def(FACTIONS[theirs].hall).name} is down.` : `Your last ${def(F.hall).name} is down.`} Match time {clock(m.g.tick)}.</p>
+            <p>{over === m.me ? (m.g.players[1 - m.me]!.out ? 'The opponent conceded.' : `Their last ${def(FACTIONS[theirs].hall).name} is down.`) : `Your last ${def(F.hall).name} is down.`} Match time {clock(m.g.tick)}.</p>
             <table>
               <tr><th></th><th>You</th><th>Opponent</th></tr>
               <tr><td>Units trained</td><td>{m.g.players[0]!.stats.trained}</td><td>{m.g.players[1]!.stats.trained}</td></tr>
@@ -600,10 +601,7 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
               <tr><td>Blocks hauled</td><td>{m.g.players[0]!.stats.gathered}</td><td>{m.g.players[1]!.stats.gathered}</td></tr>
               <tr><td>Batteries hauled</td><td>{m.g.players[0]!.stats.gathered2}</td><td>{m.g.players[1]!.stats.gathered2}</td></tr>
             </table>
-            <p class="small">The opponent opened with a {m.bot.plan === 'rush' ? 'rush' : m.bot.plan === 'greedy' ? 'fast expansion' : 'safe expansion'} and
-              built toward {theirs === 'dino'
-                ? (m.bot.tech === 'air' ? 'a flock of Pteros' : m.bot.tech === 'armour' ? 'Horns, Brontos and Rexes' : 'a swarm of Raptors and Spitters')
-                : (m.bot.tech === 'air' ? 'Gunships' : m.bot.tech === 'armour' ? 'Tanks and Juggernauts' : 'upgraded infantry')}.</p>
+            <p class="small" data-scheme={m.bot.scheme}>The opponent&rsquo;s plan was <b>{SCHEME_NAMES[theirs][m.bot.scheme]}</b>: {SCHEME_LINES[theirs][m.bot.scheme]}.</p>
             <button class="chip wide" onClick={onAgain}>Play again</button>
             <button class="chip wide" onClick={onQuit}>Menu</button>
           </div>

@@ -193,7 +193,7 @@ function moveTo(g: Game, e: Entity, gx: number, gy: number, speed: number, targe
     }
     if (!e.los) {
       const d = solid
-        ? nav.field(10000 + target!.id, () => footprintTiles(g, target!))
+        ? nav.field(nav.w * nav.h + target!.id, () => footprintTiles(g, target!)) // tile goals are keyed by tile, below w * h
         : nav.field(goal, () => [goal]);
       const n = nav.next(d, tx, ty, e.x, e.y, turnOf(g, e.owner) ?? 0);
       if (n >= 0) {
@@ -581,6 +581,12 @@ function runCommands(g: Game): void {
       }
       case 'order': cmdOrder(g, cmd); break;
       case 'assign': cmdAssign(g, cmd); break;
+      case 'concede': {
+        // A Frenzy round is lost only by losing the base.
+        const pl = g.players[cmd.p];
+        if (pl && !frenzy) pl.out = true;
+        break;
+      }
       case 'rally': {
         const pl = g.players[cmd.p];
         if (frenzy && cmd.group === FRENZY.heroGroup) break;
@@ -1346,6 +1352,10 @@ function accounts(g: Game): void {
   for (const e of g.ents) if (isHall(e.kind) && e.owner >= 0) hq[e.owner]!++;
   if (hq[0] === 0) g.winner = 1;
   else if (hq[1] === 0) g.winner = 0;
+  // A side that has conceded has lost; two that concede on the same tick have both lost.
+  else if (g.players[0]!.out && g.players[1]!.out) g.winner = -2;
+  else if (g.players[0]!.out) g.winner = 1;
+  else if (g.players[1]!.out) g.winner = 0;
 }
 
 export function step(g: Game): void {

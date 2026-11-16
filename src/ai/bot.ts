@@ -14,6 +14,38 @@ export const PLANS: Plan[] = ['rush', 'standard', 'greedy'];
  */
 export type Tech = 'infantry' | 'armour' | 'air';
 export const TECHS: Tech[] = ['infantry', 'armour', 'air'];
+/**
+ * The six plans the design doc names: the same six shapes for both factions, each faction naming them in its
+ * own words. A plan fixes the opening and the tech path, and adds a few habits of its own on top: when it
+ * attacks, how it raids, how far it digs in.
+ */
+export type Scheme = 'rush' | 'expand' | 'armour' | 'air' | 'raider' | 'fortress';
+export const SCHEMES: Scheme[] = ['rush', 'expand', 'armour', 'air', 'raider', 'fortress'];
+export const SCHEME_NAMES: Record<Faction, Record<Scheme, string>> = {
+  green: { rush: 'Rush', expand: 'Fast expand', armour: 'Armour push', air: 'Air raid', raider: 'Raider', fortress: 'Fortress' },
+  dino: { rush: 'Stampede', expand: 'Big nest', armour: 'Horn charge', air: 'Sky raid', raider: 'Pack hunt', fortress: 'Den' },
+};
+/** What each plan does, in a line for the result screen. */
+export const SCHEME_LINES: Record<Faction, Record<Scheme, string>> = {
+  green: {
+    rush: 'soldiers before economy, and an early attack',
+    expand: 'a second base before an army',
+    armour: 'an early Factory, and Tanks and Mortars at about 7:00',
+    air: 'an early Airfield, and Gunships sent after your Workers',
+    raider: 'Runner packs at every expansion while it took more of the map',
+    fortress: 'Turrets and Mortars at home until its Juggernauts arrived',
+  },
+  dino: {
+    rush: 'Raptors before Gatherers, and an early attack',
+    expand: 'a second Nest before an army',
+    armour: 'an early Wallow, and Horns and Brontos at about 7:00',
+    air: 'an early Roost, and Pteros sent after your Workers',
+    raider: 'Raptor packs at every expansion while it took more of the map',
+    fortress: 'Volcanoes and Spitters at home until its Rexes arrived',
+  },
+};
+const SCHEME_OPENING: Record<Scheme, Plan> = { rush: 'rush', expand: 'greedy', armour: 'standard', air: 'standard', raider: 'greedy', fortress: 'standard' };
+
 /** Fixed builds with no adapting, used by the lab to prove one-trick play loses. */
 export type Trick = 'troopers' | 'runners' | 'lancers' | 'turtle' | 'tanks' | 'gunships' | 'raptors' | 'spitters' | 'horns' | 'pteros';
 /** The one-trick builds each faction can play. */
@@ -23,6 +55,9 @@ export const TRICKS: Record<Faction, Trick[]> = {
 };
 
 export interface BotOptions {
+  /** One of the six named plans; picked at random, weighted by level and match-up, when not given. */
+  scheme?: Scheme;
+  /** The lab may still force an opening or a tech path on its own; either overrides the plan's. */
   plan?: Plan;
   tech?: Tech;
   /** -1 idle (for the lab), 0 Easy, 1 Normal, 2 Hard, 3 Brutal. Brutal plays as Hard; its extra income is the rules' (`Player.bonus`). */
@@ -87,6 +122,25 @@ const PATHS: Record<Tech, Step[]> = {
   ],
 };
 
+/**
+ * A Fortress digs in and goes straight for its heavies: Heavy Works (or a Great Cave) a few minutes sooner than
+ * the armour path would, with an Armory or Bone Pit on the way for the research its turtle lives on.
+ */
+const FORT_PATH: Step[] = [
+  { kind: K.Factory, refineries: 1, after: 1800, bases: 2 },
+  { kind: K.Armory, refineries: 1, after: 2400 },
+  { kind: K.Heavy, refineries: 2, after: 3000 },
+  { kind: K.Factory, refineries: 2, after: 0 },
+  { kind: K.Factory, refineries: 3, after: 0 },
+  { kind: K.Airfield, refineries: 3, after: 6000 },
+];
+const DINO_FORT_PATH: Step[] = [
+  { kind: K.Wallow, refineries: 1, after: 1800, bases: 2 },
+  { kind: K.BonePit, refineries: 1, after: 2400 },
+  { kind: K.Cave, refineries: 2, after: 3000 },
+  { kind: K.Roost, refineries: 3, after: 6000 },
+];
+
 const DINO_PATHS: Record<Tech, Step[]> = {
   infantry: [
     { kind: K.BonePit, refineries: 1, after: 1800, bases: 2 },
@@ -121,10 +175,13 @@ function rng(seed: number): () => number {
 }
 
 export class Bot {
+  readonly scheme: Scheme;
   readonly plan: Plan;
   readonly tech: Tech;
   readonly level: number;
   readonly trick: Trick | undefined;
+  /** The lab forced the tech path: then a Fortress follows that path, not its own. */
+  private forcedTech: boolean;
   private rnd: () => number;
   private state: 'gather' | 'attack' | 'defend' | 'retreat' = 'gather';
   private waveAt: number;
@@ -141,6 +198,10 @@ export class Bot {
   private phase = 0;
   private panicAt = -999;
   private retreatAt = -9999;
+  /** When the main army last set out with a second front, and since when the match has looked lost. */
+  private frontAt = -9999;
+  private hopeless = -1;
+  private conceded = false;
   /** Blocks and Batteries set aside so far for the next building. */
   private bank = 0;
   private bankGas = 0;
@@ -164,27 +225,36 @@ export class Bot {
     this.rnd = rng(opts.dice ?? seed * 7919 + p * 104729 + 13);
     this.level = Math.min(2, opts.level ?? 1);
     this.trick = opts.trick;
-    // Easy never rushes: a newcomer gets a few minutes to find the controls.
-    // Otherwise the safe expansion is the most common opening, the rush the rarest.
-    // A Green rush into a Dino Pack that can hatch a dozen Raptors from the eggs it has banked rarely pays, so it is rare.
+    // One of the six plans, weighted by who is playing whom. Easy never rushes and never raids: a newcomer gets
+    // a few minutes to find the controls. A Green Army rarely rushes, raids or turtles against a Dino Pack: a
+    // Nest's banked eggs hatch a dozen Raptors at once, Raptors run down Runners, and a Dino Pack outgrows a
+    // Fortress waiting for its Juggernauts. In a Dino mirror every army is full of Spitters, so the sky is a
+    // poor bet, and a Den that sits at home is outgrown the same way.
     const intoEggs = opts.faction === 'green' && opts.foe === 'dino';
-    const pool: Plan[] = this.level === 0 ? ['standard', 'greedy']
-      : intoEggs ? ['standard', 'standard', 'standard', 'standard', 'greedy', 'greedy', 'rush']
-        : ['standard', 'standard', 'standard', 'greedy', 'greedy', 'rush', 'rush'];
-    this.plan = opts.plan ?? pool[Math.floor(this.rnd() * pool.length)]!;
-    const base = this.level === 0 ? 400 : this.plan === 'rush' ? 300 : this.plan === 'standard' ? 800 : 1100;
+    const spitters = opts.faction === 'dino' && opts.foe === 'dino';
+    const weights: Record<Scheme, number> = this.level === 0
+      ? { rush: 0, expand: 2, armour: 2, air: 1, raider: 0, fortress: 2 }
+      : { rush: intoEggs ? 1 : 2, expand: 2, armour: 2, air: spitters ? 1 : 2, raider: intoEggs ? 0.5 : 2, fortress: intoEggs || spitters ? 0.5 : 2 };
+    const total = SCHEMES.reduce((s, k) => s + weights[k], 0);
+    let roll = this.rnd() * total, picked: Scheme = 'armour';
+    for (const k of SCHEMES) {
+      roll -= weights[k];
+      if (roll < 0 && weights[k] > 0) { picked = k; break; }
+    }
+    const flies0 = opts.trick === 'gunships' || opts.trick === 'pteros', rolls0 = opts.trick === 'tanks' || opts.trick === 'horns';
+    this.scheme = opts.scheme ?? (flies0 ? 'air' : rolls0 ? 'armour' : picked);
+    this.plan = opts.plan ?? SCHEME_OPENING[this.scheme];
+    const base = this.level === 0 ? 400 : this.plan === 'rush' ? 450 : this.plan === 'standard' ? 800 : 1100;
     // No two matches open quite alike: each bot's first push comes a little earlier or later.
     this.waveAt = Math.round(base * (0.9 + this.rnd() * 0.25));
     if (this.trick) this.waveAt = 600;
     this.phase = Math.floor(this.rnd() * 12);
-    // Easy keeps its feet on the ground; the others may take any path.
-    // In a Dino mirror every army is full of Spitters, so the flying path is the rare one there.
-    const spitters = opts.faction === 'dino' && opts.foe === 'dino';
-    const techs: Tech[] = this.level === 0 ? ['infantry', 'armour']
-      : spitters ? ['armour', 'armour', 'infantry', 'infantry', 'air']
-        : ['armour', 'armour', 'air', 'air', 'infantry'];
-    const flies = this.trick === 'gunships' || this.trick === 'pteros', rolls = this.trick === 'tanks' || this.trick === 'horns';
-    this.tech = opts.tech ?? (flies ? 'air' : rolls ? 'armour' : techs[Math.floor(this.rnd() * techs.length)]!);
+    // The plan says the tech path, except a fast expansion's, which may go either way once its bases are up.
+    const byScheme: Record<Scheme, Tech> = {
+      rush: 'infantry', expand: this.rnd() < 0.5 ? 'infantry' : 'armour', armour: 'armour', air: 'air', raider: 'infantry', fortress: 'armour',
+    };
+    this.tech = opts.tech ?? byScheme[this.scheme];
+    this.forcedTech = opts.tech !== undefined;
   }
 
   private sites(v: View, side: number): BaseSite[] {
@@ -295,6 +365,8 @@ export class Bot {
     // Some of the lab's one-trick builds never leave the Barracks or the Den; the others need Batteries.
     const techTrick = trick === 'tanks' || trick === 'gunships' || trick === 'horns' || trick === 'pteros';
     const mine = this.sites(v, p), theirs = this.sites(v, 1 - p);
+    // The plan's own habits. The lab's one-trick builds have none.
+    const fortress = !trick && this.scheme === 'fortress', raider = !trick && this.scheme === 'raider', pusher = !trick && this.scheme === 'armour';
     // Each faction has a hall, a worker, a refinery, a turret, a first army building and a place for research.
     const F = FACTIONS[v.faction], dino = v.faction === 'dino';
     const HALL = F.hall, WORKER = F.worker, REF = F.refinery, TURRET = F.turret;
@@ -374,7 +446,8 @@ export class Bot {
     let workerTarget = Math.min(workerCap, 14 * builtHQ.length + 6 * (hqs.length - builtHQ.length) + 3 * builtRef);
     // How many of its first army building each opening wants before it does anything else: the Green Army
     // trains at its Barracks and needs several; the Dino Pack hatches at its Nests and needs one Den.
-    const raxRush = dino ? 1 : 2, raxOpen = dino ? 1 : 3;
+    // On a map this size an enemy army is a long walk away, so a safe expansion takes its natural behind two.
+    const raxRush = dino ? 1 : 2, raxOpen = dino ? 1 : 2;
     if (this.plan === 'rush' && rax.length < raxRush && !trick) workerTarget = Math.min(workerTarget, 11);
     if (trick) workerTarget = techTrick ? Math.min(workerTarget, 34) : 14;
     // Safety first: an expanding opening holds at 16 Workers until it has a few soldiers at home.
@@ -431,7 +504,7 @@ export class Bot {
     if (!saving2 && blocks >= 250 && rax.length === builtRax.length && builtRax.length > 0 && builtRax.every((b) => b.queue.length >= 1)) raxWant = Math.max(raxWant, rax.length + 1);
     raxWant = Math.min(this.level === 0 ? 2 : this.level === 2 ? 10 : 8, raxWant);
     if (this.plan === 'rush') raxWant = Math.max(raxWant, 2);
-    else if (this.plan === 'standard') raxWant = Math.max(raxWant, 3);
+    else if (this.plan === 'standard') raxWant = Math.max(raxWant, hqs.length >= 2 ? 3 : raxOpen);
     else raxWant = Math.max(raxWant, hqs.length >= 2 ? 1 : 0);
     if (trick) raxWant = techTrick ? 1 : trick === 'turtle' ? 2 : 4;
     // One Den is all the Dino Pack needs: its Nests do the hatching. A fast expansion puts the second Nest first.
@@ -449,16 +522,16 @@ export class Bot {
         expand = hqs.length === 1 && t > 1800;
       } else if (hqs.length === 1) {
         if (this.plan === 'greedy') expand = true;
-        else if (this.plan === 'standard') expand = rax.length >= raxOpen && (armyValue >= (dino ? 400 : 450) || t > 2400) && (!exposed0 || t > 3000);
+        else if (this.plan === 'standard') expand = rax.length >= raxOpen && (armyValue >= (dino ? 400 : 300) || t > 1800) && (!exposed0 || t > 3000);
         else expand = t > (dino ? 2100 : 2400) || (rax.length >= raxRush && blocks > 500);
       } else if (dino) {
         // More Nests are more eggs as well as more Blocks: the Dino Pack takes its third base sooner, and
         // takes one whenever Blocks pile up with every egg spent.
-        const minT = this.plan === 'greedy' ? 2700 : this.plan === 'standard' ? 3300 : 3900;
+        const minT = (this.plan === 'greedy' ? 2700 : this.plan === 'standard' ? 3300 : 3900) - (raider ? 600 : 0);
         expand = (saturated || (blocks > 450 && eggs === 0)) && t > minT + 2400 * (hqs.length - 2) && armyValue >= 300 && !unsafe;
       } else {
         // A third base is a mid-game move, and a fourth a late one.
-        const minT = this.plan === 'greedy' ? 3600 : this.plan === 'standard' ? 4200 : 4800;
+        const minT = (this.plan === 'greedy' ? 3600 : this.plan === 'standard' ? 4200 : 4800) - (raider ? 900 : 0);
         expand = saturated && t > minT + 3000 * (hqs.length - 2) && armyValue >= 300 && !unsafe;
       }
       // A full supply bar needs another Headquarters before anything else.
@@ -479,8 +552,11 @@ export class Bot {
     let extra = this.level >= 1 && short > 0 && this.lancersSeen < 0.5 ? Math.min(3, Math.ceil(short / 220)) : 0;
     // An enemy still on one base after two minutes is building an army, not an economy: one Turret as insurance.
     if (this.level >= 1 && oneBase && t > 1200 && t < 4200 && this.lancersSeen < 0.5) extra = Math.max(extra, 1);
-    // A rush that has had its go digs in too; a fast expansion covers itself twice.
-    const cover = (this.plan === 'greedy' ? 2 : this.plan === 'standard' ? 1 : t > 1500 ? 1 : 0) + extra;
+    // A rush that has had its go digs in too. A Fast expand covers its natural once and trusts its economy; a
+    // Raider, on the same opening, twice. A Fortress covers its bases twice over, and a Den once more than
+    // usual: every Volcano costs it a Gatherer.
+    const greedyCover = !trick && this.scheme === 'expand' ? 1 : 2;
+    const cover = (this.plan === 'greedy' ? greedyCover : this.plan === 'standard' ? 1 : t > 1500 ? 1 : 0) + extra + (fortress ? (dino ? 1 : 2) : 0);
     const wantsTurret = trick === 'turtle' ? turrets.length < 6
       : !trick && (hqs.length >= 2 || extra > 0 || (this.plan !== 'greedy' && rax.length >= raxRush)) && turrets.length < Math.max(cover, this.level === 2 ? hqs.length - 1 : 0);
     // A Volcano goes on nesting ground: by the natural once a Nest stands there, by the main until then.
@@ -526,7 +602,8 @@ export class Bot {
         // Flyers seen, or a building that makes them: a Factory for Flak Tracks jumps the queue. (Spitters need only the Den.)
         if (!dino && airComing && factories.length === 0 && this.level >= 1) techWant = K.Factory;
         const had = new Map<number, number>();
-        for (const s of techWant ? [] : (dino ? DINO_PATHS : PATHS)[this.tech]) {
+        const path = fortress && !this.forcedTech ? (dino ? DINO_FORT_PATH : FORT_PATH) : (dino ? DINO_PATHS : PATHS)[this.tech];
+        for (const s of techWant ? [] : path) {
           const n = (had.get(s.kind) ?? 0) + 1;
           had.set(s.kind, n);
           if (of(s.kind).length >= n) continue;
@@ -612,7 +689,7 @@ export class Bot {
       const main = this.siteCentre(mine[0]!);
       const there = turrets.filter((e) => within(e, top, 6)).length;
       const behind = this.enemySeen - army.reduce((s2, e) => s2 + power(e), 0);
-      const wanted = Math.min(4, (hqs.length >= 2 && t > 2700 ? 1 : 0) + (t > 4800 ? 1 : 0) + Math.max(0, Math.ceil(behind / 350)));
+      const wanted = Math.min(fortress && !dino ? 6 : 4, (hqs.length >= 2 && t > 2700 ? 1 : 0) + (t > 4800 ? 1 : 0) + (fortress && !dino ? 2 : 0) + Math.max(0, Math.ceil(behind / 350)));
       if (there < wanted && v.own.some((e) => e.kind === HALL && within(e, main, 4))) {
         const dx = main.x - top.x, dy = main.y - top.y;
         const l = Math.max(1, Math.round(Math.sqrt(dx * dx + dy * dy)));
@@ -727,8 +804,8 @@ export class Bot {
         if (needAA && flak < Math.ceil(flyersSeen * 1.3) + 1) return K.Flak;
         const lancerHeavy = seen(K.Lancer) * 75 > eAll * 0.45;
         return neediest([
-          [K.Tank, (this.tech === 'armour' ? 4 : 2) + lightShare * 3 - (lancerHeavy ? 2.5 : 0)],
-          [K.Mortar, this.level === 0 ? 0 : (have(K.Mortar) >= 6 ? 0 : 0.8 + Math.min(2.4, enemyTurrets * 0.6) + lightShare)],
+          [K.Tank, (this.tech === 'armour' ? 4 : 2) + (pusher ? 1 : 0) + lightShare * 3 - (lancerHeavy ? 2.5 : 0)],
+          [K.Mortar, this.level === 0 ? 0 : (have(K.Mortar) >= (fortress ? 10 : 6) ? 0 : 0.8 + (fortress ? 2.5 : 0) + Math.min(2.4, enemyTurrets * 0.6) + lightShare)],
           [K.Jugger, heavy ? 5 : 0],
         ]);
       }, true);
@@ -749,7 +826,7 @@ export class Bot {
       if (this.level >= 1 && this.plan !== 'rush') {
         if (this.scoutsSent < 5 && scouts.length === 0 && t > 500) runnerWant += 1;
         // Raiders: three Runners from early on, whatever the tech path. The air path hands the job to Gunships once it has them.
-        if (t > (this.plan === 'standard' ? 1500 : 1900) && armyValue >= 350 && !(this.tech === 'air' && count(K.Gunship) >= 3)) runnerWant += this.level === 2 ? 5 : 3;
+        if (!fortress && t > (this.plan === 'standard' ? 1500 : 1900) && armyValue >= 350 && !(this.tech === 'air' && count(K.Gunship) >= 3)) runnerWant += (this.level === 2 ? 5 : 3) + (raider ? 4 : 0);
         if (seen(K.Lancer) >= 3) runnerWant += 3;
         if (seen(K.Mortar) >= 2) runnerWant += 4;
       }
@@ -851,6 +928,13 @@ export class Bot {
     const highTurrets = v.ghosts.filter((gh) => (gh.kind === K.Turret || gh.kind === K.Volcano) && isHigh(gh)).length;
     const climb = this.allIn || v.supply >= RULES.supplyMax - 4 || armyValue >= this.enemySeen * 2.2 + highTurrets * 300 + 400;
     const pickTarget = (from: Pt): Pt | null => {
+      // A rush's first push goes for the Workers at the enemy's main, past whatever guards the nearer base,
+      // until it stands among their Blocks and sees nobody left to hit there.
+      if (this.plan === 'rush' && this.allIn && this.firstAttack >= 0 && t - this.firstAttack < 1200) {
+        const main = this.pileCentre(theirs[0]!);
+        const there = within(from, main, 5);
+        if (!there || v.enemies.some((e) => isWorker(e.kind) && within(e, main, 8))) return main;
+      }
       const known = v.ghosts.filter((gh) => climb || !isHigh(gh));
       // Prefer the nearest Headquarters, then anything else.
       const hq = known.filter((gh) => isHall(gh.kind)).sort((a, b) => d2(a, from) - d2(b, from))[0];
@@ -894,17 +978,28 @@ export class Bot {
           // goes only against an enemy it has seen next to nothing of. After that it wants a clear lead over
           // what it has seen, or a full supply bar.
           const hunch = this.level === 0 || trick !== undefined || (this.plan === 'rush' && this.firstAttack < 0);
-          const early = !hunch && t < 4200;
-          const edge = hunch ? 1.15 : early ? 3 : 1.5;
+          // Against another Dino Pack a Horn charge may go from five and a half minutes, once its Horns are out:
+          // a Dino Pack's greed has to be punished early.
+          const early = !hunch && t < (pusher && dino && v.foe === 'dino' ? 3300 : 4200);
+          // An Armour push goes at about seven minutes once its heavies are out, on a smaller edge: that is
+          // the push. A Raider's main army waits for a bigger edge, its raids doing the work meanwhile.
+          const heavies = dino ? count(K.Horn) + count(K.Bronto) + count(K.Rex) : count(K.Tank) + count(K.Mortar) + count(K.Jugger);
+          const pushing = pusher && !early && heavies >= 4;
+          const edge = hunch ? 1.15 : early ? 3 : pushing ? 1.2 : raider ? 2 : 1.5;
+          // A Fortress stays behind its walls until its Juggernauts are out, or its supply bar is full. A Den does
+          // not wait for its Rexes: a Dino Pack that sits still is outgrown by one that doesn't.
+          const holding = fortress && !dino && !maxed && count(K.Jugger) < 2;
           // Early on it also wants to have looked lately: no walking across the map on a guess.
           const blind = early && t - this.lookedAt > 600;
-          if (!tooSoon && !blind && ((maxed && !early) || armyValue >= Math.max(this.waveAt, trick ? 0 : this.enemySeen * edge) + turretTax)) {
+          if (!tooSoon && !blind && !holding && ((maxed && !early) || armyValue >= Math.max(this.waveAt, trick ? 0 : this.enemySeen * edge) + turretTax)) {
             this.state = 'attack';
             this.allIn = hunch;
             this.waveStart = armyValue;
             this.target = pickTarget(armyCen);
             this.lastOrder = -999;
             if (this.firstAttack < 0) this.firstAttack = t;
+            // A big army opens a second front: a detachment goes for another base at the same time.
+            if (this.level >= 1 && !trick && armyValue >= 1000) this.frontAt = t;
           } else if (t - this.lastOrder >= 100 && army.some((e) => !within(e, stage, 6))) {
             order(ARMY, O.Attack, stage);
             this.lastOrder = t;
@@ -974,20 +1069,28 @@ export class Bot {
       const idleRunners = army.filter((e) => e.kind === RUNNER);
       // The air path raids with its flyers; the others with Runners, or with a pack of Raptors.
       const flying = this.tech === 'air' && (raiders.some((e) => e.kind === FLYER) || count(FLYER) >= 3);
-      const need = flying ? 3 : dino ? (this.level === 2 ? 8 : 6) : this.level === 2 ? 5 : 3;
+      const need = flying ? 3 : dino ? (this.level === 2 ? 8 : 6) + (raider ? 2 : 0) : (this.level === 2 ? 5 : 3) + (raider ? 3 : 0);
+      // A second front opens only against a second base, and only in the moments the main army sets out.
+      const held = theirs.filter((s) => s.tier === 0 || v.ghosts.some((gh) => isHall(gh.kind) && within(gh, this.siteCentre(s), 4)));
+      const front = this.state === 'attack' && t - this.frontAt < 60 && held.length >= 2 && this.target !== null;
+      const frontNeed = flying ? 3 : dino ? 5 : 3;
       if (scouts.length === 0 && this.scoutsSent < 5 && idleRunners.length > 0) {
         out.push({ t: 'assign', p, from: ARMY, to: SCOUT, kind: RUNNER, count: 1 });
         this.scoutsSent++;
         this.scoutLeg = 0;
         this.scoutSince = -999;
-      } else if (this.raid.state === 'home' && this.state !== 'defend') {
+      } else if (this.raid.state === 'home' && front && raiders.length < frontNeed) {
+        // The detachment for a second front is taken from the army as it sets out: its fast units, or its flyers.
+        const kind = flying ? FLYER : RUNNER;
+        if (army.some((e) => e.kind === kind)) out.push({ t: 'assign', p, from: ARMY, to: RAID, kind, count: frontNeed - raiders.length });
+      } else if (this.raid.state === 'home' && this.state !== 'defend' && !fortress) {
         if (flying) {
           const spare = army.filter((e) => e.kind === FLYER).length;
           if (raiders.length < need && spare > 0) out.push({ t: 'assign', p, from: ARMY, to: RAID, kind: FLYER, count: need - raiders.length });
         } else if (dino) {
           // Raptors are the army too: a pack goes raiding only when the army can spare it.
           const short2 = need - raiders.length;
-          if (short2 > 0 && t > (this.plan === 'standard' ? 1500 : 1900) && t - this.threatSeen > 300 && armyValue >= 350 && !unsafe && idleRunners.length >= short2 + 4) {
+          if (short2 > 0 && t > (this.plan === 'standard' ? 1500 : 1900) && t - this.threatSeen > 300 && armyValue >= (raider ? 250 : 350) && !unsafe && idleRunners.length >= short2 + (raider ? 2 : 4)) {
             out.push({ t: 'assign', p, from: ARMY, to: RAID, kind: RUNNER, count: short2 });
           }
         } else if (idleRunners.length > 0) {
@@ -1007,12 +1110,20 @@ export class Bot {
       if (raiders.length === 0) {
         if (r.state !== 'home') {
           r.state = 'home';
-          r.next = t + 400;
+          r.next = t + (raider ? 200 : 400);
         }
       } else if (r.state === 'home') {
-        if (raiders.length >= need && t >= r.next) {
+        if (front && raiders.length >= frontNeed) {
+          // The second front: whichever held base is furthest from where the main army is going.
+          const aim = this.target!;
+          const s = [...held].sort((a, b) => d2(this.pileCentre(b), aim) - d2(this.pileCentre(a), aim) || a.tier - b.tier)[0]!;
+          r.target = this.pileCentre(s);
+          r.state = 'out';
+          r.since = t;
+          this.frontAt = -9999;
+          order(RAID, flying ? O.Attack : O.Move, r.target);
+        } else if (raiders.length >= need && t >= r.next) {
           // Raid a base the enemy is known or likely to hold, picked at random.
-          const held = theirs.filter((s) => s.tier === 0 || v.ghosts.some((gh) => isHall(gh.kind) && within(gh, this.siteCentre(s), 4)));
           const s = held[Math.floor(this.rnd() * held.length)]!;
           r.target = this.pileCentre(s);
           r.state = 'out';
@@ -1035,8 +1146,19 @@ export class Bot {
         }
       } else if (within(cen(raiders), stage, 7) || t - r.since > 500) {
         r.state = 'home';
-        r.next = t + 250;
+        r.next = t + (raider ? 120 : 250);
       }
+    }
+
+    // ---------------------------------------------------------------- conceding
+    // A match it can't win back: next to no workers, next to no army, nothing in the bank to rebuild with, and
+    // an enemy army it has seen many times the size of its own, for half a minute together. Then it concedes.
+    const lost = t > 3600 && workers <= 3 && armyValue * 5 < this.enemySeen && this.enemySeen >= 800 && v.blocks < 200;
+    if (!lost) this.hopeless = -1;
+    else if (this.hopeless < 0) this.hopeless = t;
+    else if (t - this.hopeless >= 300 && !this.conceded && !trick) {
+      this.conceded = true;
+      out.push({ t: 'concede', p });
     }
     return out;
   }
