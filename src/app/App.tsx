@@ -6,13 +6,14 @@ import { UnitGuide } from './Guide';
 import { attachInput } from './input';
 import { Match } from './match';
 import { Renderer, drawMini } from './render';
+import { clearSaved, loadSaved, saveMatch, type Saved } from './save';
+import { hash, schedule } from '../sim/state';
 import type { Faction, Mode } from '../sim/types';
 
 declare const __BUILD__: { commit: string; date: string };
 
 export const updateReady = signal<(() => void) | null>(null);
 
-// Hard and Brutal arrive with the full opponent in M4.
 const LEVELS = ['Easy', 'Normal', 'Hard', 'Brutal'];
 /** Frenzy's opponents come in two levels so far. */
 const FRENZY_LEVELS = 2;
@@ -30,18 +31,67 @@ function remembered(): Choice {
   }
 }
 
-function Battle({ level, seed, sides, onQuit, onAgain }: { level: number; seed: number; sides: readonly Faction[]; onQuit: () => void; onAgain: () => void }) {
+const clock = (ticks: number) => `${Math.floor(ticks / 600)}:${String(Math.floor((ticks % 600) / 10)).padStart(2, '0')}`;
+
+/** Picks a saved match back up: plays it through again, a slice a frame, and checks it arrives where it was left. */
+function Resume({ saved, onDone, onFail }: { saved: Saved; onDone: (m: Match) => void; onFail: () => void }) {
+  const [done, setDone] = useState(0);
+  useEffect(() => {
+    const m = new Match(saved.seed, saved.level, saved.sides);
+    let raf = 0;
+    const step = () => {
+      if (!m.replay(saved.orders, saved.tick)) {
+        setDone(m.g.tick / saved.tick);
+        raf = requestAnimationFrame(step);
+        return;
+      }
+      if (m.g.tick !== saved.tick || hash(m.g) !== saved.hash) {
+        onFail();
+        return;
+      }
+      // Orders given just before the app was left run on the next tick, as they would have.
+      for (const o of saved.orders) if (o.tick > saved.tick) schedule(m.g, o.cmd);
+      m.cam = { ...saved.cam };
+      m.mode.value = saved.mode;
+      m.paused.value = true;
+      m.menu.value = true;
+      onDone(m);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [saved]);
+  return (
+    <div class="menu">
+      <div class="card resuming">
+        <h1>FOOTHOLD</h1>
+        <p class="tag">Picking up where you left off, at {clock(saved.tick)}…</p>
+        <div class="bar" role="progressbar" aria-valuenow={Math.round(done * 100)} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${Math.round(done * 100)}%` }} /></div>
+      </div>
+    </div>
+  );
+}
+
+function Battle({ level, seed, sides, choice, resumed, onQuit, onAgain }: {
+  level: number; seed: number; sides: readonly Faction[]; choice: Choice; resumed?: Match; onQuit: () => void; onAgain: () => void;
+}) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const mini = useRef<HTMLCanvasElement | null>(null);
-  const [m] = useState(() => new Match(seed, level, sides));
+  const [m] = useState(() => resumed ?? new Match(seed, level, sides));
   useEffect(() => {
     const c = canvas.current!;
     const r = new Renderer(c, m);
     const detach = attachInput(c, m);
-    let lastMini = 0;
+    let lastMini = 0, lastSave = performance.now();
+    const keep = () => saveMatch(m, seed, choice, __BUILD__.commit);
     m.onFrame = () => {
       r.draw();
       const now = performance.now();
+      // The match is kept every half minute of play, and whenever it is paused or the app is left.
+      if (now - lastSave > 30000 && !m.paused.value) {
+        lastSave = now;
+        keep();
+      }
+      if (m.over.value >= 0) clearSaved();
       if (mini.current && now - lastMini > 180) {
         lastMini = now;
         drawMini(mini.current, r, m);
@@ -49,34 +99,40 @@ function Battle({ level, seed, sides, onQuit, onAgain }: { level: number; seed: 
     };
     const resize = () => r.resize();
     const hide = () => {
-      // Leaving the app pauses the match, so an interruption never costs you the game.
+      // Leaving the app pauses the match and keeps it, so an interruption never costs you the game.
       if (document.hidden && m.over.value < 0) {
         m.paused.value = true;
         m.menu.value = true;
+        keep();
       }
     };
+    const unpause = m.paused.subscribe((p) => { if (p) keep(); });
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', resize);
+    window.addEventListener('pagehide', keep);
     document.addEventListener('visibilitychange', hide);
-    (window as unknown as { __fh?: Match }).__fh = m;
+    (window as unknown as { __fh?: Match; __fhHash?: () => number }).__fh = m;
+    (window as unknown as { __fhHash?: () => number }).__fhHash = () => hash(m.g);
     m.start();
     return () => {
       m.stop();
       detach();
       window.removeEventListener('resize', resize);
       window.removeEventListener('orientationchange', resize);
+      window.removeEventListener('pagehide', keep);
       document.removeEventListener('visibilitychange', hide);
+      unpause();
     };
   }, [m]);
   return (
     <div class="battle">
       <canvas ref={canvas} class="field" />
-      <Hud m={m} miniRef={mini} onQuit={onQuit} onAgain={onAgain} />
+      <Hud m={m} miniRef={mini} onQuit={() => { clearSaved(); onQuit(); }} onAgain={() => { clearSaved(); onAgain(); }} />
     </div>
   );
 }
 
-function Menu({ onPlay }: { onPlay: (level: number, choice: Choice) => void }) {
+function Menu({ onPlay, saved, onResume, note }: { onPlay: (level: number, choice: Choice) => void; saved: Saved | null; onResume: () => void; note: string }) {
   const [help, setHelp] = useState(false);
   const [units, setUnits] = useState(false);
   const [sides, setSides] = useState(remembered);
@@ -97,6 +153,13 @@ function Menu({ onPlay }: { onPlay: (level: number, choice: Choice) => void }) {
           : 'Toy soldiers and plastic dinosaurs on a paper map. Take the map, starve them out, knock down every last base.'}</p>
         {!help ? (
           <>
+            {note && <p class="note">{note}</p>}
+            {saved && (
+              <button class="chip wide resume" onClick={onResume}>
+                Resume your match: {saved.choice.mode === 'frenzy' ? 'Frenzy' : 'Classic'}, {NAMES[saved.sides[0]!]}
+                {saved.sides.length === 2 ? ` against the ${NAMES[saved.sides[1]!]}` : ''}, {LEVELS[saved.level]}, at {clock(saved.tick)}
+              </button>
+            )}
             <div class="modes" role="group" aria-label="Game">
               <button class={`chip ${!frenzy ? 'on' : ''}`} aria-pressed={!frenzy} aria-label="Classic: one opponent, bases to build" onClick={() => choose({ ...sides, mode: 'classic' })}>Classic</button>
               <button class={`chip ${frenzy ? 'on' : ''}`} aria-pressed={frenzy} aria-label="Frenzy: three opponents, a hero each" onClick={() => choose({ ...sides, mode: 'frenzy' })}>Frenzy</button>
@@ -157,7 +220,7 @@ function Menu({ onPlay }: { onPlay: (level: number, choice: Choice) => void }) {
             </div>
           </>
         )}
-        <p class="build">MF · Frenzy · {__BUILD__.commit} · {__BUILD__.date}</p>
+        <p class="build">M5 · Flight-ready · {__BUILD__.commit} · {__BUILD__.date}</p>
       </div>
       {units && (
         <div class="veil">
@@ -168,7 +231,7 @@ function Menu({ onPlay }: { onPlay: (level: number, choice: Choice) => void }) {
   );
 }
 
-interface Session { level: number; seed: number; n: number; choice: Choice; sides: readonly Faction[] }
+interface Session { level: number; seed: number; n: number; choice: Choice; sides: readonly Faction[]; resumed?: Match }
 
 /**
  * Who sits where. Classic: you and one opponent. Frenzy: you and three. "Either" is settled when the match
@@ -191,6 +254,9 @@ export function App() {
     return { level: Number(params.get('play') || 1), seed, n: 0, choice, sides: seat(choice, seed) };
   };
   const [game, setGame] = useState<Session | null>(params.has('play') ? fromLink() : null);
+  const [saved, setSaved] = useState<Saved | null>(() => (params.has('play') ? null : loadSaved()));
+  const [resuming, setResuming] = useState<Saved | null>(null);
+  const [note, setNote] = useState('');
   const fresh = (level: number, n: number, choice: Choice): Session => {
     const seed = (Date.now() % 100000) + 1;
     return { level, seed, n, choice, sides: seat(choice, seed) };
@@ -198,8 +264,13 @@ export function App() {
   return (
     <>
       {game
-        ? <Battle key={game.n} level={game.level} seed={game.seed} sides={game.sides} onQuit={() => setGame(null)} onAgain={() => setGame(fresh(game.level, game.n + 1, game.choice))} />
-        : <Menu onPlay={(level, choice) => setGame(fresh(level, 1, choice))} />}
+        ? <Battle key={game.n} level={game.level} seed={game.seed} sides={game.sides} choice={game.choice} resumed={game.resumed}
+            onQuit={() => { setSaved(null); setGame(null); }} onAgain={() => setGame(fresh(game.level, game.n + 1, game.choice))} />
+        : resuming
+          ? <Resume saved={resuming}
+              onDone={(m) => { setResuming(null); setGame({ level: resuming.level, seed: resuming.seed, n: 1, choice: resuming.choice, sides: resuming.sides, resumed: m }); }}
+              onFail={() => { clearSaved(); setSaved(null); setResuming(null); setNote("That match was kept by an older version of the game, and this one can't pick it up."); }} />
+          : <Menu saved={saved} note={note} onResume={() => { setNote(''); setResuming(saved); }} onPlay={(level, choice) => { setSaved(null); setNote(''); setGame(fresh(level, 1, choice)); }} />}
       <div class="rotate"><div><b>Turn your phone sideways</b><br />Foothold plays in landscape.</div></div>
     </>
   );

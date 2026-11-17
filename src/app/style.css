@@ -314,3 +314,9 @@ img.toy { display: inline-block; vertical-align: middle; flex-shrink: 0; -webkit
 .tile.up.done { border-color: var(--green); box-shadow: 0 2px 0 var(--green); }
 .tile.up.done .price { color: var(--green); font-weight: 800; }
 .grid.ups .note { grid-column: 2 / -1; align-self: center; margin: 0 2px; }
+
+/* Picking a saved match back up. */
+.menu .resuming .bar { height: 12px; border-radius: 6px; background: rgba(60, 50, 30, 0.15); overflow: hidden; margin: 14px 0 4px; }
+.menu .resuming .bar i { display: block; height: 100%; background: var(--ink, #3b3324); transition: width 0.1s linear; }
+.menu .resume { margin-bottom: 10px; font-weight: 600; }
+.menu .note { font-size: 13px; margin: 0 0 8px; color: #8a3b1e; }

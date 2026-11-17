@@ -298,6 +298,28 @@ export class Match {
     this.onFrame?.();
   }
 
+  /**
+   * Plays a saved match back up to where it was left: the opponents think again exactly as they did, and your
+   * own orders are put back on the ticks they ran. A match is its seed and its orders, so nothing else is kept.
+   * Stops after `budget` milliseconds so the screen can show how far it has got; call again until it says done.
+   */
+  replay(orders: readonly { tick: number; cmd: Command }[], to: number, budget = 40): boolean {
+    const g = this.g, start = performance.now();
+    while (g.tick < to && g.winner === -1) {
+      // Your orders go in before the opponents think, as they did when you gave them between two ticks.
+      while (this.replayAt < orders.length && orders[this.replayAt]!.tick <= g.tick + 1) {
+        const o = orders[this.replayAt++]!;
+        if (o.tick === g.tick + 1) schedule(g, o.cmd);
+      }
+      for (const bot of this.bots) for (const cmd of bot.think(makeView(g, bot.p))) schedule(g, cmd);
+      step(g);
+      if (performance.now() - start > budget) return false;
+    }
+    this.refresh();
+    return true;
+  }
+  private replayAt = 0;
+
   /** Advances the match by one tick. Also used by tests to run ahead. */
   tick(): void {
     const g = this.g;
