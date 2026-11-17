@@ -1,5 +1,6 @@
 // Plays whole matches with no screen attached: the computer opponent on both sides.
 import { Bot, type BotOptions } from '../src/ai/bot';
+import { classicMap } from '../src/sim/map';
 import { createGame, hash, schedule, type Game } from '../src/sim/state';
 import { step } from '../src/sim/step';
 import { makeView } from '../src/sim/view';
@@ -34,10 +35,10 @@ export interface Result {
 
 export function playMatch(
   seed: number, a: BotOptions = {}, b: BotOptions = {}, maxTicks = 15000, watch?: (g: Game) => void,
-  factions: readonly [Faction, Faction] = ['green', 'green'],
+  factions: readonly [Faction, Faction] = ['green', 'green'], map = 'twin',
 ): Result {
   // A Brutal bot's side earns more on every load, as it does against a player.
-  const g = createGame(seed, undefined, factions, [a, b].map((o) => (o.level === 3 ? RULES.brutalBonus : 0)));
+  const g = createGame(seed, classicMap(map), factions, [a, b].map((o) => (o.level === 3 ? RULES.brutalBonus : 0)));
   const bots = [new Bot(0, seed, { ...a, faction: factions[0], foe: factions[1] }), new Bot(1, seed + 1, { ...b, faction: factions[1], foe: factions[0] })];
   const peak: [number, number] = [0, 0];
   const made: [Record<string, number>, Record<string, number>] = [{}, {}];

@@ -3,8 +3,8 @@ import { fight } from '../../lab/arena';
 import { firstBreak, seatSwap } from '../../lab/fair';
 import { playMatch } from '../../lab/match';
 import { Bot } from '../ai/bot';
-import { DEFS, FACTIONS, RULES, def, researchCost, worth } from './data';
-import { twinRidges } from './map';
+import { DEFS, FACTIONS, RULES, def, isHall, researchCost, worth } from './data';
+import { CLASSIC_MAPS, classicMap, twinRidges } from './map';
 import { canPlace, createGame, hash, schedule, spawn, tileIndex, visibleTo } from './state';
 import { step } from './step';
 import { makeView } from './view';
@@ -49,6 +49,43 @@ describe('the map', () => {
     const field = g.nav.field(99999, () => [(from.hy + 5) * g.map.w + from.hx + 5]);
     for (const b of g.map.bases) expect(field[(b.hy + 5 > g.map.h - 1 ? b.hy - 1 : b.hy + 5) * g.map.w + b.hx + 1]).toBeLessThan(0xffff);
   });
+  for (const { id, name, make } of CLASSIC_MAPS) {
+    it(`${name}: the same turned half a circle, every base laid out whole on open ground and walkable from either main`, () => {
+      const m = make();
+      for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) {
+        expect(m.rock[y * m.w + x]).toBe(m.rock[(m.h - 1 - y) * m.w + (m.w - 1 - x)]);
+        expect(m.high[y * m.w + x]).toBe(m.high[(m.h - 1 - y) * m.w + (m.w - 1 - x)]);
+      }
+      expect(m.bases.filter((b) => b.side === 0).length).toBe(m.bases.filter((b) => b.side === 1).length);
+      const g = createGame(1, classicMap(id), ['green', 'dino']);
+      // Each side's main is high ground, and a Headquarters fits on every site, its piles and packs all on open tiles.
+      for (const side of [0, 1]) {
+        const main = m.bases.find((b) => b.side === side && b.tier === 0)!;
+        expect(m.high[(main.hy + 1) * m.w + main.hx + 1]).toBe(1);
+      }
+      for (const b of m.bases) {
+        for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 4; dx++) expect(m.rock[(b.hy + dy) * m.w + b.hx + dx], `${name} ${b.name} ${b.side}`).toBe(0);
+        for (const p of b.piles) expect(m.rock[p.ty * m.w + p.tx], `${name} ${b.name} pile`).toBe(0);
+        for (const c of b.cells) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) expect(m.rock[(c.ty + dy) * m.w + c.tx + dx]).toBe(0);
+      }
+      for (const side of [0, 1]) {
+        const from = m.bases.find((b) => b.side === side && b.tier === 0)!;
+        const field = g.nav.field(99990 + side, () => [(from.hy + 5) * m.w + from.hx + 5]);
+        for (const b of m.bases) expect(field[(b.hy + 5 > m.h - 1 ? b.hy - 1 : b.hy + 5) * m.w + b.hx + 1], `${name}: ${b.name} of side ${b.side} from side ${side}`).toBeLessThan(0xffff);
+      }
+      // The opponent can play the map: two copies play a few minutes and each finishes a second base (which may
+      // not stand for long: it is a fight).
+      const bots = [new Bot(0, 3, { faction: 'green', foe: 'dino' }), new Bot(1, 4, { faction: 'dino', foe: 'green' })];
+      const bases = [0, 0];
+      while (g.tick < 3000 && g.winner === -1) {
+        for (const b of bots) for (const c of b.think(makeView(g, b.p))) schedule(g, c);
+        step(g);
+        for (const ev of g.events) if (ev.t === 'done' && isHall(ev.kind)) bases[ev.owner]!++;
+      }
+      expect(bases, `${name}: second bases finished`).toEqual([expect.any(Number), expect.any(Number)]);
+      for (const side of [0, 1]) expect(bases[side], `${name}: side ${side}'s second base`).toBeGreaterThan(0);
+    });
+  }
 });
 
 describe('economy', () => {

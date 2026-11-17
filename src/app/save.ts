@@ -12,9 +12,11 @@ export interface Saved {
   commit: string;
   seed: number;
   level: number;
+  /** The Classic map, by its id. */
+  map: string;
   sides: Faction[];
   /** What the menu was set to, for the rematch button. */
-  choice: { mode: Mode; me: Faction; foe: Faction | 'any' };
+  choice: { mode: Mode; me: Faction; foe: Faction | 'any'; map: string };
   tick: number;
   /** The match's checksum at `tick`: a resumed match must arrive at the same one. */
   hash: number;
@@ -26,7 +28,7 @@ export interface Saved {
 export function saveMatch(m: Match, seed: number, choice: Saved['choice'], commit: string): void {
   if (m.over.value >= 0 || m.g.tick < 10) return;
   const saved: Saved = {
-    v: 1, commit, seed, level: m.level, sides: [...m.factions], choice, tick: m.g.tick, hash: hash(m.g),
+    v: 1, commit, seed, level: m.level, map: m.mapId, sides: [...m.factions], choice, tick: m.g.tick, hash: hash(m.g),
     // What has run, and what you ordered that had yet to run when the app was left.
     orders: [...m.g.log, ...m.g.pending].filter((o) => o.cmd.p === m.me).map((o) => ({ tick: o.tick, cmd: o.cmd })),
     cam: { ...m.cam }, mode: m.mode.value,

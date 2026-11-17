@@ -9,14 +9,15 @@
 //      npx tsx lab/fair.ts swap [matches] [ticks]
 import { Bot, SCHEMES, type BotOptions, type Scheme } from '../src/ai/bot';
 import { def } from '../src/sim/data';
+import { CLASSIC_MAPS, classicMap } from '../src/sim/map';
 import { createGame, schedule } from '../src/sim/state';
 import { step } from '../src/sim/step';
 import { makeView } from '../src/sim/view';
 import { TILE, type Faction } from '../src/sim/types';
 import { mmss } from './match';
 
-export function firstBreak(scheme: Scheme, maxTicks: number, dice = 99, faction: Faction = 'green'): { tick: number; detail: string[] } {
-  const g = createGame(1, undefined, [faction, faction]);
+export function firstBreak(scheme: Scheme, maxTicks: number, dice = 99, faction: Faction = 'green', map = 'twin'): { tick: number; detail: string[] } {
+  const g = createGame(1, classicMap(map), [faction, faction]);
   const W = g.map.w * TILE, H = g.map.h * TILE;
   const opts: BotOptions = { scheme, dice, faction, foe: faction };
   const bots = [new Bot(0, 1, opts), new Bot(1, 1, opts)];
@@ -48,9 +49,9 @@ export function firstBreak(scheme: Scheme, maxTicks: number, dice = 99, faction:
  * Returns the first tick at which the second match is not the first turned half a circle, or -1.
  */
 export function seatSwap(
-  a: BotOptions, b: BotOptions, seed: number, maxTicks: number, fa: Faction = 'green', fb: Faction = 'green',
+  a: BotOptions, b: BotOptions, seed: number, maxTicks: number, fa: Faction = 'green', fb: Faction = 'green', map = 'twin',
 ): { tick: number; ticks: number; winner: number; detail: string[] } {
-  const X = createGame(seed, undefined, [fa, fb]), Y = createGame(seed, undefined, [fb, fa]);
+  const X = createGame(seed, classicMap(map), [fa, fb]), Y = createGame(seed, classicMap(map), [fb, fa]);
   const W = X.map.w * TILE, H = X.map.h * TILE;
   const A = { ...a, faction: fa, foe: fb }, B = { ...b, faction: fb, foe: fa };
   const bx = [new Bot(0, seed, A), new Bot(1, seed, B)], by = [new Bot(0, seed, B), new Bot(1, seed, A)];
@@ -81,18 +82,22 @@ export function seatSwap(
 }
 
 if (process.argv[1]?.endsWith('fair.ts')) {
-  const mode = process.argv[2] ?? 'all';
+  // --map=roads (or twin, cross) checks one map; every Classic map otherwise.
+  const only = process.argv.find((a) => a.startsWith('--map='))?.slice(6);
+  const maps = CLASSIC_MAPS.map((m) => m.id).filter((id) => !only || id === only);
+  const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+  const mode = args[0] ?? 'all';
   if (mode !== 'swap') {
-    const plans = (process.argv[3] ? [process.argv[3]] : SCHEMES) as Scheme[];
-    const ticks = Number(process.argv[4] ?? 9000);
-    for (const faction of ['green', 'dino'] as const) for (const plan of plans) {
-      const r = firstBreak(plan, ticks, 99, faction);
-      console.log(`mirror ${faction} ${plan}: ${r.tick < 0 ? r.detail[0] : `breaks at ${mmss(r.tick)} (tick ${r.tick})`}`);
+    const plans = (args[1] ? [args[1]] : SCHEMES) as Scheme[];
+    const ticks = Number(args[2] ?? 9000);
+    for (const map of maps) for (const faction of ['green', 'dino'] as const) for (const plan of plans) {
+      const r = firstBreak(plan, ticks, 99, faction, map);
+      console.log(`mirror ${map} ${faction} ${plan}: ${r.tick < 0 ? r.detail[0] : `breaks at ${mmss(r.tick)} (tick ${r.tick})`}`);
       if (r.tick >= 0) for (const d of r.detail) console.log('   ' + d);
     }
   }
   if (mode !== 'mirror') {
-    const n = Number(mode === 'swap' ? process.argv[3] ?? 18 : 18), ticks = Number(mode === 'swap' ? process.argv[4] ?? 12000 : 12000);
+    const n = Number(mode === 'swap' ? args[1] ?? 18 : 18), ticks = Number(mode === 'swap' ? args[2] ?? 12000 : 12000);
     let same = 0;
     for (let i = 0; i < n; i++) {
       // The six plans meet each other in turn; every third match is against a one-trick or an Easy opponent.
@@ -101,11 +106,13 @@ if (process.argv[1]?.endsWith('fair.ts')) {
       // The first six are Green against Green as before; then Dino against Green, and Dino against Dino.
       const fa: Faction = i < 6 ? 'green' : 'dino', fb: Faction = i < 12 ? 'green' : 'dino';
       if (i % 3 === 2) Object.assign(b, i % 2 === 0 && fb === 'green' ? { trick: (['tanks', 'gunships', 'turtle'] as const)[Math.floor(i / 3) % 3] } : { level: 0 });
-      const r = seatSwap(a, b, 50 + i, ticks, fa, fb);
+      // The maps take turns.
+      const map = maps[i % maps.length]!;
+      const r = seatSwap(a, b, 50 + i, ticks, fa, fb, map);
       const name0 = (o: BotOptions) => `${o.trick ?? o.scheme}${o.level === 0 ? ' (Easy)' : ''}`;
       const name = (o: BotOptions) => `${o === a ? fa : fb} ${name0(o)}`;
       if (r.tick < 0) same++;
-      console.log(`swap ${name(a)} v ${name(b)}: ${r.tick < 0 ? `the same match to ${mmss(r.ticks)}${r.winner >= 0 ? `, won by the ${r.winner === 0 ? 'first' : 'second'}` : ', unfinished'}` : `differs from ${mmss(r.tick)} (tick ${r.tick})`}`);
+      console.log(`swap ${map} ${name(a)} v ${name(b)}: ${r.tick < 0 ? `the same match to ${mmss(r.ticks)}${r.winner >= 0 ? `, won by the ${r.winner === 0 ? 'first' : 'second'}` : ', unfinished'}` : `differs from ${mmss(r.tick)} (tick ${r.tick})`}`);
       for (const d of r.detail) console.log('   ' + d);
     }
     console.log(`${same} of ${n} seat-swapped matches are the same match`);

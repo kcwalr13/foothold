@@ -9,6 +9,7 @@ import {
   type Ability,
 } from '../sim/data';
 import { collectorsOf, hallOf, heroOf } from '../sim/frenzy';
+import { classicMap } from '../sim/map';
 import { dist } from '../sim/nav';
 import { canPlace, centroid, createGame, groupUnits, hasBuilt, maxHp, missing, onLayer, onNestingGround, schedule, spawn, turned, type Game } from '../sim/state';
 import { step } from '../sim/step';
@@ -248,9 +249,9 @@ export class Match {
   onFrame: (() => void) | null = null;
 
   /** `factions` is what you play and then what each opponent plays: one opponent is Classic, three is Frenzy. */
-  constructor(seed: number, readonly level: number, readonly factions: readonly Faction[] = ['green', 'green']) {
+  constructor(seed: number, readonly level: number, readonly factions: readonly Faction[] = ['green', 'green'], readonly mapId = 'twin') {
     // Brutal is the one level given anything: its opponent earns more on every load (Classic only, where there are loads).
-    this.g = createGame(seed, undefined, factions, factions.map((_, i) => (i !== this.me && level === 3 && factions.length === 2 ? RULES.brutalBonus : 0)));
+    this.g = createGame(seed, factions.length === 2 ? classicMap(mapId) : undefined, factions, factions.map((_, i) => (i !== this.me && level === 3 && factions.length === 2 ? RULES.brutalBonus : 0)));
     this.frenzy = this.g.mode === 'frenzy';
     this.chronicle = new Chronicle(this.g);
     const hq = this.g.ents.find((e) => e.owner === this.me && isHall(e.kind))!;

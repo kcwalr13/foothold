@@ -15,9 +15,11 @@ export interface Job {
   b: BotOptions;
   maxTicks?: number;
   factions?: readonly [Faction, Faction];
+  /** A Classic map by its id (`CLASSIC_MAPS`); Twin Ridges if none. */
+  map?: string;
 }
 
-const run = (j: Job): Result => playMatch(j.seed, j.a, j.b, j.maxTicks ?? 15000, undefined, j.factions ?? ['green', 'green']);
+const run = (j: Job): Result => playMatch(j.seed, j.a, j.b, j.maxTicks ?? 15000, undefined, j.factions ?? ['green', 'green'], j.map ?? 'twin');
 
 /** A Frenzy match: four sides, each with its own opponent. */
 export interface FrenzyJob {

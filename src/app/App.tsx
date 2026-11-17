@@ -10,6 +10,7 @@ import { Match } from './match';
 import { Renderer, drawMini } from './render';
 import { clearSaved, loadSaved, saveMatch, type Saved } from './save';
 import { hash, schedule } from '../sim/state';
+import { CLASSIC_MAPS } from '../sim/map';
 import type { Faction, Mode } from '../sim/types';
 
 declare const __BUILD__: { commit: string; date: string };
@@ -38,15 +39,18 @@ const LEVELS = ['Easy', 'Normal', 'Hard', 'Brutal'];
 const FRENZY_LEVELS = 2;
 const NAMES: Record<Faction, string> = { green: 'Green Army', dino: 'Dino Pack' };
 
-interface Choice { mode: Mode; me: Faction; foe: Faction | 'any' }
+interface Choice { mode: Mode; me: Faction; foe: Faction | 'any'; map: string }
 
 /** What the player last chose on the menu, kept for next time where the browser allows it. */
 function remembered(): Choice {
   try {
-    const v = JSON.parse(localStorage.getItem('foothold.sides') ?? '{}') as { mode?: string; me?: string; foe?: string };
-    return { mode: v.mode === 'frenzy' ? 'frenzy' : 'classic', me: v.me === 'dino' ? 'dino' : 'green', foe: v.foe === 'green' || v.foe === 'dino' ? v.foe : 'any' };
+    const v = JSON.parse(localStorage.getItem('foothold.sides') ?? '{}') as { mode?: string; me?: string; foe?: string; map?: string };
+    return {
+      mode: v.mode === 'frenzy' ? 'frenzy' : 'classic', me: v.me === 'dino' ? 'dino' : 'green', foe: v.foe === 'green' || v.foe === 'dino' ? v.foe : 'any',
+      map: CLASSIC_MAPS.some((m) => m.id === v.map) ? v.map! : 'twin',
+    };
   } catch {
-    return { mode: 'classic', me: 'green', foe: 'any' };
+    return { mode: 'classic', me: 'green', foe: 'any', map: 'twin' };
   }
 }
 
@@ -56,7 +60,7 @@ const clock = (ticks: number) => `${Math.floor(ticks / 600)}:${String(Math.floor
 function Resume({ saved, onDone, onFail }: { saved: Saved; onDone: (m: Match) => void; onFail: () => void }) {
   const [done, setDone] = useState(0);
   useEffect(() => {
-    const m = new Match(saved.seed, saved.level, saved.sides);
+    const m = new Match(saved.seed, saved.level, saved.sides, saved.map ?? 'twin');
     let raf = 0;
     const step = () => {
       if (!m.replay(saved.orders, saved.tick)) {
@@ -96,7 +100,7 @@ function Battle({ level, seed, sides, choice, resumed, hints, onQuit, onAgain }:
   const canvas = useRef<HTMLCanvasElement>(null);
   const mini = useRef<HTMLCanvasElement | null>(null);
   const [m] = useState(() => {
-    const match = resumed ?? new Match(seed, level, sides);
+    const match = resumed ?? new Match(seed, level, sides, choice.map);
     match.hints = hints;
     return match;
   });
@@ -180,13 +184,21 @@ function Menu({ onPlay, saved, onResume, note }: { onPlay: (level: number, choic
             {note && <p class="note">{note}</p>}
             {saved && (
               <button class="chip wide resume" onClick={onResume}>
-                Resume your match: {saved.choice.mode === 'frenzy' ? 'Frenzy' : 'Classic'}, {NAMES[saved.sides[0]!]}
+                Resume your match: {saved.choice.mode === 'frenzy' ? 'Frenzy' : CLASSIC_MAPS.find((mp) => mp.id === saved.map)?.name ?? 'Classic'}, {NAMES[saved.sides[0]!]}
                 {saved.sides.length === 2 ? ` against the ${NAMES[saved.sides[1]!]}` : ''}, {LEVELS[saved.level]}, at {clock(saved.tick)}
               </button>
             )}
             <div class="modes" role="group" aria-label="Game">
               <button class={`chip ${!frenzy ? 'on' : ''}`} aria-pressed={!frenzy} aria-label="Classic: one opponent, bases to build" onClick={() => choose({ ...sides, mode: 'classic' })}>Classic</button>
               <button class={`chip ${frenzy ? 'on' : ''}`} aria-pressed={frenzy} aria-label="Frenzy: three opponents, a hero each" onClick={() => choose({ ...sides, mode: 'frenzy' })}>Frenzy</button>
+              {!frenzy && (
+                <span class="maps" role="group" aria-label="Map">
+                  <span class="lbl">on</span>
+                  {CLASSIC_MAPS.map((mp) => (
+                    <button key={mp.id} class={`chip ${sides.map === mp.id ? 'on' : ''}`} aria-pressed={sides.map === mp.id} aria-label={`Map: ${mp.name}`} onClick={() => choose({ ...sides, map: mp.id })}>{mp.name}</button>
+                  ))}
+                </span>
+              )}
             </div>
             <div class="sides">
               <span class="lbl">You</span>
@@ -290,7 +302,7 @@ export function App() {
     // A link can start a match directly: ?play=1&seed=7&me=dino&foe=green, and &mode=frenzy for four corners.
     const mode: Mode = params.get('mode') === 'frenzy' ? 'frenzy' : 'classic';
     const foe = params.get('foe');
-    const choice: Choice = { mode, me: side(params.get('me')), foe: foe === 'green' || foe === 'dino' ? foe : mode === 'frenzy' ? 'any' : 'green' };
+    const choice: Choice = { mode, me: side(params.get('me')), foe: foe === 'green' || foe === 'dino' ? foe : mode === 'frenzy' ? 'any' : 'green', map: params.get('map') ?? 'twin' };
     const seed = Number(params.get('seed') || 7);
     return { level: Number(params.get('play') || 1), seed, n: 0, choice, sides: seat(choice, seed), link: true };
   };

@@ -15,7 +15,7 @@ async function playAWhile(p: Page, frenzy: boolean) {
   }
 }
 
-for (const [name, query] of [['Classic', 'play=1&seed=11&me=green&foe=dino'], ['Frenzy', 'play=1&seed=5&mode=frenzy']] as const) {
+for (const [name, query] of [['Twin Ridges', 'play=1&seed=11&me=green&foe=dino'], ['Crossroads', 'play=1&seed=11&me=dino&foe=green&map=cross'], ['Frenzy', 'play=1&seed=5&mode=frenzy']] as const) {
   test(`a ${name} match left half-way is kept, and picks up exactly where it was`, async ({ page: p }) => {
     await start(p, query);
     await playAWhile(p, name === 'Frenzy');
@@ -38,6 +38,7 @@ for (const [name, query] of [['Classic', 'play=1&seed=11&me=green&foe=dino'], ['
     await p.waitForFunction(() => !!(window as Any).__fh, undefined, { timeout: 30000 });
     // The same match, tick for tick, waiting paused for you.
     expect(await p.evaluate(() => ({ tick: (window as Any).__fh.g.tick, hash: (window as Any).__fhHash() }))).toEqual(before);
+    if (name !== 'Frenzy') expect(await state<string>(p, '(m) => m.g.map.name')).toBe(name);
     await expect(p.getByRole('heading', { name: 'Paused' })).toBeVisible();
     await p.getByRole('button', { name: 'Resume', exact: true }).tap();
     await run(p, 50);
@@ -74,4 +75,17 @@ test('quitting a match forgets it, and a match from another version is let go wi
   await expect(p.getByRole('heading', { name: 'FOOTHOLD' })).toBeVisible();
   expect(await p.evaluate(() => localStorage.getItem('foothold.match'))).toBeNull();
   await expect(p.getByRole('button', { name: /^Resume your match/ })).toHaveCount(0);
+});
+
+test('the map chosen on the menu is the one played, and the menu remembers it', async ({ page: p }) => {
+  await p.goto('./?nosw');
+  await p.getByRole('button', { name: 'Map: Three Roads' }).tap();
+  await p.getByRole('button', { name: 'Normal' }).tap();
+  await p.waitForFunction(() => !!(window as Any).__fh);
+  expect(await state<string>(p, '(m) => m.g.map.name')).toBe('Three Roads');
+  await p.goto('./?nosw');
+  await expect(p.getByRole('button', { name: 'Map: Three Roads' })).toHaveAttribute('aria-pressed', 'true');
+  // Frenzy has its own map, so the choice is not offered there.
+  await p.getByRole('button', { name: /^Frenzy/ }).tap();
+  await expect(p.getByRole('button', { name: 'Map: Three Roads' })).toHaveCount(0);
 });

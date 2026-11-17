@@ -83,6 +83,148 @@ export function twinRidges(): GameMap {
   return { name: 'Twin Ridges', seats: 2, w, h, rock, high, bases, towers, posts: [], roads, labels };
 }
 
+/** What every two-sided map is made with: tiles set in pairs, one on each side, so the map is always fair. */
+function halves(w: number, h: number) {
+  const rock = new Uint8Array(w * h), high = new Uint8Array(w * h);
+  const set = (a: Uint8Array, x: number, y: number, v: number) => {
+    a[y * w + x] = v;
+    a[(h - 1 - y) * w + (w - 1 - x)] = v;
+  };
+  /** Rock over a rectangle of tiles (and its twin); 0 clears it again. */
+  const put = (x0: number, y0: number, x1: number, y1: number, v = 1) => {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(rock, x, y, v);
+  };
+  /** High ground over a rectangle of tiles (and its twin). */
+  const raise = (x0: number, y0: number, x1: number, y1: number) => {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(high, x, y, 1);
+  };
+  /** The near side's bases, and their twins for the far side. */
+  const sites = (near: Omit<BaseSite, 'id' | 'side'>[]): BaseSite[] => {
+    const bases: BaseSite[] = [];
+    for (const b of near) bases.push({ ...b, id: bases.length, side: 0 });
+    for (const b of near) {
+      bases.push({
+        ...b, id: bases.length, side: 1,
+        hx: w - b.hx - HQ_SIZE, hy: h - b.hy - HQ_SIZE,
+        piles: b.piles.map((p) => ({ tx: w - 1 - p.tx, ty: h - 1 - p.ty, amount: p.amount })),
+        cells: b.cells.map((c) => ({ tx: w - 2 - c.tx, ty: h - 2 - c.ty, amount: c.amount })),
+      });
+    }
+    return bases;
+  };
+  const flip = (pts: { x: number; y: number }[]) => pts.map((p) => ({ x: w - p.x, y: h - p.y }));
+  const tower = (tx: number, ty: number) => [{ tx, ty }, { tx: w - 1 - tx, ty: h - 1 - ty }];
+  return { rock, high, put, raise, sites, flip, tower };
+}
+
+/** Six piles of Blocks in a line, two tiles apart. */
+const line = (from: number, fixed: number, across: boolean, amount = 1500) =>
+  [0, 2, 4, 6, 8, 10].map((d) => (across ? { tx: from + d, ty: fixed, amount } : { tx: fixed, ty: from + d, amount }));
+
+/**
+ * Three Roads: the mains face each other across the middle of the map, each on a plateau whose ramp opens onto
+ * the Middle Road, which forks around a hill half-way. Two ranges of hills shut it off from the North and South
+ * Lanes, with one gap in the middle of each range and one beside each main: your own lane is a short walk from
+ * home, the other side's only through the middle. Player 0 starts on the left.
+ */
+export function threeRoads(): GameMap {
+  const w = 144, h = 72;
+  const { rock, high, put, raise, sites, flip, tower } = halves(w, h);
+  // The main's plateau, cliffs on three sides and the ramp (rows 33 to 38) opening east.
+  put(0, 22, 27, 23);
+  put(0, 48, 27, 49);
+  put(26, 24, 27, 32);
+  put(26, 39, 27, 47);
+  raise(0, 24, 25, 47);
+  // The ranges: the northern one runs from beside your main to beside theirs, a gap in its middle; the southern
+  // one is its twin, so it leaves a gap beside their main instead.
+  put(34, 20, 65, 23);
+  put(78, 20, 115, 23);
+  // The hill in the middle of the Middle Road.
+  put(66, 30, 77, 41);
+  put(68, 29, 75, 29);
+  const bases = sites([
+    { name: 'Main', tier: 0, hx: 6, hy: 33, cells: [{ tx: 6, ty: 39, amount: 2500 }], piles: line(29, 2, false) },
+    { name: 'Natural', tier: 1, hx: 38, hy: 40, cells: [{ tx: 44, ty: 41, amount: 2500 }], piles: line(34, 46, true) },
+    { name: 'Third', tier: 2, hx: 14, hy: 6, cells: [{ tx: 20, ty: 7, amount: 2500 }], piles: line(10, 2, true) },
+    {
+      name: 'Rich', tier: 3, hx: 54, hy: 6, cells: [{ tx: 60, ty: 7, amount: 3000 }, { tx: 48, ty: 7, amount: 3000 }],
+      piles: [50, 52, 54, 56, 58, 60, 62, 64].map((tx) => ({ tx, ty: 2, amount: 1800 })),
+    },
+    // Just under your main, but only reached through the middle of the map: the enemy's way there is shorter.
+    { name: 'Back corner', tier: 4, hx: 14, hy: 60, cells: [{ tx: 20, ty: 61, amount: 2500 }], piles: line(10, 66, true) },
+  ]);
+  const north = [{ x: 22, y: 14 }, { x: 50, y: 12 }, { x: 72, y: 11 }, { x: 96, y: 12 }, { x: 124, y: 14 }];
+  const middle = [{ x: 28, y: 36 }, { x: 52, y: 38 }, { x: 64, y: 43 }, { x: 72, y: 44 }, { x: 80, y: 43 }, { x: 92, y: 38 }, { x: 116, y: 36 }];
+  const roads = [north, flip(north), middle, flip(middle), [{ x: 31, y: 30 }, { x: 31, y: 18 }, { x: 22, y: 14 }], flip([{ x: 31, y: 30 }, { x: 31, y: 18 }, { x: 22, y: 14 }])];
+  const labels = [
+    { text: 'Middle Road', x: 50, y: 30.5, rot: 0 },
+    { text: 'Middle Road', x: 94, y: 41.5, rot: 0 },
+    { text: 'North Lane', x: 50, y: 4.6, rot: -0.03 },
+    { text: 'South Lane', x: 94, y: 67.4, rot: -0.03 },
+    { text: 'Watchtower', x: 72.6, y: 14.2, rot: 0.03, small: true },
+    { text: 'Watchtower', x: 71.4, y: 58.4, rot: 0.03, small: true },
+  ];
+  return { name: 'Three Roads', seats: 2, w, h, rock, high, bases, towers: tower(71, 16), posts: [], roads, labels };
+}
+
+/**
+ * Crossroads: the mains sit in opposite corners, top-left and bottom-right, each on a plateau with its ramp
+ * facing down the map. The middle is open ground cut into a cross by four hills, a Watchtower on the road above
+ * and below it. Five bases a side, the last two out in the open: a map for taking ground and holding it.
+ */
+export function crossroads(): GameMap {
+  const w = 144, h = 72;
+  const { rock, high, put, raise, sites, flip, tower } = halves(w, h);
+  // The main's plateau in the top-left corner: a cliff to the east and to the south, the ramp (columns 12 to 17)
+  // in the southern one.
+  put(28, 0, 29, 23);
+  put(0, 22, 11, 23);
+  put(18, 22, 27, 23);
+  raise(0, 0, 27, 21);
+  // The four hills of the crossroads; the two set here and their twins.
+  put(54, 20, 65, 29);
+  put(56, 18, 63, 19);
+  put(78, 22, 89, 30);
+  put(80, 31, 87, 32);
+  // A scatter of smaller rocks to walk round.
+  put(40, 30, 43, 33);
+  put(36, 50, 39, 52);
+  put(98, 8, 101, 11);
+  const bases = sites([
+    { name: 'Main', tier: 0, hx: 6, hy: 8, cells: [{ tx: 6, ty: 14, amount: 2500 }], piles: line(4, 2, false) },
+    { name: 'Natural', tier: 1, hx: 14, hy: 30, cells: [{ tx: 20, ty: 31, amount: 2500 }], piles: line(10, 36, true) },
+    { name: 'Third', tier: 2, hx: 44, hy: 6, cells: [{ tx: 50, ty: 7, amount: 2500 }], piles: line(40, 2, true) },
+    { name: 'Fourth', tier: 3, hx: 6, hy: 56, cells: [{ tx: 12, ty: 57, amount: 2500 }], piles: line(52, 2, false) },
+    {
+      name: 'Rich', tier: 4, hx: 58, hy: 60, cells: [{ tx: 64, ty: 61, amount: 3000 }, { tx: 52, ty: 61, amount: 3000 }],
+      piles: [54, 56, 58, 60, 62, 64, 66, 68].map((tx) => ({ tx, ty: 66, amount: 1800 })),
+    },
+  ]);
+  const across = [{ x: 15, y: 25 }, { x: 30, y: 34 }, { x: 52, y: 36 }, { x: 72, y: 36 }];
+  const down = [{ x: 72, y: 36 }, { x: 72, y: 20 }, { x: 74, y: 6 }];
+  const west = [{ x: 15, y: 25 }, { x: 10, y: 44 }, { x: 10, y: 54 }];
+  const roads = [across, flip(across), down, flip(down), west, flip(west)];
+  const labels = [
+    { text: 'Crossroads', x: 72, y: 38.6, rot: 0 },
+    { text: 'Watchtower', x: 71.6, y: 16.4, rot: 0.03, small: true },
+    { text: 'Watchtower', x: 72.4, y: 56.2, rot: 0.03, small: true },
+  ];
+  return { name: 'Crossroads', seats: 2, w, h, rock, high, bases, towers: tower(71, 14), posts: [], roads, labels };
+}
+
+/** The Classic maps, in the order the menu offers them. */
+export const CLASSIC_MAPS = [
+  { id: 'twin', name: 'Twin Ridges', make: twinRidges },
+  { id: 'roads', name: 'Three Roads', make: threeRoads },
+  { id: 'cross', name: 'Crossroads', make: crossroads },
+] as const;
+export type MapId = (typeof CLASSIC_MAPS)[number]['id'];
+
+export function classicMap(id: string): GameMap {
+  return (CLASSIC_MAPS.find((m) => m.id === id) ?? CLASSIC_MAPS[0]).make();
+}
+
 /**
  * Four Corners, Frenzy's map: a square, the same seen from every corner. Side 0 starts bottom-left and the
  * others follow a quarter turn at a time: top-left, top-right, bottom-right. The ground is level everywhere. Each
