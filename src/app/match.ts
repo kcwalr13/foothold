@@ -14,6 +14,7 @@ import { canPlace, centroid, createGame, groupUnits, hasBuilt, maxHp, missing, o
 import { step } from '../sim/step';
 import { makeView, type View } from '../sim/view';
 import { sfx, type Voice } from './sound';
+import { Chronicle } from './report';
 import { K, O, TICKS_PER_SEC, TILE, type Command, type Entity, type Faction, type Kind, type OrderMode } from '../sim/types';
 
 export interface Camera { x: number; y: number; zoom: number }
@@ -187,6 +188,8 @@ export class Match {
   readonly g: Game;
   /** Which game this is: Frenzy (four corners, a hero each) or Classic. */
   readonly frenzy: boolean;
+  /** Each side's build order and how its army grew, for the report at the end. */
+  readonly chronicle: Chronicle;
   /** Classic's one opponent; Frenzy has three and keeps them in `rivals`. */
   readonly bot: Bot | undefined;
   readonly rivals: FrenzyBot[] = [];
@@ -244,6 +247,7 @@ export class Match {
     // Brutal is the one level given anything: its opponent earns more on every load (Classic only, where there are loads).
     this.g = createGame(seed, undefined, factions, factions.map((_, i) => (i !== this.me && level === 3 && factions.length === 2 ? RULES.brutalBonus : 0)));
     this.frenzy = this.g.mode === 'frenzy';
+    this.chronicle = new Chronicle(this.g);
     const hq = this.g.ents.find((e) => e.owner === this.me && isHall(e.kind))!;
     if (this.frenzy) {
       for (let p = 1; p < factions.length; p++) this.rivals.push(new FrenzyBot(p, seed + p, { level }));
@@ -323,6 +327,7 @@ export class Match {
       }
       for (const bot of this.bots) for (const cmd of bot.think(makeView(g, bot.p))) schedule(g, cmd);
       step(g);
+      this.chronicle.note(g);
       if (performance.now() - start > budget) return false;
     }
     this.refresh();
@@ -338,6 +343,7 @@ export class Match {
     for (const e of g.ents) if (e.owner >= 0 && !DEFS[e.kind]!.building) this.prev.set(e.id, { x: e.x, y: e.y });
     for (const bot of this.bots) for (const cmd of bot.think(makeView(g, bot.p))) schedule(g, cmd);
     step(g);
+    this.chronicle.note(g);
     this.absorb();
     if (g.tick % 2 === 0) {
       this.fogStamp++;
@@ -355,6 +361,7 @@ export class Match {
     } else if (g.winner !== -1 && this.over.value < 0) this.over.value = g.winner >= 0 ? g.winner : 100;
     if (this.over.value >= 0 && !this.jingled) {
       this.jingled = true;
+      this.chronicle.finish(g);
       sfx.play(this.over.value === this.me ? 'win' : 'lose', 1);
     }
     if (g.tick % 600 === 0) {

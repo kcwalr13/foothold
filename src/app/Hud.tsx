@@ -7,6 +7,7 @@ import { SIDES, SPEEDS, type AbilityInfo, type Match, type SpawnInfo, type Upgra
 import { toyIcon } from './icons';
 import { TEAM } from './toys';
 import { UnitGuide } from './Guide';
+import { MatchReport } from './Report';
 import { sfx } from './sound';
 import { SCHEME_LINES, SCHEME_NAMES } from '../ai/bot';
 
@@ -405,6 +406,7 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
   // What the Tech tab last said about an upgrade: the line under the grid.
   const [told, setTold] = useState(-1);
   const [guide, setGuide] = useState(false);
+  const [report, setReport] = useState(false);
   const h = m.hud.value;
   const fz = h.frenzy;
   const mine = m.factions[0]!, theirs = m.factions[1]!, dino = mine === 'dino';
@@ -595,7 +597,8 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
               ))}
             </table>
             <p class="small">{m.rivals.map((b) => `${SIDES[b.p]} went for ${b.bent === 'swarm' ? 'numbers and upgrades' : b.bent === 'heavy' ? 'the heaviest units' : 'flyers'}`).join('; ')}.</p>
-            <div class="pair">
+            <div class="trio">
+              <button class="chip wide" onClick={() => setReport(true)}>Report</button>
               <button class="chip wide" onClick={onAgain}>Play again</button>
               <button class="chip wide" onClick={onQuit}>Menu</button>
             </div>
@@ -617,9 +620,18 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
               <tr><td>Batteries hauled</td><td>{m.g.players[0]!.stats.gathered2}</td><td>{m.g.players[1]!.stats.gathered2}</td></tr>
             </table>
             <p class="small" data-scheme={m.bot.scheme}>The opponent&rsquo;s plan was <b>{SCHEME_NAMES[theirs][m.bot.scheme]}</b>: {SCHEME_LINES[theirs][m.bot.scheme]}.</p>
-            <button class="chip wide" onClick={onAgain}>Play again</button>
-            <button class="chip wide" onClick={onQuit}>Menu</button>
+            <div class="trio">
+              <button class="chip wide" onClick={() => setReport(true)}>Report</button>
+              <button class="chip wide" onClick={onAgain}>Play again</button>
+              <button class="chip wide" onClick={onQuit}>Menu</button>
+            </div>
           </div>
+        </div>
+      )}
+
+      {over >= 0 && report && (
+        <div class="veil">
+          <MatchReport m={m} onBack={() => setReport(false)} />
         </div>
       )}
     </div>
