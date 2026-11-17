@@ -1,7 +1,8 @@
 // Screens: the menu, and a match with its battlefield and panels.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { signal } from '@preact/signals';
-import { Hud } from './Hud';
+import { Hud, SoundSwitch } from './Hud';
+import { sfx } from './sound';
 import { UnitGuide } from './Guide';
 import { attachInput } from './input';
 import { Match } from './match';
@@ -113,6 +114,7 @@ function Battle({ level, seed, sides, choice, resumed, onQuit, onAgain }: {
     document.addEventListener('visibilitychange', hide);
     (window as unknown as { __fh?: Match; __fhHash?: () => number }).__fh = m;
     (window as unknown as { __fhHash?: () => number }).__fhHash = () => hash(m.g);
+    (window as unknown as { __fhSound?: typeof sfx }).__fhSound = sfx;
     m.start();
     return () => {
       m.stop();
@@ -218,6 +220,7 @@ function Menu({ onPlay, saved, onResume, note }: { onPlay: (level: number, choic
               <button class="chip wide" onClick={() => setUnits(true)}>Units</button>
               <button class="chip wide" onClick={() => setHelp(false)}>Back</button>
             </div>
+            <SoundSwitch />
           </>
         )}
         <p class="build">M5 · Flight-ready · {__BUILD__.commit} · {__BUILD__.date}</p>
@@ -244,6 +247,15 @@ function seat(choice: Choice, seed: number): Faction[] {
 
 export function App() {
   const params = new URLSearchParams(location.search);
+  useEffect(() => {
+    // Sound can only start from a tap; every button gives a little click.
+    const tap = (e: PointerEvent) => {
+      sfx.unlock();
+      if ((e.target as Element | null)?.closest?.('button')) sfx.play('tap', 0.7);
+    };
+    document.addEventListener('pointerdown', tap, true);
+    return () => document.removeEventListener('pointerdown', tap, true);
+  }, []);
   const side = (v: string | null): Faction => (v === 'dino' ? 'dino' : 'green');
   const fromLink = (): Session => {
     // A link can start a match directly: ?play=1&seed=7&me=dino&foe=green, and &mode=frenzy for four corners.

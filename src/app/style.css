@@ -291,8 +291,8 @@ img.toy { display: inline-block; vertical-align: middle; flex-shrink: 0; -webkit
 
 .sheet.end .dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 1.5px solid var(--edge); border-radius: 3px; vertical-align: -1px; }
 .sheet.end .faint { opacity: 0.6; font-size: 11px; }
-.sheet.end .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.sheet.end .pair .chip { margin: 0; }
+.sheet .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sheet .pair .chip { margin: 0; }
 .modes { display: flex; align-items: center; justify-content: center; gap: 5px; }
 .modes .chip { padding: 0 14px; }
 .modes .lbl { font-size: 12.5px; font-weight: 700; }

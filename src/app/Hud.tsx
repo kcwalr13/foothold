@@ -7,6 +7,7 @@ import { SIDES, SPEEDS, type AbilityInfo, type Match, type SpawnInfo, type Upgra
 import { toyIcon } from './icons';
 import { TEAM } from './toys';
 import { UnitGuide } from './Guide';
+import { sfx } from './sound';
 import { SCHEME_LINES, SCHEME_NAMES } from '../ai/bot';
 
 const HERO = FRENZY.heroGroup;
@@ -388,6 +389,17 @@ function Organiser({ m }: { m: Match }) {
   );
 }
 
+/** Sound on or off, remembered: the same switch on the menu and in the pause sheet. */
+export function SoundSwitch() {
+  const [on, setOn] = useState(sfx.on);
+  return (
+    <button class={`chip wide ${on ? 'on' : ''}`} aria-pressed={on} aria-label={on ? 'Sound on: tap to turn it off' : 'Sound off: tap to turn it on'}
+      onClick={() => { sfx.set(!on); setOn(!on); }}>
+      Sound: {on ? 'on' : 'off'}
+    </button>
+  );
+}
+
 export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { current: HTMLCanvasElement | null }; onQuit: () => void; onAgain: () => void }) {
   const [tab, setTab] = useState<'build' | 'train' | 'tech'>('train');
   // What the Tech tab last said about an upgrade: the line under the grid.
@@ -555,7 +567,10 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
                 <button key={sp.value} class={`chip ${m.speed.value === sp.value ? 'on' : ''}`} aria-pressed={m.speed.value === sp.value} aria-label={sp.name} onClick={() => m.setSpeed(sp.value)}>{sp.label}</button>
               ))}
             </div>
-            <button class="chip wide" onClick={() => setGuide(true)}>Units</button>
+            <div class="pair">
+              <button class="chip wide" onClick={() => setGuide(true)}>Units</button>
+              <SoundSwitch />
+            </div>
             <button class="chip wide" onClick={onAgain}>Restart</button>
             <button class="chip wide" onClick={onQuit}>Quit to menu</button>
           </div>

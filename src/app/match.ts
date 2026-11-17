@@ -13,6 +13,7 @@ import { dist } from '../sim/nav';
 import { canPlace, centroid, createGame, groupUnits, hasBuilt, maxHp, missing, onLayer, onNestingGround, schedule, spawn, turned, type Game } from '../sim/state';
 import { step } from '../sim/step';
 import { makeView, type View } from '../sim/view';
+import { sfx, type Voice } from './sound';
 import { K, O, TICKS_PER_SEC, TILE, type Command, type Entity, type Faction, type Kind, type OrderMode } from '../sim/types';
 
 export interface Camera { x: number; y: number; zoom: number }
@@ -98,6 +99,15 @@ export interface Outcome { won: boolean; nobody: boolean; place: number }
 
 /** What the sides are called on screen: by their colour, since two may play the same faction. */
 export const SIDES = ['Green', 'Tan', 'Blue', 'Red'] as const;
+
+/** What each unit sounds like when it fires or bites, and how high: the same pop from a smaller or a bigger gun. */
+const SHOT_SOUND: Partial<Record<number, [Voice, number]>> = {
+  [K.Trooper]: ['rifle', 1], [K.Captain]: ['rifle', 0.85], [K.Runner]: ['zip', 1], [K.Bayonet]: ['bite', 1.7],
+  [K.Lancer]: ['rocket', 1], [K.Spitter]: ['spit', 1], [K.Tank]: ['cannon', 1], [K.Jugger]: ['cannon', 0.75],
+  [K.Turret]: ['cannon', 1.25], [K.Mortar]: ['mortar', 1], [K.Volcano]: ['mortar', 0.7], [K.Flak]: ['flak', 1],
+  [K.Gunship]: ['rattle', 1], [K.Raptor]: ['bite', 1.25], [K.Horn]: ['bite', 0.8], [K.Rex]: ['bite', 0.55],
+  [K.Alpha]: ['bite', 0.7], [K.Bronto]: ['stomp', 1], [K.Ptero]: ['screech', 1],
+};
 
 export interface Hud {
   tick: number;
@@ -319,6 +329,7 @@ export class Match {
     return true;
   }
   private replayAt = 0;
+  private jingled = false;
 
   /** Advances the match by one tick. Also used by tests to run ahead. */
   tick(): void {
@@ -342,9 +353,22 @@ export class Match {
         this.over.value = g.winner >= 0 ? g.winner : 100;
       }
     } else if (g.winner !== -1 && this.over.value < 0) this.over.value = g.winner >= 0 ? g.winner : 100;
+    if (this.over.value >= 0 && !this.jingled) {
+      this.jingled = true;
+      sfx.play(this.over.value === this.me ? 'win' : 'lose', 1);
+    }
     if (g.tick % 600 === 0) {
       for (const id of this.fired.keys()) if (!g.byId.has(id)) this.fired.delete(id);
     }
+  }
+
+  /** A sound from somewhere on the map: heard only on screen, louder close up, from the side it is on. */
+  private hear(v: Voice, x: number, y: number, pitch = 1, gain = 1): void {
+    if (!sfx.on) return;
+    const at = this.toScreen(x, y);
+    if (at.x < -60 || at.y < -60 || at.x > this.viewW + 60 || at.y > this.viewH + 60) return;
+    const near = Math.max(0.3, Math.min(1, this.cam.zoom / 24));
+    sfx.play(v, near * gain, ((at.x / Math.max(1, this.viewW)) * 2 - 1) * 0.6, pitch);
   }
 
   private absorb(): void {
@@ -361,6 +385,8 @@ export class Match {
             const life = ev.kind === K.Mortar ? 620 : ev.kind === K.Volcano ? 420 : ev.kind === K.Bronto ? 380 : ev.kind === K.Lancer || ev.kind === K.Spitter ? 260
               : ev.kind === K.Tank || ev.kind === K.Jugger || ev.kind === K.Flak ? 300 : ev.kind === K.Rex || ev.kind === K.Horn || ev.kind === K.Bayonet ? 200 : 130;
             this.fx.push({ t: 'shot', x1: ev.x1, y1: ev.y1, x2: ev.x2, y2: ev.y2, kind: ev.kind, owner: ev.owner, born: now, life });
+            const [v, pitch] = SHOT_SOUND[ev.kind] ?? ['rifle', 1];
+            this.hear(v, ev.x1, ev.y1, pitch);
           }
           break;
         }
@@ -369,6 +395,8 @@ export class Match {
             const d = def(ev.kind);
             const t = d.building ? 'puff' : d.cls === 0 || d.hero || (ev.kind >= K.Gatherer && ev.kind <= K.Egg) ? 'fall' : 'wreck';
             this.fx.push({ t, x1: ev.x, y1: ev.y, x2: ev.fx, y2: ev.fy, kind: ev.kind, owner: ev.owner, born: now, life: d.building ? 1700 : t === 'wreck' ? 2600 : 1400 });
+            if (d.building) this.hear('boom', ev.x, ev.y, d.size >= 4 ? 0.8 : 1);
+            else if (t === 'wreck' || ev.kind === K.Bronto || ev.kind === K.Rex) this.hear('crash', ev.x, ev.y, ev.kind === K.Bronto || ev.kind === K.Rex || ev.kind === K.Jugger ? 0.7 : 1);
           }
           if (ev.owner === this.me && ev.kind === K.Collector && !pl.out) {
             const left = collectorsOf(g, this.me);
@@ -390,6 +418,7 @@ export class Match {
                   : isResearch(ev.kind) ? `${def(ev.kind).name} level ${pl[researchOf(ev.kind)]} researched`
                     : this.frenzy ? `${def(ev.kind).plural} unlocked, and in the mix` : `${def(ev.kind).name} ready`;
             this.alert(`done${ev.kind}`, text, 'info', ev.x, ev.y, 10);
+            sfx.play(def(ev.kind).building || isResearch(ev.kind) || (this.frenzy && ev.kind >= K.Weapons) ? 'ding' : 'ready', 0.8);
           }
           break;
         case 'refused':
@@ -398,17 +427,20 @@ export class Match {
         case 'cast': {
           if (ev.owner === this.me || seen(ev.x1, ev.y1) || seen(ev.x2, ev.y2)) {
             this.fx.push({ t: 'cast', x1: ev.x1, y1: ev.y1, x2: ev.x2, y2: ev.y2, kind: ev.hero, owner: ev.owner, born: now, life: Math.max(260, ev.delay * 100 + 60), mode: ev.slot, r: ev.r });
+            this.hear('whoosh', ev.x1, ev.y1, 1, ev.owner === this.me ? 1 : 0.7);
           }
           break;
         }
         case 'blast':
           if (ev.owner === this.me || seen(ev.x, ev.y)) {
             this.fx.push({ t: 'blast', x1: ev.x, y1: ev.y, x2: 0, y2: 0, kind: ev.hero, owner: ev.owner, born: now, life: ev.slot === 2 ? 900 : 560, mode: ev.slot, r: ev.r });
+            this.hear('blast', ev.x, ev.y, ev.slot === 2 ? 0.8 : 1.1);
           }
           break;
         case 'level':
           if (ev.owner === this.me || seen(ev.x, ev.y)) this.fx.push({ t: 'level', x1: ev.x, y1: ev.y, x2: 0, y2: 0, kind: 0, owner: ev.owner, born: now, life: 1300, mode: ev.level });
           if (ev.owner === this.me) {
+            sfx.play('level', 0.8);
             const opened = ABILITIES[FACTIONS[pl.faction].hero]!.find((a) => a.level === ev.level);
             this.alert(`lvl${ev.level}`, opened ? `Level ${ev.level}: ${opened.name} is ready` : `Your ${this.heroName()} is level ${ev.level}`, 'info', ev.x, ev.y, 0);
           }
@@ -419,7 +451,10 @@ export class Match {
           else if (!pl.out) this.alert('herodown', `Your ${this.heroName()} is down: back in ${Math.ceil((ev.back - g.tick) / TICKS_PER_SEC)} s`, 'warn', ev.x, ev.y, 0);
           break;
         case 'bounty':
-          if (ev.owner === this.me) this.fx.push({ t: 'coin', x1: ev.x, y1: ev.y, x2: 0, y2: 0, kind: 0, owner: ev.owner, born: now, life: 900, mode: ev.amount });
+          if (ev.owner === this.me) {
+            this.fx.push({ t: 'coin', x1: ev.x, y1: ev.y, x2: 0, y2: 0, kind: 0, owner: ev.owner, born: now, life: 900, mode: ev.amount });
+            this.hear('coin', ev.x, ev.y, 1, 0.6);
+          }
           break;
         case 'out':
           if (ev.owner !== this.me) this.alert(`out${ev.owner}`, `${SIDES[ev.owner]} is out${ev.by === this.me ? ': your doing' : ''}`, 'info', undefined, undefined, 0);
@@ -440,6 +475,8 @@ export class Match {
     const lastAt = this.lastAlert.get(key) ?? -9999;
     if (this.g.tick - lastAt < gapTicks) return;
     this.lastAlert.set(key, this.g.tick);
+    // A warning that something of yours is under fire sounds a horn; a refused order only says so.
+    if (kind === 'warn' && !key.startsWith('no:')) sfx.play('horn', 0.9);
     const t: Toast = { id: this.toastId++, text, kind, x, y, until: performance.now() + (kind === 'warn' ? 3600 : 1700) };
     this.toasts.value = [...this.toasts.value.filter((o) => o.text !== text), t].slice(-2);
   }
