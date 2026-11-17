@@ -1,4 +1,79 @@
-# Balance report: M5 · Flight-ready, first build
+# Balance report: M5 · Flight-ready, second build
+
+Measured on Nov 17, 2026 with the bot lab: the computer opponent in every seat, no screen attached. The full set
+of checks was run on this build: `lab/fair.ts`, `lab/factions.ts 12` (and 6 seeds on Three Roads and on
+Crossroads, then 216 matches on each), `lab/league.ts 12` for both mirrors, `lab/levels.ts 8`, `lab/matrix.ts`,
+`lab/speed.ts` and `lab/fairfrenzy.ts`.
+
+What changed, all at Kyle's asking (Nov 17): supply tops out at **200** (five Headquarters or Nests at 40 each);
+spare Workers and Gatherers can be **recycled** (they walk home, hand in their load, give back half their price,
+and free their supply at once); and each faction has **nine kinds of research** instead of two: Weapons and
+Armour (Claws and Hide) to a third level behind Heavy Works (a Great Cave), and seven more, each studied at its
+own building in a research queue beside what that building trains. The opponent uses all three. Frenzy did not
+change: three Frenzy rounds give the same checksums as before, and `lab/fairfrenzy.ts` finds every corner fair,
+so Frenzy's figures (further below) stand.
+
+## The headline: still neither faction the weaker pick
+
+| | M4 and M5's first build | This build |
+|---|---|---|
+| The Dino Pack wins, as the opponent plays both sides (Twin Ridges, 216 matches) | 52% | **54%** |
+| The same, every plan forced against every other | 63% | 63% |
+| Three Roads, as played, 216 matches | 50% | 53% |
+| Crossroads, as played, 216 matches | 47% | 52% |
+| Median length, as played, Twin Ridges | 9:04 | 9:00 |
+
+The target is that neither faction wins more than 55% of the headline: met, with a point to spare. The two new
+maps are measured on 216 matches of their own (the same seeds before and after); `factions.ts 6` on its six
+seeds gave 64% on Three Roads and 55% on Crossroads, but those seeds leaned to the Dino Pack before too (57% and
+47%): 108 matches are good to about five points either way, 216 to three and a half.
+
+**How it got there.** The first version moved the headline 4 to 6 points toward the Dino Pack on the same seeds.
+Three things were tried in turn:
+
+- **Swift Feet and Thick Skulls halved** (to 8% faster and 10% less). In equal-cost fights the first numbers were
+  worth 25 and 43 points to the Dino side, where Long Rifles and Heavy Shells were worth 1 and 18 to the Green.
+- **Helmets in place of Quick March.** Speed bought the Green Army nothing in a fight: its infantry shoot. With
+  Helmets, the research each opponent usually buys is worth the same to both sides in a fight between the armies
+  they actually field (Troopers, Lancers and a few Tanks against Raptors, Spitters and Horns): +11 for the Green
+  Army's, -13 for the Dino Pack's.
+- **The new research priced mostly in Batteries, the same for both.** This is the one that mattered. After six
+  minutes the Dino opponent sits on 485 spare Blocks on average and the Green opponent on 79: the Dino Pack is
+  short of eggs, the Green Army of Blocks. Priced in Blocks, research cost the Green Army soldiers and the Dino
+  Pack nothing. Priced in Batteries (which the Green opponent has more of to spare) each side buys about as much
+  (2.1 and 2.3 items a match on one set of seeds) and the headline came back to within a point or two.
+
+Swings of three or four points on the same 216 seeds came from changes that should have done nothing (eggs laid
+4% slower *raised* the Dino Pack's share), which is why every step above was judged on two sets of 216 and the
+result confirmed by the full `factions.ts 12` run.
+
+## Supply, recycling and research in play
+
+From 24 matches between Normal opponents, every pairing, Twin Ridges:
+
+- **Full supply.** A third of the matches reach a cap of 200 (8 of 24), and in 5 a side fills it.
+- **Recycling.** The opponent recycles spare Workers once its supply bar is full: in the faction runs the Green
+  opponent sends home 3 to 6 a match and the Dino opponent 1 to 2.
+- **Research.** What the opponents studied most: Claws, Hide, Acid Spit, Big Mouths, Hot Rock and Swift Feet on
+  the Dino side; Long Rifles, Concrete, Weapons, Helmets, Big Loads and Heavy Shells on the Green side. Field
+  Repair and Mending, the late game's, came in a few of the longest matches.
+
+## The rest of the checks
+
+| Check | This build | Against target |
+|---|---|---|
+| Fair to both sides | 36 mirrors (each plan of each faction on each map) stay a mirror for 15 minutes; 18 seat-swapped matches are the same match | Met |
+| No best plan | Green mirror: Fast expand 80% as played. Dino mirror: Big nest 63%, Pack hunt 69%. Against each other, a Dino Pack hunt wins 86% of 29 | Not met, as in M4 |
+| No one-trick wins | All Lancers win 61% against a Green opponent, all Troopers 42% against a Dino one; every other one-unit build 25% or less | Not met for the same two, as in M4 |
+| Levels | Normal beats Easy every time; Brutal beats Hard 69% to 94%; Hard against Normal 38% to 56% | Not met for Hard, as in M4 |
+| Counter table | `lab/matrix.ts` prints exactly what it printed for M4 | Met |
+| Phone speed | Both sides at full supply (222 to 254 fighting units with 82 Workers): a tick of the rules takes 0.31 to 0.53 ms (median), the worst in twenty 1.5 to 5.5 ms; a Frenzy brawl 0.23 ms | Inside budget; true frame rate needs a real phone |
+| Frenzy unchanged | Three rounds give M5's checksums; every corner fair | Met |
+
+M4's open items (a Hard that beats Normal, a fast expansion the other plans punish, an answer to one-unit
+floods) are where they were.
+
+# M5 · Flight-ready, first build
 
 Measured on Nov 16, 2026 with the bot lab: the computer opponent in every seat, no screen attached.
 
