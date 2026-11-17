@@ -528,13 +528,16 @@ test('every dinosaur and Dino building is drawn, near and far, with nothing goin
     m.cam.x = 16 * 256; m.cam.y = 38 * 256; m.cam.zoom = 24; m.clampCam();
     m.paused.value = false;
   });
+  // The panel catches up with the Great Cave spawned above on its next refresh; until then a tap only says why not.
+  await expect(p.getByRole('button', { name: 'Hatch Rex' })).not.toHaveClass(/dim/);
   await p.getByRole('button', { name: 'Hatch Rex' }).tap();
   // The egg is laid on the next tick. On a loaded machine a frame can catch up many ticks at once, and the
   // fight next door goes on meanwhile, so wait for the egg itself rather than a fixed time.
   await p.waitForFunction(() => (window as Any).__fh.g.ents.filter((e: Any) => e.kind === 19).length === 1);
   await p.waitForTimeout(600);
   await p.screenshot({ path: info.outputPath('dinosaurs.png') });
-  expect(await state<number>(p, '(m) => m.fx.length + m.g.events.length')).toBeGreaterThan(0);
+  // Shots are drawn: some frame of the fight next door has a flash or a shot in it.
+  await p.waitForFunction(() => { const m = (window as Any).__fh; return m.fx.length + m.g.events.length > 0; });
   await p.evaluate(() => { const m = (window as Any).__fh; m.cam.zoom = 6; m.clampCam(); });
   await p.waitForTimeout(600);
   await p.screenshot({ path: info.outputPath('dinosaurs-far.png') });
