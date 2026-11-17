@@ -4,7 +4,7 @@ import { type Any, noSmallButtons, run } from './helpers';
 
 test('a first match from the menu gives hints one at a time, each once, and they can be stopped and started again', async ({ page: p }, info) => {
   await p.goto('./?nosw');
-  await p.getByRole('button', { name: 'Normal' }).tap();
+  await p.getByRole('button', { name: 'Normal', exact: true }).tap();
   await p.waitForFunction(() => !!(window as Any).__fh);
   await p.evaluate(() => { (window as Any).__fh.paused.value = true; });
   await run(p, 40);

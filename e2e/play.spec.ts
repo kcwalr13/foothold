@@ -11,7 +11,7 @@ test('menu to match, and every control is thumb-sized', async ({ page: p }, info
   await p.getByRole('button', { name: 'How to play' }).tap();
   await noSmallButtons(p);
   await p.getByRole('button', { name: 'Back' }).tap();
-  await p.getByRole('button', { name: 'Normal' }).tap();
+  await p.getByRole('button', { name: 'Normal', exact: true }).tap();
   await p.waitForFunction(() => !!(window as Any).__fh);
   await expect(p.locator('.left')).toBeVisible();
   await expect(p.locator('.right')).toBeVisible();
@@ -402,13 +402,13 @@ const DINO = 'play=1&seed=7&me=dino';
 
 test('choose a side on the menu: the Dino Pack plays, and the choice is remembered', async ({ page: p }, info) => {
   await p.goto('./?nosw');
-  await expect(p.getByRole('button', { name: 'Play the Green Army' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(p.getByRole('button', { name: 'Against either' })).toHaveAttribute('aria-pressed', 'true');
-  await p.getByRole('button', { name: 'Play the Dino Pack' }).tap();
-  await p.getByRole('button', { name: 'Against the Green Army' }).tap();
+  await expect(p.getByRole('button', { name: 'Play the Green Army', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(p.getByRole('button', { name: 'Against either', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await p.getByRole('button', { name: 'Play the Dino Pack', exact: true }).tap();
+  await p.getByRole('button', { name: 'Against the Green Army', exact: true }).tap();
   await noSmallButtons(p);
   await p.screenshot({ path: info.outputPath('menu.png') });
-  await p.getByRole('button', { name: 'Normal' }).tap();
+  await p.getByRole('button', { name: 'Normal', exact: true }).tap();
   await p.waitForFunction(() => !!(window as Any).__fh);
   expect(await state<string[]>(p, '(m) => m.g.players.map((pl) => pl.faction)')).toEqual(['dino', 'green']);
   await expect(p.getByRole('button', { name: 'Hatch', exact: true })).toBeVisible();
@@ -426,10 +426,10 @@ test('choose a side on the menu: the Dino Pack plays, and the choice is remember
   await p.screenshot({ path: info.outputPath('dino-start.png') });
   // Back at the menu the same sides are still picked; against the Dino Pack it is a Dino mirror.
   await p.goto('./?nosw');
-  await expect(p.getByRole('button', { name: 'Play the Dino Pack' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(p.getByRole('button', { name: 'Against the Green Army' })).toHaveAttribute('aria-pressed', 'true');
-  await p.getByRole('button', { name: 'Against the Dino Pack' }).tap();
-  await p.getByRole('button', { name: 'Easy' }).tap();
+  await expect(p.getByRole('button', { name: 'Play the Dino Pack', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(p.getByRole('button', { name: 'Against the Green Army', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await p.getByRole('button', { name: 'Against the Dino Pack', exact: true }).tap();
+  await p.getByRole('button', { name: 'Easy', exact: true }).tap();
   await p.waitForFunction(() => !!(window as Any).__fh);
   expect(await state<string[]>(p, '(m) => m.g.players.map((pl) => pl.faction)')).toEqual(['dino', 'dino']);
 });
@@ -529,10 +529,12 @@ test('every dinosaur and Dino building is drawn, near and far, with nothing goin
     m.paused.value = false;
   });
   await p.getByRole('button', { name: 'Hatch Rex' }).tap();
-  await p.waitForTimeout(1200);
+  // The egg is laid on the next tick. On a loaded machine a frame can catch up many ticks at once, and the
+  // fight next door goes on meanwhile, so wait for the egg itself rather than a fixed time.
+  await p.waitForFunction(() => (window as Any).__fh.g.ents.filter((e: Any) => e.kind === 19).length === 1);
+  await p.waitForTimeout(600);
   await p.screenshot({ path: info.outputPath('dinosaurs.png') });
   expect(await state<number>(p, '(m) => m.fx.length + m.g.events.length')).toBeGreaterThan(0);
-  expect(await state<number>(p, '(m) => m.g.ents.filter((e) => e.kind === 19).length')).toBe(1);
   await p.evaluate(() => { const m = (window as Any).__fh; m.cam.zoom = 6; m.clampCam(); });
   await p.waitForTimeout(600);
   await p.screenshot({ path: info.outputPath('dinosaurs-far.png') });

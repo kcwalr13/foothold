@@ -30,7 +30,7 @@ test('Frenzy from the menu: four sides, a hero, and every control is thumb-sized
   await expect(p.locator('.how')).toContainText('Overtime');
   await noSmallButtons(p);
   await p.getByRole('button', { name: 'Back' }).tap();
-  await p.getByRole('button', { name: 'Normal' }).tap();
+  await p.getByRole('button', { name: 'Normal', exact: true }).tap();
   await p.waitForFunction(() => !!(window as Any).__fh);
   expect(await state(p, '(m) => ({ mode: m.g.mode, sides: m.g.players.length, me: m.g.players[0].faction, rivals: m.rivals.length })'))
     .toEqual({ mode: 'frenzy', sides: 4, me: 'green', rivals: 3 });
@@ -74,9 +74,9 @@ test('Frenzy from the menu: four sides, a hero, and every control is thumb-sized
   // Back at the menu Frenzy is still picked, and the Dino Pack plays it too, against three of its own.
   await p.goto('./?nosw');
   await expect(p.getByRole('button', { name: /^Frenzy/ })).toHaveAttribute('aria-pressed', 'true');
-  await p.getByRole('button', { name: 'Play the Dino Pack' }).tap();
-  await p.getByRole('button', { name: 'Against the Dino Pack' }).tap();
-  await p.getByRole('button', { name: 'Easy' }).tap();
+  await p.getByRole('button', { name: 'Play the Dino Pack', exact: true }).tap();
+  await p.getByRole('button', { name: 'Against the Dino Pack', exact: true }).tap();
+  await p.getByRole('button', { name: 'Easy', exact: true }).tap();
   await p.waitForFunction(() => !!(window as Any).__fh);
   expect(await state<string[]>(p, '(m) => m.g.players.map((pl) => pl.faction)')).toEqual(['dino', 'dino', 'dino', 'dino']);
   await expect(p.locator('.grid .tile')).toHaveCount(frenzyUnits('dino').length);
@@ -89,7 +89,7 @@ test('Frenzy from the menu: four sides, a hero, and every control is thumb-sized
   // Classic is still there, and still the game it was.
   await p.goto('./?nosw');
   await p.getByRole('button', { name: /^Classic/ }).tap();
-  await p.getByRole('button', { name: 'Normal' }).tap();
+  await p.getByRole('button', { name: 'Normal', exact: true }).tap();
   await p.waitForFunction(() => !!(window as Any).__fh);
   expect(await state(p, '(m) => ({ mode: m.g.mode, sides: m.g.players.length })')).toEqual({ mode: 'classic', sides: 2 });
   await expect(p.getByRole('button', { name: 'Build', exact: true })).toBeVisible();

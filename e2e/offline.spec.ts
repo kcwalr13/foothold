@@ -8,7 +8,7 @@ test('installs for offline play: a reload with no connection still starts a matc
   await context.setOffline(true);
   await p.reload();
   await expect(p.getByRole('heading', { name: 'FOOTHOLD' })).toBeVisible();
-  await p.getByRole('button', { name: 'Easy' }).tap();
+  await p.getByRole('button', { name: 'Easy', exact: true }).tap();
   await p.waitForFunction(() => !!(window as unknown as { __fh?: unknown }).__fh);
   await expect(p.locator('.left')).toBeVisible();
 });

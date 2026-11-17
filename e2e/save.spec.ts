@@ -80,7 +80,7 @@ test('quitting a match forgets it, and a match from another version is let go wi
 test('the map chosen on the menu is the one played, and the menu remembers it', async ({ page: p }) => {
   await p.goto('./?nosw');
   await p.getByRole('button', { name: 'Map: Three Roads' }).tap();
-  await p.getByRole('button', { name: 'Normal' }).tap();
+  await p.getByRole('button', { name: 'Normal', exact: true }).tap();
   await p.waitForFunction(() => !!(window as Any).__fh);
   expect(await state<string>(p, '(m) => m.g.map.name')).toBe('Three Roads');
   await p.goto('./?nosw');
