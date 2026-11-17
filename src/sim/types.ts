@@ -26,6 +26,12 @@ export const K = {
   Muster: 104, Haul: 105,
   /** Frenzy only: the hero's own. Might: it and its abilities hit harder. Grit: more health. Tempo: abilities ready sooner. */
   Might: 106, Grit: 107, Tempo: 108,
+  /**
+   * Classic's research beyond Weapons and Armour, one level each, studied at the building that knows how
+   * (`TECH` in data.ts says what each does). The Green Army's, then the Dino Pack's.
+   */
+  LongRifles: 110, QuickMarch: 111, BigLoads: 112, HeavyShells: 113, Afterburners: 114, Concrete: 115, FieldRepair: 116,
+  AcidSpit: 117, SwiftFeet: 118, BigMouths: 119, ThickSkulls: 120, WideWings: 121, HotRock: 122, Mending: 123,
 } as const;
 export type Kind = (typeof K)[keyof typeof K];
 
@@ -45,8 +51,8 @@ export type Cls = (typeof C)[keyof typeof C];
 export const O = { Idle: 0, Attack: 1, Move: 2, Hold: 3 } as const;
 export type OrderMode = (typeof O)[keyof typeof O];
 
-/** Worker states. */
-export const W = { Idle: 0, ToPile: 1, Harvest: 2, ToHQ: 3, ToSite: 4, Build: 5 } as const;
+/** Worker states. Recycled: on its way home to be taken back, its supply already free. */
+export const W = { Idle: 0, ToPile: 1, Harvest: 2, ToHQ: 3, ToSite: 4, Build: 5, Recycled: 6 } as const;
 
 export interface Def {
   kind: Kind;
@@ -100,6 +106,8 @@ export interface Def {
   needs: readonly Kind[];
   /** Supply cap this building provides. */
   provides: number;
+  /** Research: how many levels it has. */
+  levels: number;
   building: boolean;
   /** A Frenzy hero: one a side, in a group of its own, with levels and abilities. */
   hero: boolean;
@@ -161,6 +169,12 @@ export interface Entity {
   progress: number;
   queue: Kind[];
   qprog: number;
+  /**
+   * Classic's research, queued at this building apart from what it trains: a Barracks studies Long Rifles and
+   * trains Troopers at the same time. The first is under way, `sprog` ticks into it.
+   */
+  studies: Kind[];
+  sprog: number;
   /** Worker id building this site; -1 for a Dino building, which a Gatherer has become and which grows by itself. */
   builder: number;
 
@@ -185,6 +199,8 @@ export interface Entity {
   by: number;
   /** A hero's Grit, 0 to 3, as its side has bought it: more health. 0 for everything else. */
   grit: number;
+  /** The tick it was last hurt: mending waits until it has been left alone a while. */
+  hurt: number;
 }
 
 export interface GroupState {
@@ -228,9 +244,11 @@ export interface Player {
    */
   bonus: number;
   bonusLeft: [number, number];
-  /** Research levels: weapons and armour, 0 to 2. */
+  /** Research levels: weapons and armour, 0 to 3. */
   weapons: number;
   armour: number;
+  /** Classic's other research, by kind less 100: 1 once studied (`techLevel` reads it). */
+  tech: number[];
   supply: number;
   cap: number;
   /** New units join this group. */
@@ -287,7 +305,9 @@ export type Command =
   /** Frenzy: the hero uses ability `slot` (0 to 2), at a point if the ability takes one. */
   | { t: 'cast'; p: number; slot: number; x: number; y: number }
   /** Classic only: the side gives the match up, and the other wins it. */
-  | { t: 'concede'; p: number };
+  | { t: 'concede'; p: number }
+  /** Classic only: send `n` Workers home to be taken back; the rules pick the ones with least to do. */
+  | { t: 'recycle'; p: number; n: number };
 
 export type GameEvent =
   | { t: 'shot'; from: number; to: number; kind: Kind; x1: number; y1: number; x2: number; y2: number; owner: number }
@@ -302,6 +322,8 @@ export type GameEvent =
   | { t: 'level'; owner: number; level: number; x: number; y: number }
   /** A hero fell (`up` false) or came back. */
   | { t: 'hero'; owner: number; up: boolean; x: number; y: number; back: number }
+  /** A recycled Worker was taken back at a Headquarters, and gave back this many Blocks. */
+  | { t: 'recycled'; owner: number; kind: Kind; x: number; y: number; amount: number }
   /** Blocks paid to a side for something it brought down. */
   | { t: 'bounty'; owner: number; amount: number; x: number; y: number }
   /** A side is out of the match, and who put it out (-1 for nobody). */

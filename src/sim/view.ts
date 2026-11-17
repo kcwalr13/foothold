@@ -1,7 +1,7 @@
 // What one player is allowed to know. The computer opponent reads the match only through this,
 // so it plays under the same fog of war as a person.
 import { def, isWorker, worth } from './data';
-import { canPlace, onLayer, visibleTo, type Game } from './state';
+import { canPlace, onLayer, researchBlock, visibleTo, type Game } from './state';
 import { K, type Entity, type Faction, type GameMap, type Ghost, type GroupState, type Kind, type Mode } from './types';
 
 export interface View {
@@ -16,6 +16,10 @@ export interface View {
   gas: number;
   weapons: number;
   armour: number;
+  /** Its own research beyond Weapons and Armour, by kind less 100 (`techLevel` reads it). */
+  tech: readonly number[];
+  /** Why it can't start the next level of this research now, or '' if it can: what the Tech tab tells a player. */
+  researchWhy: (kind: Kind) => string;
   supply: number;
   cap: number;
   rally: number;
@@ -72,9 +76,10 @@ export function makeView(g: Game, p: number): View {
   const hurt: { x: number; y: number; kind: Kind }[] = [];
   for (const ev of g.events) if (ev.t === 'hurt' && ev.owner === p) hurt.push({ x: ev.x, y: ev.y, kind: ev.kind });
   return {
-    mode: g.mode, tick: g.tick, p, faction: pl.faction, foe: g.players[(p + 1) % g.players.length]!.faction, blocks: pl.blocks, gas: pl.gas, weapons: pl.weapons, armour: pl.armour, supply: pl.supply, cap: pl.cap, rally: pl.rally, repeat: pl.repeat, groups: pl.groups,
+    mode: g.mode, tick: g.tick, p, faction: pl.faction, foe: g.players[(p + 1) % g.players.length]!.faction, blocks: pl.blocks, gas: pl.gas, weapons: pl.weapons, armour: pl.armour, tech: pl.tech, supply: pl.supply, cap: pl.cap, rally: pl.rally, repeat: pl.repeat, groups: pl.groups,
     own, enemies, ghosts: [...pl.seen.values()], piles, cells, map: g.map, hurt, vis: pl.vis, explored: pl.explored,
     canPlace: (kind, tx, ty) => canPlace(g, p, kind, tx, ty),
+    researchWhy: (kind) => researchBlock(g, p, kind),
     blocked: (tx, ty) => g.nav.isBlocked(tx, ty),
     sides: g.players.map((q) => ({ id: q.id, faction: q.faction, out: q.out })),
     unlocked: pl.unlocked, muster: pl.muster, haul: pl.haul, might: pl.might, grit: pl.grit, tempo: pl.tempo, heroLvl: pl.heroLvl, heroXp: pl.heroXp, heroBack: pl.heroBack, cds: pl.cds, middle,

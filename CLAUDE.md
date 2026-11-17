@@ -71,7 +71,8 @@ most three taste questions.
 - The app never decides a rule; it asks `src/sim` (`canPlace`, `hasBuilt`, ...).
 - The unit guide (`src/app/Guide.tsx`, from the pause sheet and How to play) reads every number from `def()`,
   `UNLOCK`, `WORK` and `ABILITIES`; only the words (job, beats, beaten by) are written there, and they follow
-  the design doc's unit tables. A new unit needs its words in `WORDS`.
+  the design doc's unit tables. A new unit needs its words in `WORDS`. In Classic it also lists the faction's
+  research, every word from `techBlurb`.
 - Attack or Move is one setting for the whole army, in both modes: `Match.mode` belongs to no group, stays
   as pressed until the other is pressed (whatever is selected, falls or comes back), and its two buttons are
   never disabled. Kyle asked for exactly this, twice: do not make it per group or reset it anywhere.
@@ -129,6 +130,22 @@ most three taste questions.
   `melee` units must touch their target and gain no range from high ground; `charge` is extra speed while
   closing; `raider` units go for Workers first. Claws and Hide are Weapons and Armour by another name
   (`researchOf`).
+- Classic's research (Kyle asked for more upgrade paths, Nov 17): `FACTIONS[f].tech` is the Tech tab, nine a
+  faction (`FACTIONS[f].research` stays Weapons and Armour, all Frenzy sells). Each item is a `Def` with
+  `madeAt` (where it is studied), `needs` and `levels`; Weapons and Armour (Claws and Hide) have three, the
+  third waiting for `FACTIONS[f].top` (Heavy Works, a Great Cave); the other seven one, kept in `pl.tech[kind -
+  100]` (`techLevel` reads either). What they do is data, `TECH` in `data.ts` (range, speed, dmg, taken, carry,
+  mend, for the units named), summed per side and kind by `boost()` in `src/sim/tech.ts` and read in `reach`,
+  `speedOf`, `damage`, a Worker's load and `mend()`; call `forgetBoosts(pl)` after changing `pl.tech` by hand.
+  Research goes in a building's own queue (`studies`, `sprog`), beside what it trains; `researchBlock` says why
+  not, for the sim, the panel and the opponent alike (`View.researchWhy`). A Frenzy round has none of it, and
+  the checksum takes research in only where a side has some, so Frenzy's is unchanged.
+- Supply tops out at `RULES.supplyMax`, 200: five halls at 40 (Kyle's call, Nov 17). Spare Workers are
+  recycled (Kyle asked for a way, Nov 17): a `recycle` command with a count; the rules pick the ones with least
+  to do (idle, then at a crowded pile, then on Blocks, then on Batteries; never a builder), set them
+  `W.Recycled` (their supply is free at once), and at the nearest hall they hand in their load and give back
+  `RULES.recycleRefund` percent of their price (a `recycled` event, not a death). The player recycles from the
+  Workers count on the top bar (`CrewSheet` in `Hud.tsx`).
 - Frenzy's rules, all in `src/sim` (`frenzy.ts`, numbers in `FRENZY`, `UNLOCK`, `WORK` and `ABILITIES` in
   `data.ts`): `createGame` with four factions makes a Frenzy round on `fourCorners()`. The ground is level
   (nothing in `map.high`, Kyle's call), but each corner is walled along its two inner sides with one gap
@@ -182,7 +199,9 @@ most three taste questions.
   Hard's opponent with `RULES.brutalBonus` percent more on every load (`Player.bonus`, set by `createGame`, the
   one rule that differs between the sides, and said on the menu). A big army that sets out opens a second front
   (`frontAt`: a detachment goes for another base), and an opponent that can't win back a match concedes it (a
-  `concede` command, Classic only; two sides conceding on the same tick both lose, `winner` -2).
+  `concede` command, Classic only; two sides conceding on the same tick both lose, `winner` -2). It studies research for
+  what it has most of (the `wanted` list in `think`, at a building with nothing else to study), recycles the Workers
+  beyond its jobs once its supply bar is full, and puts a fifth hall down near home for the room.
 - Frenzy's opponent is `FrenzyBot` (`src/ai/frenzy.ts`), under the same rule: a `View` in, commands out. Its
   bents are `swarm`, `heavy` and `air`; it counter-picks its mix from what it has seen, keeps new units at
   home as a reserve while its army is out, and picks whom to go for by who is hurt and who is near, not by
@@ -203,7 +222,7 @@ most three taste questions.
 - The after-match report (`Report.tsx`) reads `Match.chronicle` (`report.ts`), which `note(g)` fills after every
   tick, played or replayed: buildings placed, the first of each unit, research, Frenzy unlocks and upgrades, and
   every 15 seconds each side's army (in what it cost) and Workers.
-- First-match hints (`hints.ts`): one at a time, low between the panels (`.tip`), each once (`foothold.hints`),
+- First-match hints (`hints.ts`, Classic's include spare Workers and the Tech tab): one at a time, low between the panels (`.tip`), each once (`foothold.hints`),
   and only in matches started from the menu (`Match.hints`), never from a `?play=` link, which is how the tests
   and the lab start. How to play turns them back on. The menu offers Chrome's install (`installOffer`) and on an
   iPhone says how to add the game to the home screen.

@@ -5,7 +5,7 @@ import { createGame, hash, schedule, type Game } from '../src/sim/state';
 import { step } from '../src/sim/step';
 import { makeView } from '../src/sim/view';
 import { RULES, def, isHall, isWorker } from '../src/sim/data';
-import { K, type Faction } from '../src/sim/types';
+import { K, type Faction, type Player } from '../src/sim/types';
 
 export interface Result {
   seed: number;
@@ -24,6 +24,9 @@ export interface Result {
   gathered: [number, number];
   batteries: [number, number];
   research: [number, number];
+  /** Research beyond Weapons and Armour, in levels, and Workers recycled. */
+  studied: [number, number];
+  recycled: [number, number];
   hash: number;
   /** Tick at which each side's Workers or buildings were first hit; -1 if never. */
   firstHit: [number, number];
@@ -32,6 +35,8 @@ export interface Result {
   lost: [number, number];
   commands: number;
 }
+
+const studied = (pl: Player): number => pl.tech.reduce((s2: number, v) => s2 + (v ?? 0), 0);
 
 export function playMatch(
   seed: number, a: BotOptions = {}, b: BotOptions = {}, maxTicks = 15000, watch?: (g: Game) => void,
@@ -43,10 +48,12 @@ export function playMatch(
   const peak: [number, number] = [0, 0];
   const made: [Record<string, number>, Record<string, number>] = [{}, {}];
   const known = new Set<number>();
+  const recycled: [number, number] = [0, 0];
   while (g.winner === -1 && g.tick < maxTicks) {
     for (const bot of bots) for (const cmd of bot.think(makeView(g, bot.p))) schedule(g, cmd);
     step(g);
     watch?.(g);
+    for (const ev of g.events) if (ev.t === 'recycled') recycled[ev.owner as 0 | 1]++;
     if (g.tick % 20 === 0) {
       const army = [0, 0];
       for (const e of g.ents) {
@@ -73,6 +80,8 @@ export function playMatch(
     gathered: [g.players[0]!.stats.gathered, g.players[1]!.stats.gathered],
     batteries: [g.players[0]!.stats.gathered2, g.players[1]!.stats.gathered2],
     research: [g.players[0]!.weapons + g.players[0]!.armour, g.players[1]!.weapons + g.players[1]!.armour],
+    studied: [studied(g.players[0]!), studied(g.players[1]!)],
+    recycled: [...recycled],
     hash: hash(g),
     firstHit: [g.players[0]!.stats.firstAttackTick, g.players[1]!.stats.firstAttackTick],
     hqs: [count(0), count(1)],

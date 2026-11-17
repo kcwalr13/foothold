@@ -47,6 +47,14 @@ const HINTS: Hint[] = [
     text: (m) => `A second base brings in more Blocks and raises your supply. Build a ${def(faction(m).hall).name} on another base site.`,
   },
   {
+    id: 'spare', mode: 'classic', when: (m) => m.g.tick >= 2400 && m.hud.value.workers > m.hud.value.work + 3,
+    text: (m) => `More ${def(faction(m).worker).plural} than work for them. Tap their count at the top to recycle the spare ones: that frees their supply and gives back half their price.`,
+  },
+  {
+    id: 'tech', mode: 'classic', when: (m) => hasBuilt(m.g, m.me, faction(m).lab),
+    text: () => 'The Tech tab holds nine kinds of research, each studied at a building of its own. The unit guide, in the pause sheet, says what each one does.',
+  },
+  {
     id: 'pace', mode: 'classic', when: (m) => m.g.tick >= 1200,
     text: () => 'Too quick, or too slow? Pause, top right, also sets the speed.',
   },

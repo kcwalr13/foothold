@@ -1,5 +1,5 @@
 // Game state: creation, entity bookkeeping and small shared helpers.
-import { DEFS, FACTIONS, FRENZY, RULES, def, frenzyUnits, heroHp, isHall, isRefinery } from './data';
+import { DEFS, FACTIONS, FRENZY, RULES, def, frenzyUnits, heroHp, isHall, isRefinery, techLevel } from './data';
 import { updateFog } from './fog';
 import { fourCorners, twinRidges } from './map';
 import { Nav, dist } from './nav';
@@ -84,9 +84,9 @@ export function spawn(g: Game, kind: Kind, owner: number, x: number, y: number):
     group: -1, mode: O.Idle, dx: x, dy: y, ax: x, ay: y, tgt: 0, cd: 0, los: false, losTick: -99, arrived: true,
     still: 0, frac: 0,
     ws: W.Idle, carry: 0, cargo: 0, pile: 0, site: 0, timer: 0,
-    built: true, progress: 0, queue: [], qprog: 0, builder: 0,
+    built: true, progress: 0, queue: [], qprog: 0, studies: [], sprog: 0, builder: 0,
     amount: 0, busy: 0, eggs: 0,
-    lvl: 0, daze: 0, haste: 0, ttl: 0, by: -1, grit: 0,
+    lvl: 0, daze: 0, haste: 0, ttl: 0, by: -1, grit: 0, hurt: 0,
   };
   g.ents.push(e);
   g.byId.set(e.id, e);
@@ -108,7 +108,7 @@ export function footprintTiles(g: Game, e: Entity): number[] {
 
 function newPlayer(id: number, tiles: number, faction: Faction): Player {
   return {
-    id, faction, out: false, blocks: RULES.startBlocks, gas: 0, bonus: 0, bonusLeft: [0, 0], weapons: 0, armour: 0, supply: 0, cap: 0, rally: 0, repeat: [],
+    id, faction, out: false, blocks: RULES.startBlocks, gas: 0, bonus: 0, bonusLeft: [0, 0], weapons: 0, armour: 0, tech: [], supply: 0, cap: 0, rally: 0, repeat: [],
     groups: Array.from({ length: RULES.groups }, () => ({ mode: O.Idle, x: 0, y: 0 })),
     vis: new Uint8Array(tiles), visAir: new Uint8Array(tiles), explored: new Uint8Array(tiles), seen: new Map(),
     stats: { gathered: 0, gathered2: 0, spent: 0, trained: 0, lostUnits: 0, lostBuildings: 0, killedUnits: 0, killedBuildings: 0, firstAttackTick: -1 },
@@ -259,8 +259,8 @@ export function countSupply(g: Game, owner: number): number {
   for (const e of g.ents) {
     if (e.owner !== owner) continue;
     const d = def(e.kind);
-    // A unit that was called up for a while takes no room.
-    if (!d.building && e.ttl === 0) s += d.supply;
+    // A unit that was called up for a while takes no room, and nor does a Worker on its way home to be recycled.
+    if (!d.building && e.ttl === 0 && e.ws !== W.Recycled) s += d.supply;
     // Whatever is on its way counts already: a queued unit, or everything inside an egg.
     for (const q of e.queue) s += def(q).supply * (e.kind === K.Egg ? def(q).brood : 1);
   }
@@ -289,6 +289,25 @@ export function canPlace(g: Game, owner: number, kind: number, tx: number, ty: n
   }
   return true;
 }
+
+/**
+ * Why this side can't start the next level of this research now, or '' if it can. Each item is studied at its
+ * own building (Weapons at the Armory, Long Rifles at a Barracks...), once the buildings it needs stand; the
+ * last level of Weapons and Armour waits for Heavy Works (Claws and Hide for a Great Cave).
+ */
+export function researchBlock(g: Game, p: number, kind: number): string {
+  const pl = g.players[p]!;
+  const d = def(kind), F = FACTIONS[pl.faction];
+  const level = techLevel(pl, kind);
+  if (level >= d.levels) return `${d.name} is at its top level`;
+  for (const e of g.ents) if (e.owner === p && e.hp > 0 && e.studies.includes(kind as Kind)) return 'Already being researched';
+  const lacks = missing(g, p, [d.madeAt!, ...d.needs]);
+  if (lacks) return `Needs ${aName(def(lacks).name)}`;
+  if (d.levels > 1 && level === d.levels - 1 && !hasBuilt(g, p, F.top)) return `Level ${d.levels} needs ${aName(def(F.top).name)}`;
+  return '';
+}
+
+const aName = (name: string): string => `${'AEIOU'.includes(name[0]!) ? 'an' : 'a'} ${name}`;
 
 /** Is this point within reach of one of this player's finished Nests? */
 export function onNestingGround(g: Game, owner: number, x: number, y: number): boolean {
@@ -365,6 +384,14 @@ export function hash(g: Game): number {
     mix(p.blocks);
     mix(p.gas);
     mix(p.rally + p.weapons * 8 + p.armour * 64 + (p.faction === 'dino' ? 512 : 0));
+  }
+  // Research beyond Weapons and Armour, and research under way: only a side that has some adds to the
+  // checksum, so Frenzy's is unchanged.
+  for (const p of g.players) for (let i = 0; i < p.tech.length; i++) if (p.tech[i]) mix(4096 + i * 8 + p.tech[i]!);
+  for (const e of g.ents) if (e.studies.length > 0) {
+    mix(e.id + 65536);
+    mix(e.sprog);
+    for (const k of e.studies) mix(k);
   }
   // A match without a Brutal side keeps the checksum it has always had.
   if (g.players.some((p) => p.bonus > 0)) for (const p of g.players) mix(p.bonus + p.bonusLeft[0] * 128 + p.bonusLeft[1] * 16384);

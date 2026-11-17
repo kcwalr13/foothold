@@ -3,7 +3,7 @@
 // is filled in the same way whether the match was played through or picked up again from a save.
 import { def, isResearch, isWorker } from '../sim/data';
 import type { Game } from '../sim/state';
-import { K, type Kind } from '../sim/types';
+import { K, W, type Kind } from '../sim/types';
 
 export interface Entry {
   tick: number;
@@ -80,7 +80,9 @@ export class Chronicle {
       if (e.owner < 0 || e.hp <= 0) continue;
       const d = def(e.kind);
       if (d.building || e.kind === K.Egg || d.hero) continue;
-      if (isWorker(e.kind)) workers[e.owner]!++;
+      if (isWorker(e.kind)) {
+        if (e.ws !== W.Recycled) workers[e.owner]!++;
+      }
       else army[e.owner]! += d.cost + d.gas;
     }
     this.sides.forEach((s, i) => s.samples.push({ tick: g.tick, army: army[i]!, workers: workers[i]! }));

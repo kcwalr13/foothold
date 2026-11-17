@@ -22,8 +22,10 @@ hints the first time through, ends with a report, and installs to run offline.
   from eggs at its Nests, a building costs the Gatherer that becomes it, and it builds only on nesting ground
   near a Nest. Eight buildings, six dinosaurs from Raptors to the Rex.
 
-Both share two resources (Blocks and Batteries), research, high ground, watchtowers, fog of war, and an
-opponent with six plans of its own (a rush, a fast expansion, an armour push, an air raid, a raider and a
+Both share two resources (Blocks and Batteries), a supply cap of 200 (five Headquarters or Nests), spare
+Workers that can be recycled for half their price, nine kinds of research a faction (Weapons and Armour to a
+third level, and seven more studied at the buildings they belong to, Field Repair and Mending for the late
+game), high ground, watchtowers, fog of war, and an opponent with six plans of its own (a rush, a fast expansion, an armour push, an air raid, a raider and a
 fortress, each named on the result screen) that opens second fronts and concedes a lost match. In Frenzy each has a hero: the Captain (Grenade, Rally,
 Air strike) and the Alpha (Pounce, Roar, Call the Pack). The design lives in the design doc linked from
 `CLAUDE.md`.

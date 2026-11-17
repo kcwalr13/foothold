@@ -3,12 +3,13 @@ import { fight } from '../../lab/arena';
 import { firstBreak, seatSwap } from '../../lab/fair';
 import { playMatch } from '../../lab/match';
 import { Bot } from '../ai/bot';
-import { DEFS, FACTIONS, RULES, def, isHall, researchCost, worth } from './data';
+import { DEFS, FACTIONS, RULES, def, isHall, researchCost, techLevel, worth } from './data';
 import { CLASSIC_MAPS, classicMap, twinRidges } from './map';
 import { canPlace, createGame, hash, schedule, spawn, tileIndex, visibleTo } from './state';
 import { step } from './step';
 import { makeView } from './view';
-import { K, O, TILE, type Kind, type Player } from './types';
+import { boost, forgetBoosts, speedOf } from './tech';
+import { K, O, TILE, W, type Kind, type Player } from './types';
 
 const run = (g: ReturnType<typeof createGame>, n: number) => { for (let i = 0; i < n; i++) step(g); };
 
@@ -273,7 +274,7 @@ describe('Batteries', () => {
     schedule(g, { t: 'research', p: 0, kind: K.Weapons });
     schedule(g, { t: 'research', p: 0, kind: K.Trooper });
     run(g, 2);
-    expect(lab.queue).toEqual([K.Weapons]);
+    expect(lab.studies).toEqual([K.Weapons]);
     run(g, researchCost(K.Weapons, 0).time);
     expect(g.players[0]!.weapons).toBe(1);
     schedule(g, { t: 'research', p: 0, kind: K.Weapons });
@@ -281,7 +282,7 @@ describe('Batteries', () => {
     expect(g.players[0]!.weapons).toBe(2);
     schedule(g, { t: 'research', p: 0, kind: K.Weapons });
     run(g, 2);
-    expect(lab.queue.length).toBe(0);
+    expect(lab.studies.length).toBe(0);
     expect(g.players[0]!.gas).toBe(5000 - researchCost(K.Weapons, 0).gas - researchCost(K.Weapons, 1).gas);
 
     // Ten Troopers shoot one Tank for five seconds: with research, more of it is gone; with its armour, less.
@@ -299,6 +300,199 @@ describe('Batteries', () => {
     expect(shot(2, 0)).toBeGreaterThan(plain * 1.25);
     expect(shot(0, 2)).toBeLessThan(plain * 0.85);
     expect(shot(2, 2)).toBeGreaterThan(plain * 0.95);
+  });
+});
+
+describe('supply, recycling and the late game', () => {
+  const rich = (factions: ['green' | 'dino', 'green' | 'dino'] = ['green', 'green']) => {
+    const g = createGame(1, undefined, factions);
+    g.players[0]!.blocks = 20000;
+    g.players[0]!.gas = 20000;
+    return g;
+  };
+  const mine = (g: ReturnType<typeof createGame>, kind: number, p = 0) => g.ents.filter((e) => e.owner === p && e.kind === kind);
+
+  it('supply tops out at 200: five Headquarters, and a sixth adds nothing', () => {
+    const g = rich();
+    for (let i = 0; i < 4; i++) spawn(g, K.HQ, 0, (20 + i * 5) * TILE, 40 * TILE);
+    run(g, 1);
+    expect(g.players[0]!.cap).toBe(5 * def(K.HQ).provides);
+    expect(g.players[0]!.cap).toBe(RULES.supplyMax);
+    spawn(g, K.HQ, 0, 40 * TILE, 40 * TILE);
+    run(g, 1);
+    expect(g.players[0]!.cap).toBe(200);
+  });
+
+  it('a recycled Worker walks home, frees its supply at once and gives back half its price, and is no loss', () => {
+    const g = rich();
+    run(g, 60);
+    const before = g.players[0]!.supply;
+    const blocks = g.players[0]!.blocks - g.players[0]!.stats.gathered;
+    schedule(g, { t: 'recycle', p: 0, n: 2 });
+    run(g, 2);
+    expect(g.players[0]!.supply).toBe(before - 2);
+    // One already at the door is taken back at once; the rest are on their way.
+    expect(mine(g, K.Worker).filter((e) => e.ws === W.Recycled).length + RULES.startWorkers - mine(g, K.Worker).length).toBe(2);
+    run(g, 200);
+    expect(mine(g, K.Worker).length).toBe(RULES.startWorkers - 2);
+    expect(g.players[0]!.stats.lostUnits).toBe(0);
+    // Half of 50 each, on top of whatever the other six and the two loads brought in.
+    expect(g.players[0]!.blocks - blocks - g.players[0]!.stats.gathered).toBe(2 * Math.trunc((def(K.Worker).cost * RULES.recycleRefund) / 100));
+  });
+
+  it('the Workers with least to do go first, never one that is building, and nonsense is ignored', () => {
+    const g = rich();
+    // Twelve Workers on six piles: four more than the piles serve well.
+    for (let i = 0; i < 4; i++) spawn(g, K.Worker, 0, 9 * TILE, 52 * TILE);
+    run(g, 120);
+    schedule(g, { t: 'build', p: 0, kind: K.Barracks, tx: 13, ty: 53 });
+    run(g, 3);
+    const builder = mine(g, K.Worker).find((e) => e.ws === W.ToSite || e.ws === W.Build)!;
+    expect(builder).toBeDefined();
+    for (const n of [0, -1, 1.5, Number.NaN]) schedule(g, { t: 'recycle', p: 0, n });
+    run(g, 2);
+    expect(mine(g, K.Worker).some((e) => e.ws === W.Recycled)).toBe(false);
+    schedule(g, { t: 'recycle', p: 0, n: 30 });
+    run(g, 2);
+    expect(builder.ws).not.toBe(W.Recycled);
+    expect(mine(g, K.Worker).filter((e) => e.ws === W.Recycled).length).toBe(mine(g, K.Worker).length - 1);
+    // Recycling in Frenzy is nothing: it has no Workers.
+    const f = createGame(1, undefined, ['green', 'dino', 'green', 'dino']);
+    const h = hash(f);
+    schedule(f, { t: 'recycle', p: 0, n: 3 });
+    const f2 = createGame(1, undefined, ['green', 'dino', 'green', 'dino']);
+    run(f, 20);
+    run(f2, 20);
+    expect(hash(f)).toBe(hash(f2));
+    expect(h).toBeGreaterThan(0);
+  });
+
+  it('a Gatherer is recycled at a Nest the same way', () => {
+    const g = rich(['dino', 'green']);
+    run(g, 60);
+    schedule(g, { t: 'recycle', p: 0, n: 1 });
+    run(g, 250);
+    expect(mine(g, K.Gatherer).length).toBe(RULES.startWorkers - 1);
+    expect(g.players[0]!.stats.lostUnits).toBe(0);
+  });
+
+  it('the Tech tab has nine items a faction, each studied at its own building once what it needs stands', () => {
+    for (const f of ['green', 'dino'] as const) {
+      expect(FACTIONS[f].tech.length).toBe(9);
+      for (const k of FACTIONS[f].tech) {
+        expect(def(k).madeAt).toBeDefined();
+        expect(FACTIONS[f].buildings).toContain(def(k).madeAt);
+      }
+    }
+    const g = rich();
+    const at = (tx: number, ty: number) => [(tx + 1.5) * TILE, (ty + 1.5) * TILE] as const;
+    const rax = spawn(g, K.Barracks, 0, ...at(13, 53));
+    schedule(g, { t: 'research', p: 0, kind: K.LongRifles });
+    run(g, 2);
+    expect(rax.studies).toEqual([]); // no Armory
+    spawn(g, K.Armory, 0, ...at(17, 53));
+    schedule(g, { t: 'research', p: 0, kind: K.LongRifles });
+    schedule(g, { t: 'research', p: 0, kind: K.AcidSpit }); // the other faction's
+    run(g, 2);
+    expect(rax.studies).toEqual([K.LongRifles]);
+    run(g, def(K.LongRifles).time);
+    expect(techLevel(g.players[0]!, K.LongRifles)).toBe(1);
+    expect(boost(g, 0, K.Trooper).range).toBe(TILE);
+    expect(boost(g, 1, K.Trooper).range).toBe(0);
+    schedule(g, { t: 'research', p: 0, kind: K.LongRifles });
+    run(g, 2);
+    expect(rax.studies).toEqual([]); // one level only
+  });
+
+  it('Weapons and Armour have a third level, which waits for Heavy Works', () => {
+    const g = rich();
+    const lab = spawn(g, K.Armory, 0, 14.5 * TILE, 54.5 * TILE);
+    g.players[0]!.weapons = 2;
+    schedule(g, { t: 'research', p: 0, kind: K.Weapons });
+    run(g, 2);
+    expect(lab.studies).toEqual([]);
+    spawn(g, K.Heavy, 0, 18.5 * TILE, 54.5 * TILE);
+    schedule(g, { t: 'research', p: 0, kind: K.Weapons });
+    run(g, researchCost(K.Weapons, 2).time + 3);
+    expect(g.players[0]!.weapons).toBe(3);
+    schedule(g, { t: 'research', p: 0, kind: K.Weapons });
+    run(g, 2);
+    expect(lab.studies).toEqual([]);
+  });
+
+  /** Ten Troopers of side 0 shoot a Tank of side 1 that holds still, with some research set first. */
+  const volley = (setup: (h: ReturnType<typeof createGame>) => void, gap = 4, kind: Kind = K.Trooper, n = 10) => {
+    const h = createGame(1);
+    setup(h);
+    for (const pl of h.players) forgetBoosts(pl);
+    for (let i = 0; i < n; i++) spawn(h, kind, 0, 55 * TILE, (46 + i * 0.6) * TILE).mode = O.Hold;
+    const tank = spawn(h, K.Tank, 1, (55 + gap) * TILE + def(K.Tank).radius + def(kind).range, 49 * TILE);
+    tank.mode = O.Hold;
+    run(h, 50);
+    return def(K.Tank).hp - tank.hp;
+  };
+
+  it('Long Rifles reach a tile further, Heavy Shells hit harder, and Thick Skulls and Concrete take less', () => {
+    // Out of reach by half a tile without Long Rifles, in reach with them.
+    const set = (k: Kind, p = 0) => (h: ReturnType<typeof createGame>) => { h.players[p]!.tech[k - 100] = 1; };
+    expect(volley(() => {}, 0.5)).toBe(0);
+    expect(volley(set(K.LongRifles), 0.5)).toBeGreaterThan(0);
+    const plain = volley(() => {}, -1, K.Tank, 3);
+    expect(volley(set(K.HeavyShells), -1, K.Tank, 3)).toBeGreaterThanOrEqual(Math.floor(plain * 1.18));
+    // Concrete: a Turret under the same fire loses less.
+    const turret = (concrete: boolean) => {
+      const h = createGame(1);
+      if (concrete) h.players[1]!.tech[K.Concrete - 100] = 1;
+      forgetBoosts(h.players[1]!);
+      for (let i = 0; i < 2; i++) spawn(h, K.Lancer, 0, 55 * TILE, (47 + i * 0.6) * TILE).mode = O.Hold;
+      const t = spawn(h, K.Turret, 1, 55 * TILE + def(K.Lancer).range + def(K.Turret).radius - TILE, 48 * TILE);
+      run(h, 40);
+      expect(t.hp).toBeGreaterThan(0);
+      return def(K.Turret).hp - t.hp;
+    };
+    expect(turret(true)).toBeLessThan(turret(false) * 0.75);
+  });
+
+  it('Quick March, Swift Feet and the wings make what they name faster, and nothing else', () => {
+    const g = rich();
+    const runner = spawn(g, K.Runner, 0, 20 * TILE, 40 * TILE), tank = spawn(g, K.Tank, 0, 22 * TILE, 40 * TILE);
+    const before = speedOf(g, runner);
+    g.players[0]!.tech[K.QuickMarch - 100] = 1;
+    forgetBoosts(g.players[0]!);
+    expect(speedOf(g, runner)).toBe(Math.trunc((def(K.Runner).speed * 115) / 100));
+    expect(speedOf(g, runner)).toBeGreaterThan(before);
+    expect(speedOf(g, tank)).toBe(def(K.Tank).speed);
+  });
+
+  it('Field Repair mends a unit left alone, a little each second; a unit still under fire does not mend', () => {
+    const g = rich();
+    const t = spawn(g, K.Tank, 0, 20 * TILE, 40 * TILE);
+    t.hp = 100;
+    run(g, 100);
+    expect(t.hp).toBe(100);
+    g.players[0]!.tech[K.FieldRepair - 100] = 1;
+    forgetBoosts(g.players[0]!);
+    t.hurt = g.tick;
+    run(g, RULES.mendWait - 5);
+    expect(t.hp).toBe(100);
+    run(g, 100);
+    expect(t.hp).toBeGreaterThan(100);
+    expect(t.hp).toBeLessThanOrEqual(def(K.Tank).hp);
+    run(g, 3000);
+    expect(t.hp).toBe(def(K.Tank).hp);
+  });
+
+  it('Big Loads and Big Mouths bring in a Block more a trip', () => {
+    for (const [f, k] of [['green', K.BigLoads], ['dino', K.BigMouths]] as const) {
+      const take = (on: boolean) => {
+        const g = createGame(1, undefined, [f, f]);
+        if (on) g.players[0]!.tech[k - 100] = 1;
+        forgetBoosts(g.players[0]!);
+        run(g, 900);
+        return g.players[0]!.stats.gathered;
+      };
+      expect(take(true)).toBeGreaterThan(take(false) * 1.12);
+    }
   });
 });
 

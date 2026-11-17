@@ -1,8 +1,8 @@
 // The computer opponent. It reads the match only through a View (its own units, what they can see,
 // and what it remembers) and acts only through the same commands a player gives.
-import { FACTIONS, FIGHTERS, RULES, def, isHall, isWorker, researchCost, researchOf, worth } from '../sim/data';
+import { FACTIONS, FIGHTERS, RULES, def, isHall, isWorker, researchCost, techLevel, worth } from '../sim/data';
 import { power, type View } from '../sim/view';
-import { C, K, O, TILE, type BaseSite, type Command, type Entity, type Faction, type Kind } from '../sim/types';
+import { C, K, O, TILE, W, type BaseSite, type Command, type Entity, type Faction, type Kind } from '../sim/types';
 
 /** How it opens: an early attack, a safe expansion, or a fast one. */
 export type Plan = 'rush' | 'standard' | 'greedy';
@@ -398,7 +398,9 @@ export class Bot {
     const builtRef = refineries.filter((e) => e.built).length;
     const factories = of(K.Factory), airfields = of(K.Airfield), armories = of(F.lab), heavies = of(K.Heavy);
     const wallows = of(K.Wallow), roosts = of(K.Roost), caves = of(K.Cave);
-    const workers = all(WORKER);
+    // Workers already sent home to be recycled no longer count: their supply is free and their work is done.
+    const leaving = v.own.filter((e) => isWorker(e.kind) && e.ws === W.Recycled).length;
+    const workers = all(WORKER) - leaving;
     const army = v.own.filter((e) => e.group === ARMY && !def(e.kind).building);
     const raiders = v.own.filter((e) => e.group === RAID);
     const scouts = v.own.filter((e) => e.group === SCOUT);
@@ -467,6 +469,15 @@ export class Bot {
     if (!trick && this.plan !== 'rush' && t < 2400 && rax.length > 0 && (dino ? army.length : count(K.Trooper)) < 4) {
       workerTarget = Math.min(workerTarget, 16);
     }
+    // Jobs at its bases: two at each pile of Blocks by a finished hall, three at each Refinery. Once its supply bar
+    // is full, or nearly, Workers beyond them go home to be recycled (room for soldiers), and none are trained.
+    const jobs = v.piles.filter((pl) => pl.amount > 0 && builtHQ.some((h) => within(pl, h, RULES.baseReach))).length * RULES.perPile
+      + builtRef * RULES.perRefinery;
+    const live = count(WORKER) - leaving;
+    if (!trick && this.level >= 1 && v.supply >= v.cap - 4 && v.cap >= 120 && live > jobs + 2) {
+      out.push({ t: 'recycle', p, n: live - jobs });
+      workerTarget = Math.min(workerTarget, jobs);
+    }
     /** Eggs waiting in its Nests: what the Dino Pack has to spend besides Blocks. */
     let eggs = dino ? builtHQ.reduce((s2, e) => s2 + e.eggs, 0) : 0;
     const trainWorkers = () => {
@@ -503,11 +514,13 @@ export class Bot {
     let want: Kind | 0 = 0;
     let wantAt: Pt | null = null;
     let margin = 1;
+    /** A Headquarters wanted for its supply alone, anywhere near home rather than on a base site. */
+    let anywhere = false;
     const nextSite = mine.find((s) => !v.own.some((e) => e.kind === HALL && within(e, this.siteCentre(s), 3))
       && !v.ghosts.some((gh) => within(gh, this.siteCentre(s), 4)) && v.canPlace(HALL, s.hx, s.hy));
     const growing = hqs.length > builtHQ.length;
-    const saturated = count(WORKER) >= 12 * builtHQ.length + 3 * builtRef;
-    const income = (count(WORKER) - 3 * builtRef) * 62;
+    const saturated = count(WORKER) - leaving >= 12 * builtHQ.length + 3 * builtRef;
+    const income = (count(WORKER) - leaving - 3 * builtRef) * 62;
     // Enough Barracks to turn the income into soldiers, and one more whenever Blocks pile up unspent.
     const hqsTraining = workers < workerTarget ? builtHQ.length : 0;
     const techMakers = dino ? wallows.length + roosts.length : factories.length + airfields.length;
@@ -558,6 +571,13 @@ export class Bot {
         want = HALL;
         wantAt = { x: nextSite.hx * TILE, y: nextSite.hy * TILE };
       }
+    } else if (!trick && this.level >= 1 && !nextSite && !growing && builtHQ.length > 0 && v.supply >= v.cap - 4
+      && v.cap < RULES.supplyMax && t - this.threatSeen > 150) {
+      // Every base site of its own is taken and the supply bar is full: one more at home, for the supply.
+      want = HALL;
+      wantAt = this.siteCentre(mine[0]!);
+      anywhere = true;
+      margin = 1;
     }
     // Expanding openings cover the new base with a Turret on the side the enemy comes from.
     // Seeing a bigger army than its own adds Turrets, unless that army is mostly Lancers, which outrange them.
@@ -721,7 +741,7 @@ export class Bot {
     let reserve = 0, reserveGas = 0;
     if (want && wantAt) {
       if (afford(want)) {
-        const spot = want === HALL
+        const spot = want === HALL && !anywhere
           ? { tx: Math.round(wantAt.x / TILE), ty: Math.round(wantAt.y / TILE) }
           : this.findSpot(v, want, wantAt, margin);
         if (spot && v.canPlace(want, spot.tx, spot.ty)) {
@@ -743,19 +763,49 @@ export class Bot {
     }
 
     // ---------------------------------------------------------------- research
-    if (!trick && this.level >= 1) {
-      const lab = armories.find((e) => e.built && e.queue.length === 0);
-      if (lab && !(unsafe && t - this.threatSeen < 100) && armyValue >= 400) {
-        const kind = v.weapons <= v.armour ? F.research[0]! : F.research[1]!;
-        const level = v[researchOf(kind)];
-        if (level < RULES.researchMax) {
-          const c = researchCost(kind, level);
-          if (blocks - reserve >= c.cost && gas - reserveGas >= c.gas) {
-            out.push({ t: 'research', p, kind });
-            blocks -= c.cost;
-            gas -= c.gas;
-          }
+    // Weapons and Armour (Claws and Hide) by turns at the lab, as before; then whatever helps what it has most
+    // of, studied only at a building with nothing else to do, so that its army keeps coming.
+    if (!trick && this.level >= 1 && !(unsafe && t - this.threatSeen < 100) && armyValue >= 400) {
+      const n = (...ks: Kind[]) => ks.reduce((s2, k) => s2 + count(k), 0);
+      const [wk, ak] = F.research as [Kind, Kind];
+      const wanted: [Kind, boolean][] = [
+        [v.weapons <= v.armour ? wk : ak, true],
+        [v.weapons <= v.armour ? ak : wk, true],
+      ];
+      const big = armyValue >= 1800 || t > 7200;
+      if (dino) {
+        wanted.push(
+          [K.HotRock, turrets.length >= 3],
+          [K.AcidSpit, count(K.Spitter) >= 8],
+          [K.SwiftFeet, n(K.Raptor, K.Spitter) >= 24],
+          [K.ThickSkulls, n(K.Horn, K.Bronto, K.Rex) >= 4],
+          [K.WideWings, count(K.Ptero) >= 4],
+          [K.BigMouths, workers >= 30],
+          [K.Mending, big],
+        );
+      } else {
+        wanted.push(
+          [K.Concrete, turrets.length >= 3],
+          [K.LongRifles, count(K.Trooper) >= 10],
+          // Quick March is for getting about, not for fighting: worth it to a side that raids with Runners.
+          [K.QuickMarch, count(K.Runner) >= 8],
+          [K.HeavyShells, n(K.Tank, K.Mortar, K.Jugger) >= 4],
+          [K.Afterburners, count(K.Gunship) >= 4],
+          [K.BigLoads, workers >= 30],
+          [K.FieldRepair, big],
+        );
+      }
+      for (const [kind, want] of wanted) {
+        if (!want || v.researchWhy(kind) !== '') continue;
+        const at = def(kind).madeAt!;
+        if (!v.own.some((e) => e.kind === at && e.built && e.studies.length === 0)) continue;
+        const c = researchCost(kind, techLevel(v, kind));
+        if (blocks - reserve >= c.cost && gas - reserveGas >= c.gas) {
+          out.push({ t: 'research', p, kind });
+          blocks -= c.cost;
+          gas -= c.gas;
         }
+        break;
       }
     }
 

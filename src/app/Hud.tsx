@@ -1,9 +1,9 @@
 // The panels around the battlefield: the left thumb runs the base, the right thumb runs the armies.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { TargetedPointerEvent } from 'preact';
-import { FACTIONS, FRENZY, def, isRefinery } from '../sim/data';
+import { FACTIONS, FRENZY, RULES, def, isRefinery } from '../sim/data';
 import { K, O, TILE, type Kind } from '../sim/types';
-import { SIDES, SPEEDS, type AbilityInfo, type Match, type SpawnInfo, type UpgradeInfo } from './match';
+import { SIDES, SPEEDS, type AbilityInfo, type Match, type ResearchInfo, type SpawnInfo, type UpgradeInfo } from './match';
 import { toyIcon } from './icons';
 import { TEAM } from './toys';
 import { UnitGuide } from './Guide';
@@ -78,6 +78,51 @@ export function UnitIcon({ kind, size = 22 }: { kind: number; size?: number }) {
       return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="13.5" r="8" fill="#f8f1dc" stroke={ink} stroke-width="1.6" /><path d="M10 2.5 H14 M12 2.5 V5.5 M18.6 6.4 L20.2 4.8" stroke={ink} stroke-width="1.8" stroke-linecap="round" /><path d="M12 13.5 V8.6 M12 13.5 L15.6 15.6" stroke="#2f8df0" stroke-width="2.1" stroke-linecap="round" /></svg>;
     case K.Hide:
       return <svg viewBox="0 0 24 24" {...s}><path d="M12 2.5 L20.5 6 V12 C20.5 17 17 20.2 12 21.8 C7 20.2 3.5 17 3.5 12 V6 Z" fill="#8a9a5b" stroke={ink} stroke-linejoin="round" /><path d="M7 9 Q9.5 7 12 9 Q14.5 7 17 9 M7 13 Q9.5 11 12 13 Q14.5 11 17 13 M9 17 Q10.5 15.4 12 17 Q13.5 15.4 15 17" stroke="#dfe7c0" stroke-width="1.4" fill="none" /></svg>;
+    // Classic's other research: a drawing each, as different from the others as can be at this size.
+    case K.LongRifles:
+      // A long barrel with a scope on it.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M2 14 H22" stroke={steel} stroke-width="2.4" stroke-linecap="round" /><path d="M3 14 L3 18 L8 18 L10 14" fill="#9a6a3a" stroke={ink} stroke-width="1.2" stroke-linejoin="round" /><rect x="9" y="8.5" width="7" height="3" rx="1.5" fill="#5d6b78" stroke={ink} stroke-width="1" /><path d="M11 11.5 V14 M14 11.5 V14" stroke={ink} stroke-width="1.2" /></svg>;
+    case K.QuickMarch:
+      // A boot in a hurry.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M9 4 H15 V13 L21 15.5 V19.5 H9 Z" fill="#6b7a3a" stroke={ink} stroke-width="1.4" stroke-linejoin="round" /><path d="M9 17 H21" stroke={ink} stroke-width="1.2" /><path d="M2 9 H6 M1 13 H6 M2.5 17 H6" stroke="#2f8a2a" stroke-width="1.8" stroke-linecap="round" /></svg>;
+    case K.BigLoads:
+    case K.BigMouths: {
+      // A load of Blocks heaped over the top: a basket for Workers, an open jaw for Gatherers.
+      const blocks = <><rect x="5" y="4" width="6" height="6" fill="#f2c230" stroke={ink} stroke-width="1.1" /><rect x="11" y="3" width="6" height="6" fill="#d9463d" stroke={ink} stroke-width="1.1" /><rect x="8" y="8" width="6" height="6" fill="#3f7fd0" stroke={ink} stroke-width="1.1" /></>;
+      return kind === K.BigLoads
+        ? <svg viewBox="0 0 24 24" {...s}><path d="M3 12 H21 L18.5 21.5 H5.5 Z" fill="#b98a4e" stroke={ink} stroke-width="1.4" stroke-linejoin="round" /><path d="M6 15 H18 M7 18 H17" stroke={ink} stroke-width="0.9" />{blocks}</svg>
+        : <svg viewBox="0 0 24 24" {...s}><path d="M2.5 13 Q12 9 21.5 13 L19 20 Q12 23 5 20 Z" fill="#7cae5a" stroke={ink} stroke-width="1.4" stroke-linejoin="round" /><path d="M6 13.5 L7 15.5 L8 13 L9.5 15.5 L11 12.5 L12.5 15.5 L14 12.5 L15.5 15.5 L17 13 L18 15.5" fill="#fff8e2" stroke={ink} stroke-width="0.8" />{blocks}</svg>;
+    }
+    case K.HeavyShells:
+      // A big brass shell standing up.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M8 21 V10 C8 5.5 10 3 12 2 C14 3 16 5.5 16 10 V21 Z" fill="#d6a540" stroke={ink} stroke-width="1.4" stroke-linejoin="round" /><path d="M8 10 C8 5.5 10 3 12 2 C14 3 16 5.5 16 10 Z" fill="#8f8f8f" stroke={ink} stroke-width="1.2" stroke-linejoin="round" /><path d="M7 18 H17 M7 21 H17" stroke={ink} stroke-width="1.6" /></svg>;
+    case K.Afterburners:
+      // A nozzle throwing flame.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M14 8 H22 V16 H14 Z" fill="#5d6b78" stroke={ink} stroke-width="1.3" /><path d="M14 9 L2 12 L14 15 Z" fill="#f28a1e" stroke={ink} stroke-width="1.1" stroke-linejoin="round" /><path d="M14 10.5 L7 12 L14 13.5 Z" fill="#ffe066" /></svg>;
+    case K.Concrete:
+      // A slab of concrete blocks.
+      return <svg viewBox="0 0 24 24" {...s}><rect x="2.5" y="5" width="19" height="15" fill="#a9a59b" stroke={ink} stroke-width="1.4" /><path d="M2.5 10 H21.5 M2.5 15 H21.5 M9 5 V10 M15 10 V15 M9 15 V20" stroke={ink} stroke-width="1.1" /></svg>;
+    case K.FieldRepair:
+      // A spanner over a red cross: patched up, men and machines.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M9.5 3 H14.5 V9.5 H21 V14.5 H14.5 V21 H9.5 V14.5 H3 V9.5 H9.5 Z" fill="#e0564c" stroke={ink} stroke-width="1.3" stroke-linejoin="round" /><path d="M6 19 L17 8" stroke={steel} stroke-width="3" stroke-linecap="round" /><circle cx="17.5" cy="7.5" r="3" fill="none" stroke={steel} stroke-width="2.2" /></svg>;
+    case K.AcidSpit:
+      // A drop of acid, bubbling.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M12 2.5 C15 8 18.5 11 18.5 15 C18.5 19 15.5 21.5 12 21.5 C8.5 21.5 5.5 19 5.5 15 C5.5 11 9 8 12 2.5 Z" fill="#9bd23a" stroke={ink} stroke-width="1.4" stroke-linejoin="round" /><circle cx="10" cy="15" r="1.6" fill="#e9f7c8" /><circle cx="13.5" cy="18" r="1.1" fill="#e9f7c8" /></svg>;
+    case K.SwiftFeet:
+      // A three-toed footprint, off at a run.
+      return <svg viewBox="0 0 24 24" {...s}><ellipse cx="14" cy="15.5" rx="4" ry="4.5" fill="#8a9a5b" stroke={ink} stroke-width="1.3" /><path d="M11.5 12 L8.5 4.5 M14 11 V3 M16.5 12 L19.5 4.5" stroke="#8a9a5b" stroke-width="2.6" stroke-linecap="round" /><path d="M1.5 12 H5.5 M2.5 16 H7 M1.5 20 H6" stroke="#2f8a2a" stroke-width="1.6" stroke-linecap="round" /></svg>;
+    case K.ThickSkulls:
+      // A great domed head with a horn.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M3 19 C3 9 8 4.5 13.5 4.5 C18.5 4.5 21.5 8 21.5 12.5 V19 Z" fill="#c9b58a" stroke={ink} stroke-width="1.4" stroke-linejoin="round" /><path d="M6.5 11 Q10 6.5 15 7.5 M5 15 Q9.5 10.5 16 11.5" stroke="#8f7d55" stroke-width="1.2" fill="none" /><path d="M17 5 L20 1.5 L19.5 6.5" fill="#f8f1dc" stroke={ink} stroke-width="1" stroke-linejoin="round" /></svg>;
+    case K.WideWings:
+      // A wide, scalloped wing.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M12 7 L22.5 5 L20 11 L17.5 9.5 L16 14 L13.5 12 L12 17 L10.5 12 L8 14 L6.5 9.5 L4 11 L1.5 5 Z" fill="#c8746a" stroke={ink} stroke-width="1.3" stroke-linejoin="round" /></svg>;
+    case K.HotRock:
+      // A rock glowing with lava.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M3 18 L6 9 L11 5 L17 7 L21 13 L19 19 Z" fill="#5a4a3e" stroke={ink} stroke-width="1.4" stroke-linejoin="round" /><path d="M7 11 L11 13 L10 17 M12 9 L15 12 L17 11 M13 15 L16 16" stroke="#ff7a1a" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>;
+    case K.Mending:
+      // A leaf laid over a bandage.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M4 16 L16 4 L20 8 L8 20 Z" fill="#f1d3b0" stroke={ink} stroke-width="1.3" stroke-linejoin="round" /><rect x="9" y="9" width="6" height="6" transform="rotate(45 12 12)" fill="#fff8e2" stroke={ink} stroke-width="0.8" /><path d="M14 21 C14 15 17 12 22 11 C22 17 19 20 14 21 Z" fill="#58c04a" stroke={ink} stroke-width="1.1" stroke-linejoin="round" /><path d="M15 20 L20 13" stroke="#2f8a2a" stroke-width="0.9" /></svg>;
     default:
       return null;
   }
@@ -131,18 +176,41 @@ function BuildButton({ m, kind }: { m: Match; kind: Kind }) {
   );
 }
 
-function ResearchButton({ m, kind }: { m: Match; kind: Kind }) {
-  const info = m.hud.value.research.find((t) => t.kind === kind)!;
-  const d = def(kind);
+/** One of Classic's research items on the Tech tab: its picture, how far it has been taken, and the price of the next level. */
+function ResearchButton({ m, info }: { m: Match; info: ResearchInfo }) {
+  const d = def(info.kind);
   const done = info.level >= info.max;
   return (
-    <button class={`row ${info.ok ? '' : 'dim'}`} aria-label={`Research ${d.name}`} data-kind={kind}
-      onClick={() => (info.ok ? m.research(kind) : m.alert(`why${kind}`, info.why, 'warn', undefined, undefined, 5))}>
-      <UnitIcon kind={kind} size={24} />
-      <span class="name">{d.name} <b class="pips">{'●'.repeat(info.level)}{'○'.repeat(info.max - info.level)}</b></span>
-      {done ? <span class="cost">Top level</span> : <Cost cost={info.cost} gas={info.gas} />}
+    <button class={`tile up ${done ? 'done' : ''} ${info.ok || done ? '' : 'dim'}`} aria-label={`Research ${d.name}`} data-kind={info.kind} data-level={info.level} title={info.blurb}
+      onClick={() => (info.ok ? m.study(info.kind) : m.alert(`why${info.kind}`, done ? `${d.name}: ${info.blurb}` : info.why, done ? 'info' : 'warn', undefined, undefined, 5))}>
+      <UnitIcon kind={info.kind} size={24} />
+      <span class="name">{d.short}</span>
+      <span class="cost">
+        {info.max > 1 && <span class="pips" aria-hidden="true">{Array.from({ length: info.max }, (_, k) => <i key={k} class={k < info.level ? 'on' : ''} />)}</span>}
+        {done ? <span class="price">Done</span> : <Cost cost={info.cost} gas={info.gas} />}
+      </span>
       {info.progress >= 0 && <span class="bar"><i style={{ width: `${Math.round(info.progress * 100)}%` }} /></span>}
     </button>
+  );
+}
+
+/** The Workers sheet: how many there are against the work for them, and recycling the spare ones. */
+function CrewSheet({ m, onClose }: { m: Match; onClose: () => void }) {
+  const h = m.hud.value;
+  const F = FACTIONS[m.g.players[m.me]!.faction];
+  const w = def(F.worker), hall = def(F.hall);
+  const spare = Math.max(0, h.workers - h.work);
+  const back = Math.trunc((w.cost * RULES.recycleRefund) / 100);
+  return (
+    <div class="pop crewsheet" role="dialog" aria-label={w.plural}>
+      <p><b>{h.workers} {h.workers === 1 ? w.name : w.plural}</b>, work for {h.work}.{' '}
+        A recycled {w.name} walks to the nearest {hall.name}, hands in its load and gives back {back} Blocks. Its supply is free at once.</p>
+      <div class="trio">
+        <button class="chip" disabled={h.workers < 1} onClick={() => m.recycle(1)}>Recycle 1</button>
+        <button class="chip" disabled={spare < 1} onClick={() => { m.recycle(spare); onClose(); }}>{spare > 0 ? `Recycle ${spare} spare` : 'None spare'}</button>
+        <button class="chip" onClick={onClose}>Close</button>
+      </div>
+    </div>
   );
 }
 
@@ -406,6 +474,8 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
   const [tab, setTab] = useState<'build' | 'train' | 'tech'>('train');
   // What the Tech tab last said about an upgrade: the line under the grid.
   const [told, setTold] = useState(-1);
+  // The Workers sheet, opened from their count on the top bar: where spare ones are recycled.
+  const [crew, setCrew] = useState(false);
   const [guide, setGuide] = useState(false);
   const [report, setReport] = useState(false);
   const h = m.hud.value;
@@ -440,7 +510,12 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
         </span>
         {!fz && <span class="stat"><BatteryIcon /> <b data-stat="batteries">{h.gas}</b></span>}
         <span class={`stat ${capped ? 'bad' : ''}`}><span class="lbl">Supply</span> <b>{h.supply}/{h.cap}</b></span>
-        {!fz && <span class={`stat ${h.workers > h.work ? 'over' : ''}`}><span class="lbl">{def(F.worker).plural}</span> <b data-stat="workers">{h.workers}/{h.work}</b></span>}
+        {!fz && (
+          <button class={`stat crew ${h.workers > h.work ? 'over' : ''} ${crew ? 'open' : ''}`} aria-label={`${def(F.worker).plural}: ${h.workers}, work for ${h.work}`} aria-expanded={crew}
+            onClick={() => setCrew(!crew)}>
+            <span class="lbl">{def(F.worker).plural}</span> <b data-stat="workers">{h.workers}/{h.work}</b><span class="caret" aria-hidden="true">▾</span>
+          </button>
+        )}
         {!fz && dino && <span class={`stat ${h.eggs >= h.eggMax && h.eggMax > 0 ? 'over' : ''}`} title="Eggs ready in your Nests"><EggIcon /> <b data-stat="eggs">{h.eggs}/{h.eggMax}</b></span>}
         {fz && <span class={`stat ${fz.hall < 0.35 ? 'bad' : ''}`}><span class="lbl">Base</span> <b data-stat="base">{Math.ceil(fz.hall * 100)}%</b></span>}
         {fz && (
@@ -457,6 +532,8 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
         <span class="clock">{pace && <span class="pace" title={pace.name}>{pace.label}</span>}{fz?.overtime && <span class="pace ot">Overtime</span>}{clock(h.tick)}</span>
         <button class="pause" aria-label="Pause" onClick={() => { m.paused.value = true; m.menu.value = true; }}>II</button>
       </div>
+
+      {!fz && crew && <CrewSheet m={m} onClose={() => setCrew(false)} />}
 
       <div class="left">
         {fz ? (
@@ -493,11 +570,8 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
             {h.build.map((b) => <BuildButton key={b.kind} m={m} kind={b.kind} />)}
           </div>
         ) : (
-          <div class="list">
-            {h.research.map((r) => <ResearchButton key={r.kind} m={m} kind={r.kind} />)}
-            <p class="note">{dino
-              ? 'Researched at the Bone Pit. Claws: every dinosaur hits harder. Hide: every dinosaur takes less.'
-              : 'Researched at the Armory. Weapons: every unit hits harder. Armour: every unit takes less.'}</p>
+          <div class="grid ups tech">
+            {h.research.map((r) => <ResearchButton key={r.kind} m={m} info={r} />)}
           </div>
         )}
         <Mini m={m} canvasRef={miniRef} />

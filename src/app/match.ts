@@ -5,19 +5,19 @@ import { Bot } from '../ai/bot';
 import { FrenzyBot } from '../ai/frenzy';
 import {
   ABILITIES, DEFS, FACTIONS, FRENZY, RULES, UNLOCK, WORK, abilityCd, def, frenzyUnits, frenzyUpgrades, income, isHall, isRefinery, isResearch, isWorker, levelNeeds,
-  researchCost, researchOf, upgradeBlurb, upgradeCosts, upgradeKey,
+  researchCost, techBlurb, techLevel, upgradeBlurb, upgradeCosts, upgradeKey,
   type Ability,
 } from '../sim/data';
 import { collectorsOf, hallOf, heroOf } from '../sim/frenzy';
 import { classicMap } from '../sim/map';
 import { dist } from '../sim/nav';
-import { canPlace, centroid, createGame, groupUnits, hasBuilt, maxHp, missing, onLayer, onNestingGround, schedule, spawn, turned, type Game } from '../sim/state';
+import { canPlace, centroid, createGame, groupUnits, hasBuilt, maxHp, missing, onLayer, onNestingGround, researchBlock, schedule, spawn, turned, type Game } from '../sim/state';
 import { step } from '../sim/step';
 import { makeView, type View } from '../sim/view';
 import { sfx, type Voice } from './sound';
 import { Chronicle } from './report';
 import { nextHint, seenHint } from './hints';
-import { K, O, TICKS_PER_SEC, TILE, type Command, type Entity, type Faction, type Kind, type OrderMode } from '../sim/types';
+import { K, O, TICKS_PER_SEC, TILE, W, type Command, type Entity, type Faction, type Kind, type OrderMode } from '../sim/types';
 
 export interface Camera { x: number; y: number; zoom: number }
 
@@ -33,6 +33,9 @@ export interface TrainInfo { kind: Kind; queued: number; progress: number; ok: b
 export interface BuildInfo { kind: Kind; ok: boolean; why: string }
 export interface ResearchInfo {
   kind: Kind; level: number; max: number; cost: number; gas: number; ok: boolean; why: string;
+  /** What it does, and where it is studied. */
+  blurb: string;
+  at: string;
   /** 0 to 1 while a level is being researched, else -1. */
   progress: number;
 }
@@ -430,7 +433,7 @@ export class Match {
             const text = ev.kind === K.Muster ? `Muster level ${pl.muster}: the base works faster`
               : ev.kind === K.Haul ? `Haul level ${pl.haul}: ${income(collectorsOf(g, this.me), pl.haul)} Blocks a second`
                 : this.frenzy && ev.kind >= K.Weapons ? `${def(ev.kind).name} level ${pl[upgradeKey(ev.kind)]} bought`
-                  : isResearch(ev.kind) ? `${def(ev.kind).name} level ${pl[researchOf(ev.kind)]} researched`
+                  : isResearch(ev.kind) ? (def(ev.kind).levels > 1 ? `${def(ev.kind).name} level ${techLevel(pl, ev.kind)} researched` : `${def(ev.kind).name} researched`)
                     : this.frenzy ? `${def(ev.kind).plural} unlocked, and in the mix` : `${def(ev.kind).name} ready`;
             this.alert(`done${ev.kind}`, text, 'info', ev.x, ev.y, 10);
             sfx.play(def(ev.kind).building || isResearch(ev.kind) || (this.frenzy && ev.kind >= K.Weapons) ? 'ding' : 'ready', 0.8);
@@ -464,6 +467,12 @@ export class Match {
           if (ev.owner !== this.me) break;
           if (ev.up) this.alert('heroup', `Your ${this.heroName()} is back`, 'info', ev.x, ev.y, 0);
           else if (!pl.out) this.alert('herodown', `Your ${this.heroName()} is down: back in ${Math.ceil((ev.back - g.tick) / TICKS_PER_SEC)} s`, 'warn', ev.x, ev.y, 0);
+          break;
+        case 'recycled':
+          if (ev.owner === this.me) {
+            this.fx.push({ t: 'coin', x1: ev.x, y1: ev.y, x2: 0, y2: 0, kind: 0, owner: ev.owner, born: now, life: 900, mode: ev.amount });
+            this.hear('coin', ev.x, ev.y, 0.8, 0.5);
+          }
           break;
         case 'bounty':
           if (ev.owner === this.me) {
@@ -572,22 +581,21 @@ export class Match {
       else if (pl.gas < d.gas) why = 'Not enough Batteries';
       return { kind, ok: why === '', why };
     });
-    const research: ResearchInfo[] = f.research.map((kind) => {
-      const level = pl[researchOf(kind)];
-      const price = researchCost(kind, Math.min(level, RULES.researchMax - 1));
+    const research: ResearchInfo[] = f.tech.map((kind) => {
+      const d = def(kind);
+      const level = techLevel(pl, kind);
+      const price = researchCost(kind, Math.min(level, d.levels - 1));
       let progress = -1;
       for (const e of g.ents) {
-        if (e.owner !== me || e.kind !== f.lab) continue;
-        const i = e.queue.indexOf(kind);
-        if (i >= 0) progress = i === 0 ? e.qprog / price.time : 0;
+        if (e.owner !== me || e.kind !== d.madeAt) continue;
+        const i = e.studies.indexOf(kind);
+        if (i >= 0) progress = i === 0 ? e.sprog / price.time : 0;
       }
-      let why = '';
-      if (level >= RULES.researchMax) why = `${def(kind).name} is at its top level`;
-      else if (progress >= 0) why = 'Already being researched';
-      else if (!hasBuilt(g, me, f.lab)) why = `Needs ${a(def(f.lab).name)}`;
-      else if (pl.blocks < price.cost) why = 'Not enough Blocks';
-      else if (pl.gas < price.gas) why = 'Not enough Batteries';
-      return { kind, level, max: RULES.researchMax, cost: price.cost, gas: price.gas, ok: why === '', why, progress };
+      // The rules' own answer first (top level, already going, a building missing); then the price.
+      let why = researchBlock(g, me, kind);
+      if (!why && pl.blocks < price.cost) why = 'Not enough Blocks';
+      else if (!why && pl.gas < price.gas) why = 'Not enough Batteries';
+      return { kind, level, max: d.levels, cost: price.cost, gas: price.gas, ok: why === '', why, progress, blurb: techBlurb(kind), at: def(d.madeAt!).name };
     });
     let workers = 0, idleBarracks = 0, work = 0;
     const hqs = g.ents.filter((e) => e.owner === me && isHall(e.kind) && e.built);
@@ -598,7 +606,7 @@ export class Match {
         continue;
       }
       if (e.owner !== me) continue;
-      if (isWorker(e.kind)) workers++;
+      if (isWorker(e.kind) && e.ws !== W.Recycled) workers++;
       else if (e.kind === K.Barracks && e.built && e.queue.length === 0) idleBarracks++;
       else if (isRefinery(e.kind) && e.built && (g.byId.get(e.pile)?.amount ?? 0) > 0 && byHQ(e)) work += RULES.perRefinery;
     }
@@ -679,6 +687,21 @@ export class Match {
 
   research(kind: Kind): void {
     this.issue({ t: 'research', p: this.me, kind });
+  }
+
+  /** Classic: starts a research item, and says what it will do. */
+  study(kind: Kind): void {
+    this.research(kind);
+    const d = def(kind);
+    this.alert(`study${kind}`, `${d.name}, at the ${def(d.madeAt!).name}: ${techBlurb(kind)}`, 'info', undefined, undefined, 0);
+  }
+
+  /** Sends Workers home to be recycled: the rules pick those with least to do. */
+  recycle(n: number): void {
+    if (n < 1) return;
+    this.issue({ t: 'recycle', p: this.me, n });
+    const F = FACTIONS[this.g.players[this.me]!.faction];
+    this.alert(`recycle${this.g.tick}`, `${n === 1 ? `A ${def(F.worker).name} is` : `${n} ${def(F.worker).plural} are`} on the way to be recycled`, 'info', undefined, undefined, 0);
   }
 
   toggleRepeat(kind: Kind): void {

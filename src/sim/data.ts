@@ -5,8 +5,13 @@ const t = (tiles: number) => Math.round(tiles * TILE);
 
 const base = {
   gas: 0, speed: 0, range: 0, dmg: 0, cooldown: 0, vs: [100, 100, 100, 100] as const, splash: 0, minRange: 0, setup: 0,
-  air: false, melee: false, charge: 0, raider: false, brood: 1, size: 0, provides: 0, building: false, hero: false, needs: [] as Kind[],
+  air: false, melee: false, charge: 0, raider: false, brood: 1, size: 0, provides: 0, levels: 1, building: false, hero: false, needs: [] as Kind[],
 };
+
+/** A research item of Classic's: one level, studied at `at` once `needs` stand. Cost and time are for that level. */
+const study = (kind: Kind, name: string, short: string, at: Kind, needs: Kind[], cost: number, gas: number, time: number): Def => ({
+  ...base, kind, name, plural: name, short, cls: C.Structure, hp: 1, cost, gas, time, supply: 0, radius: 0, sight: 0, madeAt: at, needs,
+});
 
 export const DEFS: Record<number, Def> = {
   // ---------------------------------------------------------------- Green Army units
@@ -192,19 +197,19 @@ export const DEFS: Record<number, Def> = {
   // ---------------------------------------------------------------- research (cost and time are for the first level)
   [K.Weapons]: {
     ...base, kind: K.Weapons, name: 'Weapons', plural: 'Weapons', short: 'Weapons', cls: C.Structure, hp: 1, cost: 150, gas: 150, time: 600, supply: 0,
-    radius: 0, sight: 0, madeAt: K.Armory,
+    radius: 0, sight: 0, madeAt: K.Armory, levels: 3,
   },
   [K.Armour]: {
     ...base, kind: K.Armour, name: 'Armour', plural: 'Armour', short: 'Armour', cls: C.Structure, hp: 1, cost: 150, gas: 150, time: 600, supply: 0,
-    radius: 0, sight: 0, madeAt: K.Armory,
+    radius: 0, sight: 0, madeAt: K.Armory, levels: 3,
   },
   [K.Claws]: {
     ...base, kind: K.Claws, name: 'Claws', plural: 'Claws', short: 'Claws', cls: C.Structure, hp: 1, cost: 150, gas: 150, time: 600, supply: 0,
-    radius: 0, sight: 0, madeAt: K.BonePit,
+    radius: 0, sight: 0, madeAt: K.BonePit, levels: 3,
   },
   [K.Hide]: {
     ...base, kind: K.Hide, name: 'Hide', plural: 'Hide', short: 'Hide', cls: C.Structure, hp: 1, cost: 150, gas: 150, time: 600, supply: 0,
-    radius: 0, sight: 0, madeAt: K.BonePit,
+    radius: 0, sight: 0, madeAt: K.BonePit, levels: 3,
   },
   [K.Muster]: {
     ...base, kind: K.Muster, name: 'Muster', plural: 'Muster', short: 'Muster', cls: C.Structure, hp: 1, cost: 150, time: 0, supply: 0,
@@ -226,14 +231,87 @@ export const DEFS: Record<number, Def> = {
     ...base, kind: K.Tempo, name: 'Tempo', plural: 'Tempo', short: 'Tempo', cls: C.Structure, hp: 1, cost: 200, time: 0, supply: 0,
     radius: 0, sight: 0,
   },
+  // ---------------------------------------------------------------- Classic's other research (what each does: TECH)
+  [K.LongRifles]: study(K.LongRifles, 'Long Rifles', 'Rifles', K.Barracks, [K.Armory], 100, 100, 600),
+  [K.QuickMarch]: study(K.QuickMarch, 'Quick March', 'March', K.Barracks, [K.Armory], 100, 100, 600),
+  [K.BigLoads]: study(K.BigLoads, 'Big Loads', 'Loads', K.HQ, [K.Armory], 200, 100, 700),
+  [K.HeavyShells]: study(K.HeavyShells, 'Heavy Shells', 'Shells', K.Factory, [K.Armory], 150, 150, 700),
+  [K.Afterburners]: study(K.Afterburners, 'Afterburners', 'Burners', K.Airfield, [K.Armory], 100, 100, 600),
+  [K.Concrete]: study(K.Concrete, 'Concrete', 'Concrete', K.Armory, [], 100, 100, 600),
+  [K.FieldRepair]: study(K.FieldRepair, 'Field Repair', 'Repair', K.Heavy, [], 200, 200, 900),
+  [K.AcidSpit]: study(K.AcidSpit, 'Acid Spit', 'Acid', K.Den, [K.BonePit], 100, 100, 600),
+  [K.SwiftFeet]: study(K.SwiftFeet, 'Swift Feet', 'Feet', K.Den, [K.BonePit], 100, 100, 600),
+  [K.BigMouths]: study(K.BigMouths, 'Big Mouths', 'Mouths', K.Nest, [K.BonePit], 200, 100, 700),
+  [K.ThickSkulls]: study(K.ThickSkulls, 'Thick Skulls', 'Skulls', K.Wallow, [K.BonePit], 150, 150, 700),
+  [K.WideWings]: study(K.WideWings, 'Wide Wings', 'Wings', K.Roost, [K.BonePit], 100, 100, 600),
+  [K.HotRock]: study(K.HotRock, 'Hot Rock', 'Hot Rock', K.BonePit, [], 100, 100, 600),
+  [K.Mending]: study(K.Mending, 'Mending', 'Mending', K.Cave, [], 200, 200, 900),
 };
 
 export const def = (kind: number): Def => DEFS[kind]!;
 
-/** Research that is studied at a lab. (Muster is Frenzy's own, bought on the spot.) */
-export const isResearch = (kind: number): boolean => kind >= K.Weapons && kind <= K.Hide;
+/** Classic's research: studied at a building, like a unit is trained. (Muster and the rest are Frenzy's own, bought on the spot.) */
+export const isResearch = (kind: number): boolean => (kind >= K.Weapons && kind <= K.Hide) || (kind >= K.LongRifles && kind <= K.Mending);
 /** Which of a player's two research levels an item raises. */
 export const researchOf = (kind: number): 'weapons' | 'armour' => (kind === K.Weapons || kind === K.Claws ? 'weapons' : 'armour');
+/** How far a player has taken a research item: Weapons and Armour (Claws and Hide) 0 to 3, the rest 0 or 1. */
+export const techLevel = (pl: { weapons: number; armour: number; tech: readonly number[] }, kind: number): number =>
+  kind >= K.Weapons && kind <= K.Hide ? pl[researchOf(kind)] : pl.tech[kind - 100] ?? 0;
+
+/**
+ * What Classic's other research does, for the units it names (whatever side's they are: each faction can only
+ * study its own). `range`: sub-units more reach. `speed`: percent faster. `dmg`: percent harder hits. `taken`:
+ * percent less damage taken. `carry`: Blocks more a trip. `mend`: percent of full health a second, once it has
+ * gone `RULES.mendWait` ticks without being hurt.
+ */
+export interface TechEffect {
+  units: readonly Kind[];
+  range?: number;
+  speed?: number;
+  dmg?: number;
+  taken?: number;
+  carry?: number;
+  mend?: number;
+}
+const GREEN_ARMY: Kind[] = [K.Worker, K.Trooper, K.Lancer, K.Runner, K.Tank, K.Mortar, K.Flak, K.Gunship, K.Jugger];
+const DINO_PACK: Kind[] = [K.Gatherer, K.Raptor, K.Spitter, K.Horn, K.Ptero, K.Bronto, K.Rex];
+export const TECH: Partial<Record<number, TechEffect>> = {
+  [K.LongRifles]: { units: [K.Trooper], range: t(1) },
+  [K.QuickMarch]: { units: [K.Trooper, K.Lancer, K.Runner], speed: 15 },
+  [K.BigLoads]: { units: [K.Worker], carry: 1 },
+  [K.HeavyShells]: { units: [K.Tank, K.Mortar, K.Jugger], dmg: 20 },
+  [K.Afterburners]: { units: [K.Gunship], speed: 25 },
+  [K.Concrete]: { units: [K.Turret], taken: 30, range: t(1) },
+  [K.FieldRepair]: { units: GREEN_ARMY, mend: 2 },
+  [K.AcidSpit]: { units: [K.Spitter], range: t(1) },
+  [K.SwiftFeet]: { units: [K.Raptor, K.Spitter], speed: 8 },
+  [K.BigMouths]: { units: [K.Gatherer], carry: 1 },
+  [K.ThickSkulls]: { units: [K.Horn, K.Bronto, K.Rex], taken: 10 },
+  [K.WideWings]: { units: [K.Ptero], speed: 25 },
+  [K.HotRock]: { units: [K.Volcano], taken: 30, range: t(1) },
+  [K.Mending]: { units: DINO_PACK, mend: 2 },
+};
+
+/** What a research item does, in a few words, numbers and all: for the Tech tab and the guide. */
+export function techBlurb(kind: number): string {
+  switch (kind) {
+    case K.Weapons: case K.Claws: return `Every ${kind === K.Claws ? 'dinosaur' : 'unit'} hits ${RULES.weaponStep}% harder a level`;
+    case K.Armour: case K.Hide: return `Every ${kind === K.Hide ? 'dinosaur' : 'unit'} takes ${RULES.armourStep}% less a level`;
+  }
+  const fx = TECH[kind];
+  if (!fx) return '';
+  const who = fx.units === GREEN_ARMY ? 'Every unit' : fx.units === DINO_PACK ? 'Every dinosaur' : listOf(fx.units.map((k) => DEFS[k]!.plural));
+  const parts: string[] = [];
+  if (fx.range) parts.push(`reach ${Math.round((fx.range / TILE) * 10) / 10} tile${fx.range === TILE ? '' : 's'} further`);
+  if (fx.speed) parts.push(`${fx.units.some((k) => DEFS[k]!.air) ? 'fly' : 'move'} ${fx.speed}% faster`);
+  if (fx.dmg) parts.push(`hit ${fx.dmg}% harder`);
+  if (fx.taken) parts.push(`take ${fx.taken}% less`);
+  if (fx.carry) parts.push(`carry ${RULES.carry + fx.carry} Blocks a trip, not ${RULES.carry}`);
+  if (fx.mend) parts.push(`mend ${fx.mend}% of full health a second after ${RULES.mendWait / 10} s left alone`);
+  // "Troopers reach 1 tile further"; "Turrets take 30% less and reach 1 tile further".
+  return `${who} ${[...parts.filter((x) => !x.startsWith('reach')), ...parts.filter((x) => x.startsWith('reach'))].join(' and ')}`;
+}
+const listOf = (xs: string[]): string => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /** What one unit or building is worth, in Blocks plus Batteries: an egg's price is shared by all that hatch from it. */
 export const worth = (kind: number): number => Math.round((DEFS[kind]!.cost + DEFS[kind]!.gas) / DEFS[kind]!.brood);
@@ -254,11 +332,16 @@ export interface Roster {
   turret: Kind;
   /** Where research is done. */
   lab: Kind;
+  /** The building the last level of Weapons and Armour (Claws and Hide) waits for. */
+  top: Kind;
   /** The first building that makes an army possible. */
   first: Kind;
   buildings: Kind[];
   units: Kind[];
+  /** Weapons and Armour, by this faction's names: all Frenzy sells of research. */
   research: Kind[];
+  /** Classic's Tech tab, in panel order: those two, then the rest of what the faction can study. */
+  tech: Kind[];
   /** Frenzy: who leads it, and the units its base can make, in panel order. The first comes free. */
   hero: Kind;
   frenzy: Kind[];
@@ -267,17 +350,19 @@ export interface Roster {
 /** Faction rosters, in the order the panels show them. */
 export const FACTIONS: Record<Faction, Roster> = {
   green: {
-    name: 'Green Army', hall: K.HQ, worker: K.Worker, refinery: K.Refinery, turret: K.Turret, lab: K.Armory, first: K.Barracks,
+    name: 'Green Army', hall: K.HQ, worker: K.Worker, refinery: K.Refinery, turret: K.Turret, lab: K.Armory, top: K.Heavy, first: K.Barracks,
     buildings: [K.HQ, K.Refinery, K.Barracks, K.Factory, K.Airfield, K.Armory, K.Heavy, K.Turret],
     units: [K.Worker, K.Trooper, K.Lancer, K.Runner, K.Tank, K.Mortar, K.Flak, K.Gunship, K.Jugger],
     research: [K.Weapons, K.Armour], hero: K.Captain,
+    tech: [K.Weapons, K.Armour, K.Concrete, K.LongRifles, K.QuickMarch, K.HeavyShells, K.Afterburners, K.BigLoads, K.FieldRepair],
     frenzy: [K.Bayonet, K.Trooper, K.Lancer, K.Runner, K.Tank, K.Mortar, K.Flak, K.Gunship, K.Jugger],
   },
   dino: {
-    name: 'Dino Pack', hall: K.Nest, worker: K.Gatherer, refinery: K.Dig, turret: K.Volcano, lab: K.BonePit, first: K.Den,
+    name: 'Dino Pack', hall: K.Nest, worker: K.Gatherer, refinery: K.Dig, turret: K.Volcano, lab: K.BonePit, top: K.Cave, first: K.Den,
     buildings: [K.Nest, K.Dig, K.Den, K.Wallow, K.Roost, K.BonePit, K.Cave, K.Volcano],
     units: [K.Gatherer, K.Raptor, K.Spitter, K.Horn, K.Ptero, K.Bronto, K.Rex],
     research: [K.Claws, K.Hide], hero: K.Alpha,
+    tech: [K.Claws, K.Hide, K.HotRock, K.AcidSpit, K.SwiftFeet, K.ThickSkulls, K.WideWings, K.BigMouths, K.Mending],
     frenzy: [K.Raptor, K.Spitter, K.Horn, K.Ptero, K.Bronto, K.Rex],
   },
 };
@@ -302,7 +387,12 @@ export const RULES = {
   perRefinery: 3,
   /** A Headquarters within this many tiles of a pile or Refinery makes it part of that base. */
   baseReach: 10,
-  supplyMax: 120,
+  /** The most supply a side can have: five Headquarters or Nests' worth. */
+  supplyMax: 200,
+  /** Percent of its price a recycled Worker or Gatherer gives back. */
+  recycleRefund: 50,
+  /** Ticks a unit must go unhurt before research that mends it starts to. */
+  mendWait: 50,
   queueMax: 5,
   /** Refund share for cancelling a building once work has begun. */
   cancelRefund: 75,
@@ -327,8 +417,7 @@ export const RULES = {
   /** How far around a held watchtower its holder sees, in tiles, and how close a unit must stand to hold it. */
   towerSight: 11,
   towerReach: t(2.5),
-  /** Research: levels, damage gained and damage shed per level in percent, and what each further level adds to the price. */
-  researchMax: 2,
+  /** Research: damage gained and damage shed per level of Weapons and Armour in percent, and what each further level adds to the price. */
   weaponStep: 15,
   armourStep: 10,
   researchStep: 100,

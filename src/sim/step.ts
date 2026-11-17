@@ -1,13 +1,14 @@
 // One tick of the rules. Players and the computer opponent act only through commands; everything
 // here runs the same on every device given the same commands.
-import { DEFS, FACTIONS, FRENZY, RULES, def, heroDmg, isHall, isRefinery, isResearch, isWorker, researchCost, researchOf } from './data';
+import { DEFS, FACTIONS, FRENZY, RULES, def, heroDmg, isHall, isRefinery, isResearch, isWorker, researchCost, researchOf, techLevel } from './data';
 import { updateFog } from './fog';
 import { castNow, castOk, frenzyDeaths, frenzyMix, frenzyResearch, frenzyTick, frenzyUnlock } from './frenzy';
 import { dist, isqrt } from './nav';
 import {
-  canPlace, cellAt, centroid, countSupply, footprint, footprintTiles, groupUnits, hasBuilt, missing, onLayer, onNestingGround, spawn,
+  canPlace, cellAt, centroid, countSupply, footprint, footprintTiles, groupUnits, hasBuilt, maxHp, missing, onLayer, onNestingGround, researchBlock, spawn,
   supplyCap, tileOf, turned, visibleTo, wasVisibleTo, type Game,
 } from './state';
+import { boost, forgetBoosts, speedOf } from './tech';
 import { K, O, TILE, W, type Command, type Def, type Entity, type Kind } from './types';
 
 // ---------------------------------------------------------------- formation slots
@@ -76,9 +77,11 @@ function nearFootprint(e: Entity, b: Entity, slack: number): boolean {
 function reach(g: Game, e: Entity, t: Entity, d: Def): number {
   // A Frenzy base's Turrets (marked by `lvl`) reach further than ordinary ones.
   if (d.building && e.lvl > 0) return d.range + FRENZY.turretReach;
-  if (d.melee || d.air || def(t.kind).air) return d.range;
+  // Research can lend reach (Long Rifles, say); high ground lends more.
+  const r = d.range + boost(g, e.owner, e.kind).range;
+  if (d.melee || d.air || def(t.kind).air) return r;
   const high = g.map.high;
-  return onLayer(g, high, e.x, e.y) && !onLayer(g, high, t.x, t.y) ? d.range + RULES.highRange : d.range;
+  return onLayer(g, high, e.x, e.y) && !onLayer(g, high, t.x, t.y) ? r + RULES.highRange : r;
 }
 
 /**
@@ -104,9 +107,10 @@ function inRange(g: Game, e: Entity, t: Entity, d: Def): boolean {
 // Otherwise whoever happens to be moved later in the tick sees a little further into the future.
 function reachThen(g: Game, e: Entity, t: Entity, d: Def): number {
   if (d.building && e.lvl > 0) return d.range + FRENZY.turretReach;
-  if (d.melee || d.air || def(t.kind).air) return d.range;
+  const r = d.range + boost(g, e.owner, e.kind).range;
+  if (d.melee || d.air || def(t.kind).air) return r;
   const high = g.map.high;
-  return onLayer(g, high, e.x, e.y) && !onLayer(g, high, t.px, t.py) ? d.range + RULES.highRange : d.range;
+  return onLayer(g, high, e.x, e.y) && !onLayer(g, high, t.px, t.py) ? r + RULES.highRange : r;
 }
 
 function inRangeThen(g: Game, e: Entity, t: Entity, d: Def): boolean {
@@ -240,7 +244,7 @@ function nearestWorker(g: Game, owner: number, x: number, y: number): Entity | u
   let best: Entity | undefined;
   let bestD = 1 << 30;
   for (const e of g.ents) {
-    if (e.owner !== owner || !isWorker(e.kind) || e.hp <= 0 || e.ws === W.ToSite || e.ws === W.Build) continue;
+    if (e.owner !== owner || !isWorker(e.kind) || e.hp <= 0 || e.ws === W.ToSite || e.ws === W.Build || e.ws === W.Recycled) continue;
     const d = dist(e.x, e.y, x, y) + (e.carry > 0 ? TILE * 2 : 0);
     if (d < bestD) {
       bestD = d;
@@ -402,27 +406,63 @@ function tryTrain(g: Game, p: number, kind: Kind, auto: boolean): boolean {
   return true;
 }
 
-/** Research is queued at an Armory or a Bone Pit; each item has two levels and is studied one level at a time. */
+/** Research is queued at its building, like a unit; an item with levels is studied one level at a time. */
 function cmdResearch(g: Game, c: Extract<Command, { t: 'research' }>): void {
   const pl = g.players[c.p];
-  if (!pl || !isResearch(c.kind) || !FACTIONS[pl.faction].research.includes(c.kind)) return;
-  const level = pl[researchOf(c.kind)];
-  if (level >= RULES.researchMax) return refuse(g, c.p, `${def(c.kind).name} is at its top level`);
-  const labKind = FACTIONS[pl.faction].lab;
+  if (!pl || !isResearch(c.kind) || !FACTIONS[pl.faction].tech.includes(c.kind)) return;
+  const why = researchBlock(g, c.p, c.kind);
+  if (why) return refuse(g, c.p, why);
+  const level = techLevel(pl, c.kind);
+  const at = def(c.kind).madeAt!;
   let lab: Entity | undefined;
   for (const e of g.ents) {
-    if (e.owner !== c.p || e.kind !== labKind || e.hp <= 0) continue;
-    if (e.queue.includes(c.kind)) return refuse(g, c.p, 'Already being researched');
-    if (e.built && e.queue.length < RULES.queueMax && (!lab || e.queue.length < lab.queue.length)) lab = e;
+    if (e.owner !== c.p || e.kind !== at || e.hp <= 0 || !e.built) continue;
+    if (e.studies.length < RULES.queueMax && (!lab || e.studies.length < lab.studies.length)) lab = e;
   }
-  if (!lab) return refuse(g, c.p, hasBuilt(g, c.p, labKind) ? 'Queue is full' : `Needs ${article(def(labKind).name)}`);
+  if (!lab) return refuse(g, c.p, 'Queue is full');
   const price = researchCost(c.kind, level);
   if (pl.blocks < price.cost) return refuse(g, c.p, 'Not enough Blocks');
   if (pl.gas < price.gas) return refuse(g, c.p, 'Not enough Batteries');
   pl.blocks -= price.cost;
   pl.gas -= price.gas;
   pl.stats.spent += price.cost + price.gas;
-  lab.queue.push(c.kind);
+  lab.studies.push(c.kind);
+}
+
+/**
+ * Sends `n` of a side's Workers home to be recycled. The rules pick the ones with least to do: idle ones first,
+ * then those at a pile with more Workers than it serves well, then those hauling Blocks, then those on
+ * Batteries; never one that is building. Among equals, the one nearest a Headquarters goes, then the one
+ * nearer the middle of the map. Its supply is free at once; at the Headquarters it hands in what it carries
+ * and gives back `RULES.recycleRefund` percent of its price.
+ */
+function cmdRecycle(g: Game, c: Extract<Command, { t: 'recycle' }>): void {
+  const pl = g.players[c.p];
+  if (!pl || pl.out || !Number.isInteger(c.n) || c.n < 1) return;
+  const crowd = new Map<number, number>();
+  for (const e of g.ents) {
+    if (e.owner === c.p && isWorker(e.kind) && e.pile && (e.ws === W.ToPile || e.ws === W.Harvest || e.ws === W.ToHQ)) {
+      crowd.set(e.pile, (crowd.get(e.pile) ?? 0) + 1);
+    }
+  }
+  const cx = (g.map.w * TILE) / 2, cy = (g.map.h * TILE) / 2;
+  const picks: { e: Entity; rank: number; home: number; mid: number }[] = [];
+  for (const e of g.ents) {
+    if (e.owner !== c.p || !isWorker(e.kind) || e.hp <= 0) continue;
+    if (e.ws === W.ToSite || e.ws === W.Build || e.ws === W.Recycled) continue;
+    const pile = e.pile ? g.byId.get(e.pile) : undefined;
+    const rank = e.ws === W.Idle || !pile ? 0 : isRefinery(pile.kind) ? 3 : (crowd.get(pile.id) ?? 0) > RULES.perPile ? 1 : 2;
+    const hq = nearestHQ(g, e);
+    picks.push({ e, rank, home: hq ? dist(e.x, e.y, hq.x, hq.y) : 1 << 30, mid: dist(e.x, e.y, cx, cy) });
+  }
+  // Two Workers of one side may be compared by id, as a last resort: they are never mirror images of each other.
+  picks.sort((a, b) => a.rank - b.rank || a.home - b.home || a.mid - b.mid || a.e.id - b.e.id);
+  for (const { e } of picks.slice(0, c.n)) {
+    releasePile(g, e);
+    e.pile = 0;
+    e.ws = W.Recycled;
+    e.losTick = -99;
+  }
 }
 
 function article(name: string, capital = false): string {
@@ -508,7 +548,7 @@ function cmdAssign(g: Game, c: Extract<Command, { t: 'assign' }>): void {
   }
 }
 
-const PHASE: Record<string, number> = { order: 0, assign: 0, rally: 0, cast: 0, cancel: 1, build: 2, train: 3, research: 3, repeat: 3, unlock: 3 };
+const PHASE: Record<string, number> = { order: 0, assign: 0, rally: 0, cast: 0, cancel: 1, build: 2, train: 3, research: 3, repeat: 3, unlock: 3, recycle: 3 };
 
 function runCommands(g: Game): void {
   if (g.pending.length === 0) return;
@@ -548,8 +588,8 @@ function runCommands(g: Game): void {
       continue;
     }
     if (frenzy) {
-      // A side that is out gives no orders, and nobody builds, trains or cancels: bases make their own.
-      if (g.players[cmd.p]?.out || cmd.t === 'build' || cmd.t === 'cancel' || cmd.t === 'train') continue;
+      // A side that is out gives no orders, and nobody builds, trains or cancels: bases make their own. There are no Workers to recycle.
+      if (g.players[cmd.p]?.out || cmd.t === 'build' || cmd.t === 'cancel' || cmd.t === 'train' || cmd.t === 'recycle') continue;
       if (cmd.t === 'cast') {
         if (casting.has(cmd)) castNow(g, cmd);
         continue;
@@ -581,6 +621,7 @@ function runCommands(g: Game): void {
       }
       case 'order': cmdOrder(g, cmd); break;
       case 'assign': cmdAssign(g, cmd); break;
+      case 'recycle': cmdRecycle(g, cmd); break;
       case 'concede': {
         // A Frenzy round is lost only by losing the base.
         const pl = g.players[cmd.p];
@@ -695,20 +736,27 @@ function production(g: Game): void {
       b.eggs++;
       b.timer = 0;
     }
+    if (b.studies.length > 0) {
+      // Research goes on beside whatever the building trains.
+      const kind = b.studies[0]!;
+      const pl = g.players[b.owner]!;
+      const level = techLevel(pl, kind);
+      if (++b.sprog >= researchCost(kind, level).time) {
+        b.studies.shift();
+        b.sprog = 0;
+        const next = Math.min(def(kind).levels, level + 1);
+        if (kind <= K.Hide) pl[researchOf(kind)] = next;
+        else {
+          pl.tech[kind - 100] = next;
+          forgetBoosts(pl);
+        }
+        g.events.push({ t: 'done', owner: b.owner, kind, x: b.x, y: b.y });
+      }
+    }
     if (b.queue.length === 0) continue;
     b.qprog++;
     const kind = b.queue[0]!;
-    if (isResearch(kind)) {
-      const pl = g.players[b.owner]!;
-      const which = researchOf(kind);
-      const level = pl[which];
-      if (b.qprog >= researchCost(kind, level).time) {
-        b.queue.shift();
-        b.qprog = 0;
-        pl[which] = Math.min(RULES.researchMax, level + 1);
-        g.events.push({ t: 'done', owner: b.owner, kind, x: b.x, y: b.y });
-      }
-    } else if (b.qprog >= def(kind).time) {
+    if (b.qprog >= def(kind).time) {
       b.queue.shift();
       b.qprog = 0;
       if (b.kind === K.Egg) {
@@ -800,6 +848,27 @@ function nearestHQ(g: Game, w: Entity): Entity | undefined {
   return best;
 }
 
+/** A Worker at a Headquarters hands in its load. A Brutal opponent earns more on every load: whole Blocks now, the hundredths kept for the next. */
+function deliver(g: Game, e: Entity): void {
+  const pl = g.players[e.owner]!;
+  let more = 0;
+  if (pl.bonus > 0) {
+    const owed = e.carry * pl.bonus + pl.bonusLeft[e.cargo === 1 ? 1 : 0];
+    more = Math.trunc(owed / 100);
+    pl.bonusLeft[e.cargo === 1 ? 1 : 0] = owed % 100;
+  }
+  if (e.cargo === 1) {
+    pl.gas += e.carry + more;
+    pl.stats.gathered2 += e.carry;
+  } else {
+    pl.blocks += e.carry + more;
+    pl.stats.gathered += e.carry;
+  }
+  e.carry = 0;
+  e.cargo = 0;
+  e.losTick = -99;
+}
+
 function workers(g: Game): void {
   // How many Workers each pile and Refinery has, counted before anyone acts and kept up to date as they do.
   // (Counted part-way through, the tally would show one side's Workers after their turn and the other's before.)
@@ -845,7 +914,7 @@ function workers(g: Game): void {
   const pileReach = Math.trunc(TILE * 0.6);
   for (const e of g.ents) {
     if (!isWorker(e.kind) || e.hp <= 0) continue;
-    const speed = def(e.kind).speed;
+    const speed = speedOf(g, e);
     switch (e.ws) {
       case W.Idle: {
         const pile = pickPile(g, e, assigned());
@@ -894,7 +963,7 @@ function workers(g: Game): void {
             e.carry = take;
             e.cargo = 1;
           } else {
-            const take = Math.min(RULES.carry, pile.amount);
+            const take = Math.min(RULES.carry + boost(g, e.owner, e.kind).carry, pile.amount);
             pile.amount -= take;
             pile.busy = 0;
             e.carry = take;
@@ -910,24 +979,7 @@ function workers(g: Game): void {
         const hq = nearestHQ(g, e);
         if (!hq) break;
         if (nearFootprint(e, hq, Math.trunc(TILE * 0.7))) {
-          const pl = g.players[e.owner]!;
-          // A Brutal opponent earns more on every load: whole Blocks now, the hundredths kept for the next.
-          let more = 0;
-          if (pl.bonus > 0) {
-            const owed = e.carry * pl.bonus + pl.bonusLeft[e.cargo === 1 ? 1 : 0];
-            more = Math.trunc(owed / 100);
-            pl.bonusLeft[e.cargo === 1 ? 1 : 0] = owed % 100;
-          }
-          if (e.cargo === 1) {
-            pl.gas += e.carry + more;
-            pl.stats.gathered2 += e.carry;
-          } else {
-            pl.blocks += e.carry + more;
-            pl.stats.gathered += e.carry;
-          }
-          e.carry = 0;
-          e.cargo = 0;
-          e.losTick = -99;
+          deliver(g, e);
           const pile = e.pile ? g.byId.get(e.pile) : undefined;
           if (!pile || pile.kind === K.Pile) {
             // A Refinery by this Headquarters with a place free takes the next Worker to walk past.
@@ -946,6 +998,23 @@ function workers(g: Game): void {
             leave(e);
             e.ws = W.Idle;
           }
+        } else {
+          moveTo(g, e, hq.x, hq.y, speed, hq);
+        }
+        break;
+      }
+      case W.Recycled: {
+        // Home it goes, with whatever it was carrying, and is taken back for part of its price.
+        const hq = nearestHQ(g, e);
+        if (!hq) break;
+        if (nearFootprint(e, hq, Math.trunc(TILE * 0.7))) {
+          deliver(g, e);
+          const pl = g.players[e.owner]!;
+          const back = Math.trunc((def(e.kind).cost * RULES.recycleRefund) / 100);
+          pl.blocks += back;
+          g.events.push({ t: 'recycled', owner: e.owner, kind: e.kind, x: e.x, y: e.y, amount: back });
+          e.hp = 0;
+          e.progress = -1;
         } else {
           moveTo(g, e, hq.x, hq.y, speed, hq);
         }
@@ -1001,7 +1070,7 @@ function acquire(g: Game, b: Buckets, e: Entity, d: Def, extra: number): number 
   let best = 0;
   let bestScore = 1 << 30, bestRound = 0;
   const n = g.players.length;
-  const far = d.range + RULES.highRange + extra + (d.building && e.lvl > 0 ? FRENZY.turretReach : 0);
+  const far = d.range + boost(g, e.owner, e.kind).range + RULES.highRange + extra + (d.building && e.lvl > 0 ? FRENZY.turretReach : 0);
   b.near(e.x, e.y, far + TILE * 3, (o) => {
     if (o.owner === e.owner || o.owner < 0 || o.hp <= 0) return;
     const od = def(o.kind);
@@ -1032,7 +1101,8 @@ function unitStep(g: Game, b: Buckets, e: Entity, pace: readonly number[]): void
   const d = def(e.kind);
   // Stunned: it stands where it is and does nothing.
   if (e.daze > g.tick) return;
-  const pace0 = e.haste > g.tick ? Math.trunc((d.speed * FRENZY.hasteMove) / 100) : d.speed;
+  const own = speedOf(g, e);
+  const pace0 = e.haste > g.tick ? Math.trunc((own * FRENZY.hasteMove) / 100) : own;
   let t = e.tgt ? g.byId.get(e.tgt) : undefined;
   if (t && (t.hp <= 0 || !wasVisibleTo(g, e.owner, t))) {
     t = undefined;
@@ -1093,7 +1163,7 @@ function units(g: Game, b: Buckets): void {
   for (const e of g.ents) {
     if (e.group >= 0 && !e.arrived && e.hp > 0) {
       const i = e.owner * RULES.groups + e.group;
-      pace[i] = Math.min(pace[i]!, def(e.kind).speed);
+      pace[i] = Math.min(pace[i]!, speedOf(g, e));
     }
   }
   for (const e of g.ents) {
@@ -1193,8 +1263,9 @@ function damage(g: Game, by: Entity, d: Def, t: Entity, share: number): number {
   // A hero hits as its level and its Might make it; a Frenzy base's Turret (marked by `lvl`) harder than a Classic one.
   const basis = d.hero ? heroDmg(by.kind, by.lvl, g.players[by.owner]!.might) : d.building && by.lvl > 0 ? Math.trunc((d.dmg * FRENZY.turretPower) / 100) : d.dmg;
   const hit = Math.max(1, Math.trunc((basis * d.vs[td.cls]!) / 100));
-  const up = d.building ? 100 : 100 + g.players[by.owner]!.weapons * RULES.weaponStep;
-  const down = td.building ? 100 : 100 - g.players[t.owner]!.armour * RULES.armourStep;
+  // Weapons and Armour help units, not buildings; other research (Heavy Shells, Concrete...) helps what it names.
+  const up = (d.building ? 100 : 100 + g.players[by.owner]!.weapons * RULES.weaponStep) + boost(g, by.owner, by.kind).dmg;
+  const down = (td.building ? 100 : 100 - g.players[t.owner]!.armour * RULES.armourStep) - boost(g, t.owner, t.kind).taken;
   if (up === 100 && down === 100 && share === 100) return hit;
   // Splash is rounded down for each unit caught in it, so who stands where in the blast decides nothing else.
   if (share !== 100) return Math.max(1, Math.trunc((hit * up * down * share) / 1_000_000));
@@ -1218,6 +1289,7 @@ export function land(g: Game, hits: readonly Hit[]): void {
   const n = g.players.length;
   for (const { t, dmg } of hits) {
     t.hp -= dmg;
+    t.hurt = g.tick;
     const td = def(t.kind);
     if (td.building || isWorker(t.kind)) {
       g.events.push({ t: 'hurt', owner: t.owner, x: t.x, y: t.y, kind: t.kind });
@@ -1336,6 +1408,18 @@ function cleanup(g: Game): void {
   }
 }
 
+/** Research that mends (Field Repair, Mending): once a second, a unit left alone a while gets some health back. */
+function mend(g: Game): void {
+  if (g.mode !== 'classic' || g.tick % 10 !== 0) return;
+  for (const e of g.ents) {
+    if (e.owner < 0 || e.hp <= 0 || g.tick - e.hurt < RULES.mendWait) continue;
+    const m = boost(g, e.owner, e.kind).mend;
+    if (m === 0) continue;
+    const full = maxHp(e);
+    if (e.hp < full) e.hp = Math.min(full, e.hp + Math.max(1, Math.trunc((full * m) / 100)));
+  }
+}
+
 function accounts(g: Game): void {
   for (const pl of g.players) {
     pl.supply = countSupply(g, pl.id);
@@ -1372,6 +1456,7 @@ export function step(g: Game): void {
   separate(g, s.mobile);
   shooting(g, s.all);
   cleanup(g);
+  mend(g);
   if (g.tick % 2 === 0) updateFog(g);
   accounts(g);
 }

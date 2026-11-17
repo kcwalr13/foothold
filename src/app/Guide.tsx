@@ -1,9 +1,12 @@
 // The unit guide: every unit of both factions, its toy in your colour and the opponent's, what it does, what it
 // beats and what beats it, with its numbers read from the game's own data, so the guide can never go stale.
 import { useState } from 'preact/hooks';
-import { ABILITIES, FACTIONS, FRENZY, UNLOCK, WORK, def, heroDmg, heroHp } from '../sim/data';
+import { ABILITIES, FACTIONS, FRENZY, UNLOCK, WORK, def, heroDmg, heroHp, techBlurb } from '../sim/data';
 import { C, K, type Faction, type Kind } from '../sim/types';
 import { toyIcon } from './icons';
+import { UnitIcon } from './Hud';
+
+const an = (name: string) => `${'AEIOU'.includes(name[0]!) ? 'an' : 'a'} ${name}`;
 
 /** What a unit is for, in words: the design doc's unit tables, said the way a player would. */
 interface Words {
@@ -84,6 +87,27 @@ function Card({ kind, frenzy }: { kind: Kind; frenzy: boolean }) {
   );
 }
 
+/** One of Classic's research items: where it is studied, what it costs and what it does, all from the data. */
+function TechCard({ kind }: { kind: Kind }) {
+  const d = def(kind);
+  const others = d.needs.map((k) => def(k).name);
+  const where = `At the ${def(d.madeAt!).name}${others.length ? `, once you have ${others.map(an).join(' and ')}` : ''}`;
+  const price = d.levels > 1
+    ? `${d.levels} levels, from ${d.cost} Blocks · ${d.gas} Batteries; level ${d.levels} needs ${an(def(FACTIONS[FACTIONS.green.tech.includes(kind) ? 'green' : 'dino'].top).name)}`
+    : `${d.cost} Blocks · ${d.gas} Batteries · ${seconds(d.time)}`;
+  return (
+    <div class="ucard tcard" data-kind={kind}>
+      <div class="upics"><UnitIcon kind={kind} size={30} /></div>
+      <div class="utext">
+        <div class="uname">{d.name}</div>
+        <div class="ucost">{price}</div>
+        <div class="uline">{techBlurb(kind)}.</div>
+        <div class="ustats">{where}</div>
+      </div>
+    </div>
+  );
+}
+
 /** The guide itself. It opens on your own faction; the other is a tap away. */
 export function UnitGuide({ frenzy, me, onBack }: { frenzy: boolean; me: Faction; onBack: () => void }) {
   const [side, setSide] = useState<Faction>(me);
@@ -103,6 +127,8 @@ export function UnitGuide({ frenzy, me, onBack }: { frenzy: boolean; me: Faction
       <p class="unote">Shown in your green and the opponent&rsquo;s tan. Counters go by class (Light, Armoured, Air), so they hold across factions.</p>
       <div class="ulist" data-side={side}>
         {kinds.map((k) => <Card key={k} kind={k} frenzy={frenzy} />)}
+        {!frenzy && <h3 class="usub">Research</h3>}
+        {!frenzy && roster.tech.map((k) => <TechCard key={k} kind={k} />)}
       </div>
     </div>
   );

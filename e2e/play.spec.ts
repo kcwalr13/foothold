@@ -40,8 +40,13 @@ test('the unit guide, from the pause sheet and from How to play: every unit of b
   await expect(guide).toBeVisible();
   // It opens on your own faction: a card a unit, Gatherer to Rex, each with its toy in your colour and in tan.
   await expect(guide.getByRole('button', { name: 'Dino Pack' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(guide.locator('.ucard')).toHaveCount(7);
+  await expect(guide.locator('.ucard:not(.tcard)')).toHaveCount(7);
   await expect(guide.locator('.ucard').first()).toContainText('Gatherer');
+  // And under Research, the nine things it can study, where, for how much and what each does.
+  await expect(guide.locator('.tcard')).toHaveCount(9);
+  await expect(guide.locator(`.tcard[data-kind="${K.AcidSpit}"]`)).toContainText('Spitters reach 1 tile further');
+  await expect(guide.locator(`.tcard[data-kind="${K.AcidSpit}"]`)).toContainText('At the Den, once you have a Bone Pit');
+  await expect(guide.locator(`.tcard[data-kind="${K.Claws}"]`)).toContainText('level 3 needs a Great Cave');
   const raptor = guide.locator(`.ucard[data-kind="${K.Raptor}"]`);
   await expect(raptor).toContainText('2 to an egg');
   await expect(raptor).toContainText('an egg ·');
@@ -54,7 +59,8 @@ test('the unit guide, from the pause sheet and from How to play: every unit of b
   await noSmallButtons(p);
   // The other faction is a tap away.
   await guide.getByRole('button', { name: 'Green Army' }).tap();
-  await expect(guide.locator('.ucard')).toHaveCount(9);
+  await expect(guide.locator('.ucard:not(.tcard)')).toHaveCount(9);
+  await expect(guide.locator(`.tcard[data-kind="${K.BigLoads}"]`)).toContainText('Workers carry 6 Blocks a trip, not 5');
   await expect(guide.locator(`.ucard[data-kind="${K.Jugger}"]`)).toContainText('Batteries');
   await expect(guide.locator(`.ucard[data-kind="${K.Jugger}"]`)).toContainText('Heavy Works');
   await expect(guide.locator(`.ucard[data-kind="${K.Flak}"]`)).toContainText('flyers only');
@@ -338,8 +344,45 @@ test('the panels say what a unit needs, and research runs at the Armory', async 
   await p.screenshot({ path: info.outputPath('research.png') });
   await run(p, 520);
   expect(await state<number>(p, '(m) => m.g.players[0].weapons')).toBe(1);
-  await expect(p.getByRole('button', { name: 'Research Weapons' })).toContainText('●○');
+  await expect(p.getByRole('button', { name: 'Research Weapons' })).toHaveAttribute('data-level', '1');
+  // Nine kinds of research on a three-by-three grid; Long Rifles is studied at the Barracks while it trains.
+  await expect(p.locator('.grid.tech .tile')).toHaveCount(9);
+  await p.getByRole('button', { name: 'Train', exact: true }).tap();
+  await p.getByRole('button', { name: 'Train Trooper' }).tap();
+  await p.getByRole('button', { name: 'Tech', exact: true }).tap();
+  await p.getByRole('button', { name: 'Research Long Rifles' }).tap();
+  await expect(p.locator('.toast', { hasText: 'Long Rifles' })).toContainText('Troopers reach 1 tile further');
+  await run(p, 3);
+  const rax = await state<{ queue: number[]; studies: number[] }>(p, '(m) => { const b = m.g.ents.find((e) => e.kind === 21); return { queue: b.queue, studies: b.studies }; }');
+  expect(rax).toEqual({ queue: [K.Trooper], studies: [K.LongRifles] });
+  await p.getByRole('button', { name: 'Research Field Repair' }).tap();
+  await expect(p.locator('.toast.warn', { hasText: 'Heavy Works' })).toContainText('Needs a Heavy Works');
+  await p.screenshot({ path: info.outputPath('tech-tab.png') });
   await noSmallButtons(p);
+});
+
+test('spare Workers are recycled from their count on the top bar', async ({ page: p }, info) => {
+  await start(p);
+  await p.evaluate(() => {
+    const m = (window as Any).__fh;
+    for (let i = 0; i < 6; i++) m.debugSpawn(1, 0, 10, 54);
+  });
+  await run(p, 40);
+  await expect(p.locator('[data-stat="workers"]')).toContainText('14/12');
+  await p.getByRole('button', { name: /^Workers: 14/ }).tap();
+  const sheet = p.getByRole('dialog', { name: 'Workers' });
+  await expect(sheet).toContainText('gives back 25 Blocks');
+  await noSmallButtons(p);
+  await p.screenshot({ path: info.outputPath('workers-sheet.png') });
+  const supply = await state<number>(p, '(m) => m.g.players[0].supply');
+  await sheet.getByRole('button', { name: 'Recycle 1' }).tap();
+  await run(p, 3);
+  expect(await state<number>(p, '(m) => m.g.players[0].supply')).toBe(supply - 1);
+  await sheet.getByRole('button', { name: 'Recycle 1 spare' }).tap();
+  await expect(sheet).toHaveCount(0);
+  await run(p, 300);
+  await expect(p.locator('[data-stat="workers"]')).toContainText('12/12');
+  expect(await state<number>(p, '(m) => m.g.players[0].stats.lostUnits')).toBe(0);
 });
 
 test('every unit and building of the full arsenal is drawn, near and far, with nothing going wrong', async ({ page: p }, info) => {

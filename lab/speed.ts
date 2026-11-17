@@ -12,8 +12,9 @@ import { makeView } from '../src/sim/view';
 import { K, O, TILE, type Faction, type Kind } from '../src/sim/types';
 
 type Mix = [Kind, number][];
-const GREEN: Mix = [[K.Trooper, 40], [K.Lancer, 16], [K.Runner, 8], [K.Tank, 8], [K.Mortar, 4], [K.Flak, 3], [K.Gunship, 6], [K.Jugger, 2]];
-const DINO: Mix = [[K.Raptor, 60], [K.Spitter, 22], [K.Horn, 8], [K.Ptero, 4], [K.Bronto, 2], [K.Rex, 1]];
+// Full supply is 200 since M5's second build: about 160 of army beside 40 Workers.
+const GREEN: Mix = [[K.Trooper, 52], [K.Lancer, 22], [K.Runner, 10], [K.Tank, 10], [K.Mortar, 5], [K.Flak, 4], [K.Gunship, 6], [K.Jugger, 2]];
+const DINO: Mix = [[K.Raptor, 80], [K.Spitter, 28], [K.Horn, 10], [K.Ptero, 5], [K.Bronto, 3], [K.Rex, 1]];
 
 function battle(name: string, factions: readonly [Faction, Faction], mixes: readonly [Mix, Mix]): void {
   const g = createGame(5, undefined, factions);

@@ -1,5 +1,5 @@
 // Draws the match: a hand-drawn paper map with toy soldiers on it. No art files; everything is drawn here.
-import { ABILITIES, FACTIONS, FRENZY, RULES, def, isRefinery, isWorker } from '../sim/data';
+import { ABILITIES, FACTIONS, FRENZY, RULES, def, isRefinery, isWorker, researchCost, techLevel } from '../sim/data';
 import { centroid, groupUnits, maxHp, visibleTo, type Game } from '../sim/state';
 import { drawArmyBuilding, drawArmyFallen, drawArmyMarker, drawArmyUnit, drawGunship } from './army';
 import { drawDinoBuilding, drawDinoFallen, drawDinoHit, drawDinoMarker, drawDinoUnit, drawPtero, isDinoBuilding, isDinoUnit } from './dinos';
@@ -364,6 +364,15 @@ export class Renderer {
         x.fillRect(px - s / 2, py + s / 2 + 3, s, 4);
         x.fillStyle = '#ffd24a';
         x.fillRect(px - s / 2, py + s / 2 + 3, s * f, 4);
+      }
+      // Research under way: a second bar, in blue, below the first.
+      if (e.built && e.studies.length > 0 && e.owner === me && detail) {
+        const pl = m.g.players[me]!, k = e.studies[0]!;
+        const s = def(e.kind).size * z, f = Math.min(1, e.sprog / researchCost(k, techLevel(pl, k)).time);
+        x.fillStyle = 'rgba(40,30,20,0.55)';
+        x.fillRect(px - s / 2, py + s / 2 + 8, s, 4);
+        x.fillStyle = '#5aa0ee';
+        x.fillRect(px - s / 2, py + s / 2 + 8, s * f, 4);
       }
       if (e.hp < maxHp(e) && e.built) this.hpBar(px, py - (def(e.kind).size * z) / 2 - 7, def(e.kind).size * z * 0.8, e.hp / maxHp(e));
     }
@@ -813,7 +822,7 @@ export class Renderer {
       a.built = e.built;
       look.aim = a.aim;
       look.since = now - (st.fired.get(e.id) ?? -1e9);
-      look.busy = e.built && e.queue.length > 0;
+      look.busy = e.built && (e.queue.length > 0 || e.studies.length > 0);
       look.seed = e.id;
       look.eggs = e.eggs;
       look.plain = !e.built;

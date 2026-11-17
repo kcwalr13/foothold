@@ -13,7 +13,7 @@ function said(e: Entry): string {
   switch (e.what) {
     case 'build': return isHall(e.kind) ? `${d.name}, a new base` : d.name;
     case 'first': return `First ${d.name}`;
-    case 'research': return `${d.name} ${e.level}`;
+    case 'research': return d.levels > 1 ? `${d.name} ${e.level}` : d.name;
     case 'upgrade': return `${d.name} ${e.level}`;
     case 'unlock': return `${d.plural} unlocked`;
   }
