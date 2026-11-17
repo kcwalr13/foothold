@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { signal } from '@preact/signals';
 import { Hud, SoundSwitch } from './Hud';
 import { sfx } from './sound';
+import { hintsOn, setHints } from './hints';
 import { UnitGuide } from './Guide';
 import { attachInput } from './input';
 import { Match } from './match';
@@ -14,6 +15,23 @@ import type { Faction, Mode } from '../sim/types';
 declare const __BUILD__: { commit: string; date: string };
 
 export const updateReady = signal<(() => void) | null>(null);
+/** The browser's own offer to install the game, where it makes one (Chrome on Android). */
+export const installOffer = signal<{ prompt: () => Promise<void> } | null>(null);
+
+/** On an iPhone or iPad the game is installed from Safari's Share menu, and the browser never offers. */
+const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const installed = () => window.matchMedia?.('(display-mode: standalone)').matches || (navigator as unknown as { standalone?: boolean }).standalone === true;
+
+/** Hints on or off, from How to play; turning them on starts them over. */
+function HintSwitch() {
+  const [on, setOn] = useState(hintsOn);
+  return (
+    <button class={`chip wide ${on ? 'on' : ''}`} aria-pressed={on} aria-label={on ? 'Hints on: tap to turn them off' : 'Hints off: tap to turn them on from the start'}
+      onClick={() => { setHints(!on); setOn(!on); }}>
+      Hints: {on ? 'on' : 'off'}
+    </button>
+  );
+}
 
 const LEVELS = ['Easy', 'Normal', 'Hard', 'Brutal'];
 /** Frenzy's opponents come in two levels so far. */
@@ -72,12 +90,16 @@ function Resume({ saved, onDone, onFail }: { saved: Saved; onDone: (m: Match) =>
   );
 }
 
-function Battle({ level, seed, sides, choice, resumed, onQuit, onAgain }: {
-  level: number; seed: number; sides: readonly Faction[]; choice: Choice; resumed?: Match; onQuit: () => void; onAgain: () => void;
+function Battle({ level, seed, sides, choice, resumed, hints, onQuit, onAgain }: {
+  level: number; seed: number; sides: readonly Faction[]; choice: Choice; resumed?: Match; hints: boolean; onQuit: () => void; onAgain: () => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const mini = useRef<HTMLCanvasElement | null>(null);
-  const [m] = useState(() => resumed ?? new Match(seed, level, sides));
+  const [m] = useState(() => {
+    const match = resumed ?? new Match(seed, level, sides);
+    match.hints = hints;
+    return match;
+  });
   useEffect(() => {
     const c = canvas.current!;
     const r = new Renderer(c, m);
@@ -184,6 +206,10 @@ function Menu({ onPlay, saved, onResume, note }: { onPlay: (level: number, choic
             {!frenzy && <p class="lvlnote">Easy to Hard: the same rules for both sides, a sharper opponent each step. Brutal plays as Hard and collects a quarter more Blocks and Batteries.</p>}
             <button class="chip wide" onClick={() => setHelp(true)}>How to play</button>
             {update && <button class="chip wide" onClick={update}>New version ready: tap to load it</button>}
+            {!installed() && installOffer.value && (
+              <button class="chip wide" onClick={() => { void installOffer.value?.prompt(); installOffer.value = null; }}>Install, to play offline from your home screen</button>
+            )}
+            {!installed() && ios && <p class="lvlnote">To play on a flight, add Foothold to your home screen first: Share, then Add to Home Screen. It then runs with no connection.</p>}
           </>
         ) : (
           <>
@@ -220,7 +246,10 @@ function Menu({ onPlay, saved, onResume, note }: { onPlay: (level: number, choic
               <button class="chip wide" onClick={() => setUnits(true)}>Units</button>
               <button class="chip wide" onClick={() => setHelp(false)}>Back</button>
             </div>
-            <SoundSwitch />
+            <div class="pair">
+              <SoundSwitch />
+              <HintSwitch />
+            </div>
           </>
         )}
         <p class="build">M5 · Flight-ready · {__BUILD__.commit} · {__BUILD__.date}</p>
@@ -234,7 +263,7 @@ function Menu({ onPlay, saved, onResume, note }: { onPlay: (level: number, choic
   );
 }
 
-interface Session { level: number; seed: number; n: number; choice: Choice; sides: readonly Faction[]; resumed?: Match }
+interface Session { level: number; seed: number; n: number; choice: Choice; sides: readonly Faction[]; resumed?: Match; link?: boolean }
 
 /**
  * Who sits where. Classic: you and one opponent. Frenzy: you and three. "Either" is settled when the match
@@ -263,7 +292,7 @@ export function App() {
     const foe = params.get('foe');
     const choice: Choice = { mode, me: side(params.get('me')), foe: foe === 'green' || foe === 'dino' ? foe : mode === 'frenzy' ? 'any' : 'green' };
     const seed = Number(params.get('seed') || 7);
-    return { level: Number(params.get('play') || 1), seed, n: 0, choice, sides: seat(choice, seed) };
+    return { level: Number(params.get('play') || 1), seed, n: 0, choice, sides: seat(choice, seed), link: true };
   };
   const [game, setGame] = useState<Session | null>(params.has('play') ? fromLink() : null);
   const [saved, setSaved] = useState<Saved | null>(() => (params.has('play') ? null : loadSaved()));
@@ -276,8 +305,8 @@ export function App() {
   return (
     <>
       {game
-        ? <Battle key={game.n} level={game.level} seed={game.seed} sides={game.sides} choice={game.choice} resumed={game.resumed}
-            onQuit={() => { setSaved(null); setGame(null); }} onAgain={() => setGame(fresh(game.level, game.n + 1, game.choice))} />
+        ? <Battle key={game.n} level={game.level} seed={game.seed} sides={game.sides} choice={game.choice} resumed={game.resumed} hints={!game.link}
+            onQuit={() => { setSaved(null); setGame(null); }} onAgain={() => setGame({ ...fresh(game.level, game.n + 1, game.choice), link: game.link })} />
         : resuming
           ? <Resume saved={resuming}
               onDone={(m) => { setResuming(null); setGame({ level: resuming.level, seed: resuming.seed, n: 1, choice: resuming.choice, sides: resuming.sides, resumed: m }); }}

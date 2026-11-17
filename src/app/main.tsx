@@ -1,6 +1,6 @@
 import { render } from 'preact';
 import { registerSW } from 'virtual:pwa-register';
-import { App, updateReady } from './App';
+import { App, installOffer, updateReady } from './App';
 import { replay, selfPlay } from './selfplay';
 import './style.css';
 
@@ -21,6 +21,12 @@ if ('serviceWorker' in navigator && !framed && !new URLSearchParams(location.sea
     },
   });
 }
+
+// Chrome offers to install the game; the menu holds on to the offer and makes it when you ask.
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installOffer.value = e as unknown as { prompt: () => Promise<void> };
+});
 
 // Keep the page from scrolling, zooming or selecting under a thumb.
 document.addEventListener('gesturestart', (e) => e.preventDefault());

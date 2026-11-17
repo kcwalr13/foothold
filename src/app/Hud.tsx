@@ -8,6 +8,7 @@ import { toyIcon } from './icons';
 import { TEAM } from './toys';
 import { UnitGuide } from './Guide';
 import { MatchReport } from './Report';
+import { setHints } from './hints';
 import { sfx } from './sound';
 import { SCHEME_LINES, SCHEME_NAMES } from '../ai/bot';
 
@@ -551,6 +552,16 @@ export function Hud({ m, miniRef, onQuit, onAgain }: { m: Match; miniRef: { curr
       )}
 
       <Organiser m={m} />
+
+      {m.hint.value && over < 0 && !m.menu.value && !aimed && !placing && !site && sel < 0 && (
+        <div class="tip" role="note" aria-label="Hint" data-hint={m.hint.value.id}>
+          <p>{m.hint.value.text}</p>
+          <div class="hbtns">
+            <button class="chip" onClick={() => m.hintDone()}>Got it</button>
+            <button class="chip" onClick={() => { setHints(false); m.hint.value = null; }}>No more hints</button>
+          </div>
+        </div>
+      )}
 
       {m.menu.value && over < 0 && guide && (
         <div class="veil">

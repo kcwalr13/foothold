@@ -15,6 +15,7 @@ import { step } from '../sim/step';
 import { makeView, type View } from '../sim/view';
 import { sfx, type Voice } from './sound';
 import { Chronicle } from './report';
+import { nextHint, seenHint } from './hints';
 import { K, O, TICKS_PER_SEC, TILE, type Command, type Entity, type Faction, type Kind, type OrderMode } from '../sim/types';
 
 export interface Camera { x: number; y: number; zoom: number }
@@ -228,6 +229,10 @@ export class Match {
   /** Frenzy: counts taps on one of your Collectors, each of which asks the panel for the Tech tab. */
   readonly techAsk = signal(0);
   readonly toasts = signal<Toast[]>([]);
+  /** A first-match hint on screen, if any. */
+  readonly hint = signal<{ id: string; text: string } | null>(null);
+  /** Hints are for matches started from the menu, not from a link (the tests' and the lab's way in). */
+  hints = false;
   /** When each piece last fired, by id, in `performance.now()` time: the renderer's recoil and muzzle flashes. */
   readonly fired = new Map<number, number>();
   readonly hud = signal<Hud>({ tick: 0, blocks: 0, gas: 0, supply: 0, cap: 0, groups: [], rally: 0, train: [], build: [], research: [], workers: 0, work: 0, idleBarracks: 0, eggs: 0, eggMax: 0, frenzy: null });
@@ -349,6 +354,8 @@ export class Match {
       this.fogStamp++;
       this.refresh();
     }
+    // A hint at a time, when its moment comes, and never over the end of a match.
+    if (this.hints && g.tick % 20 === 0 && !this.hint.value && this.over.value < 0) this.hint.value = nextHint(this);
     if (this.frenzy) {
       // A Frenzy round is over for you when it is won, or when your own base is gone: the others play on without you.
       const pl = g.players[this.me]!;
@@ -476,6 +483,18 @@ export class Match {
   /** What your hero is called. */
   heroName(): string {
     return def(FACTIONS[this.g.players[this.me]!.faction].hero).name;
+  }
+
+  /** Whether a warning of this kind has been given this match. */
+  alerted(key: string): boolean {
+    return this.lastAlert.has(key);
+  }
+
+  /** The hint on screen has been read. */
+  hintDone(): void {
+    const h = this.hint.value;
+    if (h) seenHint(h.id);
+    this.hint.value = null;
   }
 
   alert(key: string, text: string, kind: 'warn' | 'info', x?: number, y?: number, gapTicks = 60): void {
