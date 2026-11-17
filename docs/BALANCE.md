@@ -1,26 +1,73 @@
-# Balance report: M4 · A real opponent, first build
+# Balance report: M5 · Flight-ready, first build
 
-Measured on Nov 15, 2026 with the bot lab: the computer opponent in every seat, no screen attached.
+Measured on Nov 16, 2026 with the bot lab: the computer opponent in every seat, no screen attached.
 
 ```
-npx tsx lab/fair.ts            # a mirror for each of the six plans of each faction, and 18 seat-swapped matches
-npx tsx lab/factions.ts 12     # Green Army against Dino Pack: 216 as played, 216 plan against plan, one-trick bots
-npx tsx lab/plans.ts 3         # the six plans against each other, in all three pairings: 648 matches
-npx tsx lab/league.ts 12       # Green mirror as played, plan against plan, one-trick bots
-npx tsx lab/league.ts 12 1 dino   # the same for a Dino mirror
-npx tsx lab/levels.ts 8        # the four levels, an idle player, one-trick bots
-npx tsx lab/matrix.ts
+npx tsx lab/hashes.ts                       # twelve Classic checksums on Twin Ridges, compared with M4's first build
+npx tsx lab/fair.ts                         # a mirror for each plan of each faction on each of the three maps, and 18 seat swaps
+npx tsx lab/factions.ts 12 --map=roads      # Green Army against Dino Pack on Three Roads: 216 as played, 216 plan against plan
+npx tsx lab/factions.ts 6 --map=cross       # the same on Crossroads, 108 and 108
 npx tsx lab/speed.ts
 ```
 
-This report has two parts. The first is Classic in M4's first build: Twin Ridges half as big again each
-way (144 by 72 tiles, Kyle's request), the opponent's six named plans a side, four levels, a second front and
-conceding, and one change to the rules, Workers trained in 8 seconds instead of 10. The second part is Frenzy,
-**which did not change**: three Frenzy rounds of ten minutes give the same checksum as on the live build, so
-the figures measured for its third build stand.
+M5 changes no rule and nothing in the opponent. It adds two Classic maps, and everything else in it (saving a
+match, sound, the report, hints, installing) lives in the app, where it cannot change a match. **Twelve
+Classic matches on Twin Ridges and three Frenzy rounds give exactly the checksums they gave on M4's first
+build**, so every figure measured for M4's first build (below) and for Frenzy's third build (further below)
+still stands. What is new here is the two maps.
 
-Targets are the ones in the design doc's Verification section. Where the build misses one, this report says
-by how much and why.
+## The two new maps
+
+| | Twin Ridges (M4) | Three Roads | Crossroads |
+|---|---|---|---|
+| The Dino Pack wins, as the opponent plays both sides | 52% of 216 | 47% of 216 | 47% of 108 |
+| The Dino Pack wins, every plan forced against every other | 63% of 216 | 63% of 216 | 56% of 107 |
+| Median length, as played | 9:04 | 8:32 | 10:15 |
+| Nine in ten over by | 12:22 | 10:48 | 13:27 |
+| The Dino Pack first hit at home (median) | 3:46 | 3:52 | 7:58 |
+| The Green Army first hit at home (median) | 5:10 | 4:40 | 5:07 |
+| Mirrors still a mirror after 15:00 | 12 of 12 | 12 of 12 | 12 of 12 |
+| Seat-swapped matches the same match | 6 of 6 | 6 of 6 | 6 of 6 |
+
+**Neither faction is the weaker pick on either new map.** On Three Roads the first 108 matches gave the Dino
+Pack 57% and the next 108 only 36%: the same lab, the same opponent, other dice. That is why a map is judged by
+216 matches, not 108, and why Crossroads' 47% of 108 is good to about five points either way.
+
+Both new maps are fair to both sides exactly, as Twin Ridges is: built half by half about the middle, every
+base site checked by the tests to stand on open ground and to be walkable from both mains, and the lab's 24
+mirrors and 12 seat swaps on them unbroken.
+
+**Three Roads** is the shortest map to play (8:32): the Middle Road runs straight from ramp to ramp, so a Green
+Rush wins 69% of 52 matches against the Dino Pack here and a Fast expand 68% of 65. The Dino Pack's Big nest
+(77% of 39) and Pack hunt (76% of 29) are its best plans; its Horn charge, Sky raid and Den win a quarter of the
+time.
+
+**Crossroads** is the longest (10:15, the corners are far apart, and a Dino Pack is first hit at home only at
+7:58, in the median match) and the one that rewards expanding most: five
+bases a side, the last two out in open ground. A Green Fast expand wins 89% of 44 matches against the Dino Pack
+there, and a Green Rush only 13% of 24; forced against every Dino plan, the Rush loses 94%. This is M4's open
+item (a fast expansion that nothing punishes) at its sharpest, and the M4 work on the opponent should be judged
+on Crossroads as well as Twin Ridges.
+
+## Speed
+
+Unchanged, as it should be with no rule changed: a tick of the rules with 174 to 194 fighting units takes 0.30
+to 0.44 ms (median), the worst in twenty 1.1 to 5.1 ms; a Frenzy brawl 0.25 ms. The budget is 100 ms.
+
+## M4's open items, worked on alongside
+
+Kyle's call was to build M5 with M4's last work alongside it. That work has not landed yet: none of the
+opponent changes tried in the lab has held up on the same seeds before and after.
+
+- **Hard against Normal** (about 45% in M4's report). Tried: Hard pulling back sooner from a losing fight and
+  attacking with a smaller lead. Hard won 42% of 64 against Normal, no better, so it was not kept.
+- **The fast expansion.** Tried: one Barracks before the natural rather than two for the standard opening (the
+  Green mirror's Fast expand fell from 80% to 63%, but the Fortress rose to 73% and the Rush fell to 17%), and
+  that with a stronger Rush and a Fortress that builds fewer Turrets (the Rush won none and the Fortress 77%).
+  Neither was kept: each moved the problem rather than solving it.
+- **One-unit floods** (all Lancers against a Green opponent, all Troopers against a Dino one): not yet started.
+
+The rest of M4's open items stand as listed below.
 
 # Classic, M4 first build
 

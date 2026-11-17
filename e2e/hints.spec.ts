@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { type Any, noSmallButtons, run } from './helpers';
+import { type Any, noSmallButtons, run, start } from './helpers';
 
 test('a first match from the menu gives hints one at a time, each once, and they can be stopped and started again', async ({ page: p }, info) => {
   await p.goto('./?nosw');
@@ -42,4 +42,11 @@ test('the menu says how to install for offline play on an iPhone, and fits', asy
   const scrolls = await p.evaluate(() => { const c = document.querySelector('.menu') as HTMLElement; return c.scrollHeight > c.clientHeight + 1 ? getComputedStyle(c).overflowY : 'fits'; });
   expect(card!.height <= vh || scrolls === 'auto' || scrolls === 'scroll').toBe(true);
   await p.screenshot({ path: info.outputPath('menu.png') });
+});
+
+test('a match started from a link gives no hints', async ({ page: p }) => {
+  await start(p, 'play=1&seed=3');
+  await run(p, 900);
+  await p.waitForTimeout(300);
+  await expect(p.getByRole('note', { name: 'Hint' })).toHaveCount(0);
 });
