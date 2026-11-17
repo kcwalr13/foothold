@@ -163,9 +163,14 @@ most three taste questions.
   Tempo; the Captain (Grenade, Rally, Air strike) and the Alpha (Pounce, Roar, Call the Pack); Follow; the
   middle; Overtime; the sides are Green (you), Tan, Blue
   and Red.
-- Classic's map is Twin Ridges (`twinRidges()` in `map.ts`), 144 by 72 tiles since M4 (it was 96 by 48): Kyle
-  asked for more room. Each base is laid out about its Headquarters as it always was, so a load is the same
-  walk. The pathfinder packs a tile index into the low 16 bits of its heap (`SLOT` in `nav.ts`), so a map may
+- Classic has three maps (`CLASSIC_MAPS` in `map.ts`, picked on the menu by id: `classicMap(id)`): Twin Ridges
+  (`twinRidges()`), 144 by 72 tiles since M4 (it was 96 by 48; Kyle asked for more room, and on Nov 16 said it
+  is the right size), and since M5 Three Roads and Crossroads, the same size. A two-sided map is drawn with
+  `halves(w, h)`, which sets every tile and its twin together, and lists only the near side's bases. Every base
+  is laid out about its Headquarters the same way (six piles in a line two tiles out, a battery pack beside), so a
+  load is the same walk on every map. A new map needs a row in `CLASSIC_MAPS`; the tests then check it is
+  symmetric, every site sits on open ground and is walkable from both mains, and the opponent expands on it;
+  `npx tsx lab/fair.ts` runs its mirrors and seat swaps, and every lab takes `--map=roads` (or `cross`). The pathfinder packs a tile index into the low 16 bits of its heap (`SLOT` in `nav.ts`), so a map may
   have up to 65536 tiles; a building's field is keyed above `w * h`, where no tile's can be.
 - The opponent plays one of six plans a match (`SCHEMES`: `rush`, `expand`, `armour`, `air`, `raider`,
   `fortress`), each named per faction (`SCHEME_NAMES`: Rush, Fast expand, Armour push, Air raid, Raider,
@@ -186,10 +191,27 @@ most three taste questions.
   longer, marches with less, takes no notice of what the others make and stops its upgrades early (`EASY`,
   a cap on each): in a four-way fight hanging back pays, so it is the missing upgrades that make Easy easy.
 
+- A match in progress is kept on the phone (`src/app/save.ts`): the seed, level, sides, map, your own orders
+  (from `g.log` and `g.pending`) and the checksum, when it is paused, when the app is hidden or left, and every
+  half minute; a finished or quit match is forgotten. Resuming plays it through again (`Match.replay`, a slice a
+  frame, the opponents thinking as they did) and must arrive at the same checksum, or the save is let go with a
+  word. So nothing may change a match except a `Command`: `debugSpawn` is for tests alone.
+- Sound is made in code (`src/app/sound.ts`, Web Audio: noise through a filter, tones that slide; no sound files)
+  and started by the first tap. `Match.hear` plays a sound only when it happens on screen, louder zoomed in and
+  panned to its side; each voice has a shortest gap (`GAP`) and no more than a dozen ring at once. A new unit
+  needs its sound in `SHOT_SOUND` (`match.ts`). The Sound switch is in the pause sheet and How to play.
+- The after-match report (`Report.tsx`) reads `Match.chronicle` (`report.ts`), which `note(g)` fills after every
+  tick, played or replayed: buildings placed, the first of each unit, research, Frenzy unlocks and upgrades, and
+  every 15 seconds each side's army (in what it cost) and Workers.
+- First-match hints (`hints.ts`): one at a time, low between the panels (`.tip`), each once (`foothold.hints`),
+  and only in matches started from the menu (`Match.hints`), never from a `?play=` link, which is how the tests
+  and the lab start. How to play turns them back on. The menu offers Chrome's install (`installOffer`) and on an
+  iPhone says how to add the game to the home screen.
+
 ## Checks before a build goes to Kyle
 
 `npm run typecheck && npm test && npm run build && CHROME=... npm run e2e`, then `npx tsx lab/fair.ts`,
-`npx tsx lab/factions.ts 12`, `npx tsx lab/league.ts 12`, `npx tsx lab/league.ts 12 1 dino`,
+`npx tsx lab/factions.ts 12` (and `npx tsx lab/factions.ts 6 --map=roads` and `--map=cross`), `npx tsx lab/league.ts 12`, `npx tsx lab/league.ts 12 1 dino`,
 `npx tsx lab/levels.ts 8`, `npx tsx lab/matrix.ts` and `npx tsx lab/speed.ts`, and for Frenzy
 `npx tsx lab/fairfrenzy.ts` and `npx tsx lab/frenzy.ts 12`, with the results written into
 `docs/BALANCE.md` and the doc's Verification section. Match outcomes swing on small things: a hundred matches

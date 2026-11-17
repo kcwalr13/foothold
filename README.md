@@ -3,11 +3,13 @@
 A real-time strategy game for a phone held in landscape: toy soldiers on a paper map. You run an economy,
 place buildings, and command armies in groups against a computer opponent that plays by the same rules.
 
-This is milestone **M4 · A real opponent**, being built: two factions you can play or play against in any
-pairing, two ways to play them, and a Classic opponent with six named plans a side and four levels.
+This is milestone **M5 · Flight-ready**, being built, with the end of M4 (a sharper opponent) alongside: two
+factions you can play or play against in any pairing, two ways to play them, a Classic opponent with six named
+plans a side and four levels, and everything a match on a flight needs: it saves itself, has sound, gives
+hints the first time through, ends with a report, and installs to run offline.
 
-- **Classic** is one opponent on Twin Ridges (144 by 72 tiles): gather, build, take the map, knock down every
-  last base, or make the opponent concede.
+- **Classic** is one opponent on one of three maps, all 144 by 72 tiles (Twin Ridges, Three Roads,
+  Crossroads): gather, build, take the map, knock down every last base, or make the opponent concede.
 - **Frenzy** is four corners and every side for itself, after Footman Frenzy. Your base makes its army by
   itself; you choose what goes into the mix, buy upgrades at the Collectors behind it, and steer a hero with
   three abilities. Collectors pay, kills pay, the Watchtower in the middle pays, and a side whose base falls

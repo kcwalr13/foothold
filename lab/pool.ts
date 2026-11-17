@@ -56,9 +56,12 @@ function fanOut<J, R>(tag: 'classic' | 'frenzy', jobs: readonly J[], here: (j: J
   return Promise.all(lanes).then(() => out);
 }
 
+/** Any lab run plays on another Classic map when given --map=roads (or cross); jobs that name a map keep it. */
+const MAP = process.argv.find((a) => a.startsWith('--map='))?.slice(6);
+
 /** Plays every job and returns the results in the same order. */
 export function playAll(jobs: readonly Job[], workers = Math.max(1, cpus().length)): Promise<Result[]> {
-  return fanOut('classic', jobs, run, workers);
+  return fanOut('classic', MAP ? jobs.map((j) => ({ map: MAP, ...j })) : jobs, run, workers);
 }
 
 /** The same for Frenzy matches. */
