@@ -3,7 +3,7 @@ import { fight } from '../../lab/arena';
 import { firstBreak, seatSwap } from '../../lab/fair';
 import { playMatch } from '../../lab/match';
 import { Bot } from '../ai/bot';
-import { DEFS, FACTIONS, RULES, def, isHall, researchCost, techLevel, worth } from './data';
+import { DEFS, FACTIONS, RULES, TECH, def, isHall, researchCost, techLevel, worth } from './data';
 import { CLASSIC_MAPS, classicMap, twinRidges } from './map';
 import { canPlace, createGame, hash, schedule, spawn, tileIndex, visibleTo } from './state';
 import { step } from './step';
@@ -453,15 +453,28 @@ describe('supply, recycling and the late game', () => {
     expect(turret(true)).toBeLessThan(turret(false) * 0.75);
   });
 
-  it('Quick March, Swift Feet and the wings make what they name faster, and nothing else', () => {
-    const g = rich();
-    const runner = spawn(g, K.Runner, 0, 20 * TILE, 40 * TILE), tank = spawn(g, K.Tank, 0, 22 * TILE, 40 * TILE);
-    const before = speedOf(g, runner);
-    g.players[0]!.tech[K.QuickMarch - 100] = 1;
+  it('Swift Feet and the wings make what they name faster, and nothing else; Helmets make infantry take less', () => {
+    const g = rich(['dino', 'green']);
+    const raptor = spawn(g, K.Raptor, 0, 20 * TILE, 40 * TILE), horn = spawn(g, K.Horn, 0, 22 * TILE, 40 * TILE);
+    const before = speedOf(g, raptor);
+    g.players[0]!.tech[K.SwiftFeet - 100] = 1;
     forgetBoosts(g.players[0]!);
-    expect(speedOf(g, runner)).toBe(Math.trunc((def(K.Runner).speed * 115) / 100));
-    expect(speedOf(g, runner)).toBeGreaterThan(before);
-    expect(speedOf(g, tank)).toBe(def(K.Tank).speed);
+    expect(speedOf(g, raptor)).toBe(Math.trunc((def(K.Raptor).speed * (100 + TECH[K.SwiftFeet]!.speed!)) / 100));
+    expect(speedOf(g, raptor)).toBeGreaterThan(before);
+    expect(speedOf(g, horn)).toBe(def(K.Horn).speed);
+    // Ten Troopers lose less of a Tank's fire with Helmets.
+    const shelled = (helmets: boolean) => {
+      const h = createGame(1);
+      if (helmets) h.players[1]!.tech[K.Helmets - 100] = 1;
+      forgetBoosts(h.players[1]!);
+      const tank = spawn(h, K.Tank, 0, 55 * TILE, 48 * TILE);
+      tank.mode = O.Hold;
+      const men = Array.from({ length: 10 }, (_, i) => spawn(h, K.Trooper, 1, 55 * TILE + def(K.Tank).range - TILE, (45 + i * 0.6) * TILE));
+      for (const m of men) m.mode = O.Hold;
+      run(h, 60);
+      return men.reduce((s2, m) => s2 + def(K.Trooper).hp - Math.max(0, m.hp), 0);
+    };
+    expect(shelled(true)).toBeLessThan(shelled(false));
   });
 
   it('Field Repair mends a unit left alone, a little each second; a unit still under fire does not mend', () => {

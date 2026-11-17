@@ -232,20 +232,20 @@ export const DEFS: Record<number, Def> = {
     radius: 0, sight: 0,
   },
   // ---------------------------------------------------------------- Classic's other research (what each does: TECH)
-  [K.LongRifles]: study(K.LongRifles, 'Long Rifles', 'Rifles', K.Barracks, [K.Armory], 100, 100, 600),
-  [K.QuickMarch]: study(K.QuickMarch, 'Quick March', 'March', K.Barracks, [K.Armory], 100, 100, 600),
-  [K.BigLoads]: study(K.BigLoads, 'Big Loads', 'Loads', K.HQ, [K.Armory], 200, 100, 700),
-  [K.HeavyShells]: study(K.HeavyShells, 'Heavy Shells', 'Shells', K.Factory, [K.Armory], 150, 150, 700),
-  [K.Afterburners]: study(K.Afterburners, 'Afterburners', 'Burners', K.Airfield, [K.Armory], 100, 100, 600),
-  [K.Concrete]: study(K.Concrete, 'Concrete', 'Concrete', K.Armory, [], 100, 100, 600),
-  [K.FieldRepair]: study(K.FieldRepair, 'Field Repair', 'Repair', K.Heavy, [], 200, 200, 900),
-  [K.AcidSpit]: study(K.AcidSpit, 'Acid Spit', 'Acid', K.Den, [K.BonePit], 100, 100, 600),
-  [K.SwiftFeet]: study(K.SwiftFeet, 'Swift Feet', 'Feet', K.Den, [K.BonePit], 100, 100, 600),
-  [K.BigMouths]: study(K.BigMouths, 'Big Mouths', 'Mouths', K.Nest, [K.BonePit], 200, 100, 700),
-  [K.ThickSkulls]: study(K.ThickSkulls, 'Thick Skulls', 'Skulls', K.Wallow, [K.BonePit], 150, 150, 700),
-  [K.WideWings]: study(K.WideWings, 'Wide Wings', 'Wings', K.Roost, [K.BonePit], 100, 100, 600),
-  [K.HotRock]: study(K.HotRock, 'Hot Rock', 'Hot Rock', K.BonePit, [], 100, 100, 600),
-  [K.Mending]: study(K.Mending, 'Mending', 'Mending', K.Cave, [], 200, 200, 900),
+  [K.LongRifles]: study(K.LongRifles, 'Long Rifles', 'Rifles', K.Barracks, [K.Armory], 50, 150, 600),
+  [K.Helmets]: study(K.Helmets, 'Helmets', 'Helmets', K.Barracks, [K.Armory], 50, 150, 600),
+  [K.BigLoads]: study(K.BigLoads, 'Big Loads', 'Loads', K.HQ, [K.Armory], 100, 150, 700),
+  [K.HeavyShells]: study(K.HeavyShells, 'Heavy Shells', 'Shells', K.Factory, [K.Armory], 75, 175, 700),
+  [K.Afterburners]: study(K.Afterburners, 'Afterburners', 'Burners', K.Airfield, [K.Armory], 50, 150, 600),
+  [K.Concrete]: study(K.Concrete, 'Concrete', 'Concrete', K.Armory, [], 50, 150, 600),
+  [K.FieldRepair]: study(K.FieldRepair, 'Field Repair', 'Repair', K.Heavy, [], 100, 250, 900),
+  [K.AcidSpit]: study(K.AcidSpit, 'Acid Spit', 'Acid', K.Den, [K.BonePit], 50, 150, 600),
+  [K.SwiftFeet]: study(K.SwiftFeet, 'Swift Feet', 'Feet', K.Den, [K.BonePit], 50, 150, 600),
+  [K.BigMouths]: study(K.BigMouths, 'Big Mouths', 'Mouths', K.Nest, [K.BonePit], 100, 150, 700),
+  [K.ThickSkulls]: study(K.ThickSkulls, 'Thick Skulls', 'Skulls', K.Wallow, [K.BonePit], 75, 175, 700),
+  [K.WideWings]: study(K.WideWings, 'Wide Wings', 'Wings', K.Roost, [K.BonePit], 50, 150, 600),
+  [K.HotRock]: study(K.HotRock, 'Hot Rock', 'Hot Rock', K.BonePit, [], 50, 150, 600),
+  [K.Mending]: study(K.Mending, 'Mending', 'Mending', K.Cave, [], 100, 250, 900),
 };
 
 export const def = (kind: number): Def => DEFS[kind]!;
@@ -277,7 +277,7 @@ const GREEN_ARMY: Kind[] = [K.Worker, K.Trooper, K.Lancer, K.Runner, K.Tank, K.M
 const DINO_PACK: Kind[] = [K.Gatherer, K.Raptor, K.Spitter, K.Horn, K.Ptero, K.Bronto, K.Rex];
 export const TECH: Partial<Record<number, TechEffect>> = {
   [K.LongRifles]: { units: [K.Trooper], range: t(1) },
-  [K.QuickMarch]: { units: [K.Trooper, K.Lancer, K.Runner], speed: 15 },
+  [K.Helmets]: { units: [K.Trooper, K.Lancer, K.Runner], taken: 10 },
   [K.BigLoads]: { units: [K.Worker], carry: 1 },
   [K.HeavyShells]: { units: [K.Tank, K.Mortar, K.Jugger], dmg: 20 },
   [K.Afterburners]: { units: [K.Gunship], speed: 25 },
@@ -354,7 +354,7 @@ export const FACTIONS: Record<Faction, Roster> = {
     buildings: [K.HQ, K.Refinery, K.Barracks, K.Factory, K.Airfield, K.Armory, K.Heavy, K.Turret],
     units: [K.Worker, K.Trooper, K.Lancer, K.Runner, K.Tank, K.Mortar, K.Flak, K.Gunship, K.Jugger],
     research: [K.Weapons, K.Armour], hero: K.Captain,
-    tech: [K.Weapons, K.Armour, K.Concrete, K.LongRifles, K.QuickMarch, K.HeavyShells, K.Afterburners, K.BigLoads, K.FieldRepair],
+    tech: [K.Weapons, K.Armour, K.Concrete, K.LongRifles, K.Helmets, K.HeavyShells, K.Afterburners, K.BigLoads, K.FieldRepair],
     frenzy: [K.Bayonet, K.Trooper, K.Lancer, K.Runner, K.Tank, K.Mortar, K.Flak, K.Gunship, K.Jugger],
   },
   dino: {

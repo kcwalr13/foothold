@@ -30,7 +30,7 @@ export const K = {
    * Classic's research beyond Weapons and Armour, one level each, studied at the building that knows how
    * (`TECH` in data.ts says what each does). The Green Army's, then the Dino Pack's.
    */
-  LongRifles: 110, QuickMarch: 111, BigLoads: 112, HeavyShells: 113, Afterburners: 114, Concrete: 115, FieldRepair: 116,
+  LongRifles: 110, Helmets: 111, BigLoads: 112, HeavyShells: 113, Afterburners: 114, Concrete: 115, FieldRepair: 116,
   AcidSpit: 117, SwiftFeet: 118, BigMouths: 119, ThickSkulls: 120, WideWings: 121, HotRock: 122, Mending: 123,
 } as const;
 export type Kind = (typeof K)[keyof typeof K];

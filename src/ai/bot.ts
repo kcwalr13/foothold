@@ -787,8 +787,7 @@ export class Bot {
         wanted.push(
           [K.Concrete, turrets.length >= 3],
           [K.LongRifles, count(K.Trooper) >= 10],
-          // Quick March is for getting about, not for fighting: worth it to a side that raids with Runners.
-          [K.QuickMarch, count(K.Runner) >= 8],
+          [K.Helmets, n(K.Trooper, K.Lancer, K.Runner) >= 16],
           [K.HeavyShells, n(K.Tank, K.Mortar, K.Jugger) >= 4],
           [K.Afterburners, count(K.Gunship) >= 4],
           [K.BigLoads, workers >= 30],
@@ -799,13 +798,14 @@ export class Bot {
         if (!want || v.researchWhy(kind) !== '') continue;
         const at = def(kind).madeAt!;
         if (!v.own.some((e) => e.kind === at && e.built && e.studies.length === 0)) continue;
+        // What it can't afford yet waits; something cheaper further down the list may go ahead of it.
         const c = researchCost(kind, techLevel(v, kind));
         if (blocks - reserve >= c.cost && gas - reserveGas >= c.gas) {
           out.push({ t: 'research', p, kind });
           blocks -= c.cost;
           gas -= c.gas;
+          break;
         }
-        break;
       }
     }
 

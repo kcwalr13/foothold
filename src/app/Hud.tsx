@@ -82,9 +82,9 @@ export function UnitIcon({ kind, size = 22 }: { kind: number; size?: number }) {
     case K.LongRifles:
       // A long barrel with a scope on it.
       return <svg viewBox="0 0 24 24" {...s}><path d="M2 14 H22" stroke={steel} stroke-width="2.4" stroke-linecap="round" /><path d="M3 14 L3 18 L8 18 L10 14" fill="#9a6a3a" stroke={ink} stroke-width="1.2" stroke-linejoin="round" /><rect x="9" y="8.5" width="7" height="3" rx="1.5" fill="#5d6b78" stroke={ink} stroke-width="1" /><path d="M11 11.5 V14 M14 11.5 V14" stroke={ink} stroke-width="1.2" /></svg>;
-    case K.QuickMarch:
-      // A boot in a hurry.
-      return <svg viewBox="0 0 24 24" {...s}><path d="M9 4 H15 V13 L21 15.5 V19.5 H9 Z" fill="#6b7a3a" stroke={ink} stroke-width="1.4" stroke-linejoin="round" /><path d="M9 17 H21" stroke={ink} stroke-width="1.2" /><path d="M2 9 H6 M1 13 H6 M2.5 17 H6" stroke="#2f8a2a" stroke-width="1.8" stroke-linecap="round" /></svg>;
+    case K.Helmets:
+      // A soldier's tin helmet, with its strap.
+      return <svg viewBox="0 0 24 24" {...s}><path d="M3.5 15 C3.5 8.5 7.5 5 12 5 C16.5 5 20.5 8.5 20.5 15 Z" fill="#6b7a3a" stroke={ink} stroke-width="1.4" stroke-linejoin="round" /><path d="M1.5 15.5 H22.5" stroke={ink} stroke-width="2.6" stroke-linecap="round" /><path d="M7 16 Q12 22 17 16" stroke="#9a6a3a" stroke-width="1.5" fill="none" /><path d="M8 10 Q10 7.5 13 7.2" stroke="#a8b56b" stroke-width="1.5" fill="none" stroke-linecap="round" /></svg>;
     case K.BigLoads:
     case K.BigMouths: {
       // A load of Blocks heaped over the top: a basket for Workers, an open jaw for Gatherers.
